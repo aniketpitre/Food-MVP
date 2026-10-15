@@ -67,13 +67,11 @@ fun DishRow(
             }
             val recs = engagement.stats.recommenders
             Text(
-                listOfNotNull(
-                    Format.price(card.priceInr),
-                    if (recs > 0) "$recs recommend" else "New",
-                    if (showPlace) null else Format.distance(card.distanceM),
-                ).joinToString("  ·  "),
+                listOfNotNull(Format.price(card.priceInr), if (recs > 0) "$recs recommend" else "New").joinToString("  ·  "),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             if (showPlace) {
                 Text(
