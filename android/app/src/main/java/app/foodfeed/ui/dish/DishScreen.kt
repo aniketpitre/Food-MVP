@@ -1,7 +1,9 @@
 package app.foodfeed.ui.dish
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,20 +24,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -42,11 +39,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,8 +51,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -75,16 +71,20 @@ import app.foodfeed.data.apiCall
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.Avatar
+import app.foodfeed.ui.components.AvatarStack
 import app.foodfeed.ui.components.CenteredMessage
 import app.foodfeed.ui.components.DishImage
-import app.foodfeed.ui.components.LoadingBox
+import app.foodfeed.ui.components.EngageAction
 import app.foodfeed.ui.components.LocalApp
-import app.foodfeed.ui.components.Pill
+import app.foodfeed.ui.components.QuietButton
 import app.foodfeed.ui.components.ReportSheet
-import app.foodfeed.ui.components.SectionTitle
+import app.foodfeed.ui.components.Reveal
+import app.foodfeed.ui.components.Tag
 import app.foodfeed.ui.components.VegMark
 import app.foodfeed.ui.components.rememberDishActions
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.SkeletonBlock
+import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -137,7 +137,7 @@ fun DishScreen(
     val scope = rememberCoroutineScope()
 
     when {
-        state.loading -> LoadingBox()
+        state.loading -> DishSkeleton()
         state.dish == null -> CenteredMessage(
             "Couldn't open this dish", state.error, Icons.Filled.Refresh, "Try again", vm::load, "Go back", onBack,
         )
@@ -174,6 +174,22 @@ fun DishScreen(
 }
 
 @Composable
+private fun DishSkeleton() {
+    Column(Modifier.fillMaxSize()) {
+        SkeletonBlock(Modifier.fillMaxWidth().aspectRatio(4f / 5f), RoundedCornerShape(0.dp))
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SkeletonBlock(Modifier.width(220.dp).height(26.dp), RoundedCornerShape(6.dp))
+            SkeletonBlock(Modifier.width(160.dp).height(14.dp), RoundedCornerShape(4.dp))
+        }
+    }
+}
+
+/**
+ * Dish page. The photo sits behind the content and scrolls at under half speed (parallax)
+ * while dimming; the content sheet slides over it with rounded shoulders. Once the photo is
+ * mostly gone, a slim title bar fades in so you never lose the dish name.
+ */
+@Composable
 fun DishContent(
     dish: DishDetail,
     engagement: EngagementState,
@@ -191,225 +207,265 @@ fun DishContent(
     val photos = dish.posts
     val pager = rememberPagerState { photos.size.coerceAtLeast(1) }
     val currentPost = photos.getOrNull(pager.currentPage)
+    val scroll = rememberScrollState()
     var menu by remember { mutableStateOf(false) }
+    var photoHeight by remember { mutableStateOf(1) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Box(Modifier.fillMaxWidth().aspectRatio(4f / 5f)) {
-            if (photos.isEmpty()) {
-                DishImage(null, dish.cover?.placeholderColor, dish.name, Modifier.fillMaxSize())
-            } else {
-                HorizontalPager(pager, Modifier.fillMaxSize(), key = { photos[it].id }) { i ->
-                    DishImage(imageUrl(photos[i].imageUrl), photos[i].placeholderColor, dish.name, Modifier.fillMaxSize())
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(4f / 5f)
+                    .onSizeChanged { photoHeight = it.height.coerceAtLeast(1) }
+                    .graphicsLayer {
+                        translationY = scroll.value * 0.55f
+                        alpha = 1f - (scroll.value / photoHeight.toFloat()).coerceIn(0f, 1f) * 0.5f
+                    },
+            ) {
+                if (photos.isEmpty()) {
+                    DishImage(null, dish.cover?.placeholderColor, dish.name, Modifier.fillMaxSize())
+                } else {
+                    HorizontalPager(pager, Modifier.fillMaxSize(), key = { photos[it].id }) { i ->
+                        DishImage(imageUrl(photos[i].imageUrl), photos[i].placeholderColor, dish.name, Modifier.fillMaxSize())
+                    }
+                }
+                if (photos.size > 1) {
+                    PageDots(photos.size, pager.currentPage, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+
+            // The content sheet overlaps the photo by 24dp with rounded shoulders.
+            Column(
+                Modifier
+                    .offset(y = (-24).dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(top = 24.dp),
             ) {
-                RoundIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
-                Box {
-                    RoundIcon(Icons.Filled.MoreVert, "More options") { menu = true }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        if (currentPost != null) {
-                            DropdownMenuItem(
-                                text = { Text("Report this photo") },
-                                leadingIcon = { Icon(AppIcons.Flag, null) },
-                                onClick = { menu = false; onReport("post", currentPost.id) },
+                Reveal(0) {
+                    Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (currentPost?.isSponsored == true) Tag("Sponsored")
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(
+                                dish.name, style = MaterialTheme.typography.headlineMedium,
+                                modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                             )
+                            Format.price(dish.priceInr)?.let {
+                                Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 12.dp, top = 4.dp))
+                            }
                         }
-                        DropdownMenuItem(
-                            text = { Text("Report this dish") },
-                            leadingIcon = { Icon(AppIcons.Flag, null) },
-                            onClick = { menu = false; onReport("dish", dish.id) },
-                        )
-                        currentPost?.authorHandle?.let { handle ->
-                            DropdownMenuItem(
-                                text = { Text("Block @$handle") },
-                                leadingIcon = { Icon(AppIcons.Block, null) },
-                                onClick = { menu = false; onBlock(handle) },
+                        val placeInteraction = remember { MutableInteractionSource() }
+                        Row(
+                            Modifier
+                                .pressScale(placeInteraction, 0.98f)
+                                .clickable(placeInteraction, indication = null, role = Role.Button, onClick = onOpenRestaurant),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            VegMark(dish.isVeg)
+                            if (dish.isVeg != null) Spacer(Modifier.width(8.dp))
+                            Text(
+                                listOfNotNull(dish.restaurant.name, dish.restaurant.locality, Format.distance(dish.distanceM))
+                                    .joinToString("  ·  "),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open place",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp),
                             )
                         }
                     }
                 }
-            }
-            if (photos.size > 1) {
-                Pill(
-                    "${pager.currentPage + 1}/${photos.size}", Color.Black.copy(alpha = 0.55f), Color.White,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
-                )
-            }
-            if (currentPost?.isSponsored == true) {
-                Pill("Sponsored", Color.Black.copy(alpha = 0.6f), Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
-            }
-        }
 
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                VegMark(dish.isVeg)
-                Text(
-                    dish.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f),
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
-                Format.price(dish.priceInr)?.let { Text(it, style = MaterialTheme.typography.titleLarge) }
-            }
-
-            Surface(
-                onClick = onOpenRestaurant,
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-            ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(AppIcons.Restaurant, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(dish.restaurant.name, style = MaterialTheme.typography.titleMedium)
+                Reveal(70) {
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (dish.recommenders.isNotEmpty() && engagement.stats.recommenders > 0) {
+                            AvatarStack(dish.recommenders, ringColor = MaterialTheme.colorScheme.background, size = 22.dp)
+                            Spacer(Modifier.width((10 + 15 * dish.recommenders.size.coerceAtMost(3)).dp))
+                        }
                         Text(
-                            listOfNotNull(dish.restaurant.locality, Format.distance(dish.distanceM)).joinToString(" · "),
+                            buildString {
+                                append(Format.recommended(engagement.stats.recommenders))
+                                if (engagement.stats.tried > 0) append("  ·  tried by ${engagement.stats.tried}")
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+
+                Reveal(140) {
+                    Column {
+                        HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            EngageAction(
+                                Engagement.Recommend, engagement.me.recommended,
+                                if (engagement.me.recommended) "Loved" else "Recommend", null,
+                                if (engagement.me.recommended) "Remove recommendation" else "Recommend",
+                                { onToggle(Engagement.Recommend) },
+                            )
+                            EngageAction(
+                                Engagement.Save, engagement.me.saved, if (engagement.me.saved) "Saved" else "Save", null,
+                                if (engagement.me.saved) "Remove from saved" else "Save", { onToggle(Engagement.Save) },
+                            )
+                            EngageAction(
+                                Engagement.Tried, engagement.me.tried, "Tried", null,
+                                if (engagement.me.tried) "Unmark tried" else "I tried this", { onToggle(Engagement.Tried) },
+                            )
+                            EngageAction(null, false, "Share", null, "Share", onShare)
+                        }
+                        HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+
+                Reveal(210) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        QuietButton("Directions", onMaps, Modifier.fillMaxWidth(), leading = AppIcons.Directions)
+                        currentPost?.let { post ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                val handle = post.authorHandle
+                                if (handle != null) {
+                                    Avatar(handle, post.authorName, 32.dp, Modifier.clickable { onOpenUser(handle) })
+                                    Spacer(Modifier.width(12.dp))
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        when {
+                                            handle != null -> "@$handle"
+                                            post.photoCredit != null -> post.photoCredit
+                                            else -> "FoodFeed"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge,
+                                    )
+                                    post.caption?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                                    if (post.isSponsored && post.sponsorNote != null) {
+                                        Text(post.sponsorNote, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                        Text(
+                            "Veg and allergen details come from people, not the restaurant. Check before you order.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Open place")
                 }
-            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(Format.recommended(engagement.stats.recommenders), style = MaterialTheme.typography.titleSmall)
-                if (engagement.stats.tried > 0) {
-                    Text(
-                        " · tried by ${engagement.stats.tried}", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (engagement.stats.saves > 0) {
-                    Text(
-                        " · ${engagement.stats.saves} saved", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (dish.recommenders.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(dish.recommenders, key = { it.handle }) { u ->
-                        Column(
-                            Modifier.width(56.dp).clip(RoundedCornerShape(8.dp)).clickable { onOpenUser(u.handle) },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Avatar(u.handle, u.displayName, 44.dp)
-                            Text("@${u.handle}", style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val rec = engagement.me.recommended
-                Button(
-                    onClick = { onToggle(Engagement.Recommend) },
-                    modifier = Modifier.weight(1f),
-                    colors = if (rec) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
-                    else ButtonDefaults.buttonColors(),
-                ) {
-                    Icon(if (rec) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (rec) "Recommended" else "Recommend")
-                }
-                OutlinedButton(onClick = { onToggle(Engagement.Save) }, modifier = Modifier.weight(1f)) {
-                    Icon(if (engagement.me.saved) AppIcons.Bookmark else AppIcons.BookmarkBorder, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (engagement.me.saved) "Saved" else "Save")
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onToggle(Engagement.Tried) }, modifier = Modifier.weight(1f)) {
-                    Icon(if (engagement.me.tried) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (engagement.me.tried) "You tried it" else "I tried this")
-                }
-                OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.Share, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Share")
-                }
-            }
-            OutlinedButton(onClick = onMaps, modifier = Modifier.fillMaxWidth()) {
-                Icon(AppIcons.Directions, null, Modifier.size(18.dp), tint = Saffron)
-                Spacer(Modifier.width(6.dp))
-                Text("Open in Maps")
-            }
-
-            currentPost?.let { post ->
-                HorizontalDivider()
-                Row(verticalAlignment = Alignment.Top) {
-                    val handle = post.authorHandle
-                    if (handle != null) {
-                        Avatar(handle, post.authorName, 36.dp, Modifier.clickable { onOpenUser(handle) })
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            when {
-                                handle != null -> "@$handle"
-                                post.photoCredit != null -> "Photo: ${post.photoCredit}"
-                                else -> "FoodFeed"
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        post.caption?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                        if (post.isSponsored) {
+                if (dish.moreAtPlace.isNotEmpty()) {
+                    Reveal(280) {
+                        Column {
                             Text(
-                                "Sponsored" + (post.sponsorNote?.let { " · $it" } ?: ""),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.error,
+                                "More at ${dish.restaurant.name}",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                             )
+                            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(dish.moreAtPlace, key = { it.id }) { d ->
+                                    MiniDishTile(d, imageUrl(d.cover?.thumbUrl)) { onOpenDish(d.id) }
+                                }
+                            }
+                            Spacer(Modifier.height(32.dp))
                         }
                     }
                 }
             }
+        }
 
+        // Slim title bar that fades in once the photo has scrolled away.
+        val barAlpha = ((scroll.value - photoHeight * 0.7f) / (photoHeight * 0.2f)).coerceIn(0f, 1f)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .graphicsLayer { alpha = barAlpha }
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .height(56.dp),
+        ) {
             Text(
-                "Veg/non-veg and allergen details come from users and aren't verified. Check with the restaurant.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                dish.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.Center).padding(horizontal = 64.dp),
             )
         }
-
-        if (dish.moreAtPlace.isNotEmpty()) {
-            SectionTitle("More at ${dish.restaurant.name}")
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(dish.moreAtPlace, key = { it.id }) { d ->
-                    MiniDishTile(d, imageUrl(d.cover?.thumbUrl)) { onOpenDish(d.id) }
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            GlassIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", barAlpha, onBack)
+            Box {
+                GlassIcon(Icons.Filled.MoreVert, "More options", barAlpha) { menu = true }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (currentPost != null) {
+                        DropdownMenuItem(
+                            text = { Text("Report this photo") },
+                            leadingIcon = { Icon(AppIcons.Flag, null) },
+                            onClick = { menu = false; onReport("post", currentPost.id) },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Report this dish") },
+                        leadingIcon = { Icon(AppIcons.Flag, null) },
+                        onClick = { menu = false; onReport("dish", dish.id) },
+                    )
+                    currentPost?.authorHandle?.let { handle ->
+                        DropdownMenuItem(
+                            text = { Text("Block @$handle") },
+                            leadingIcon = { Icon(AppIcons.Block, null) },
+                            onClick = { menu = false; onBlock(handle) },
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/** Photo position dots: the current one stretches into a short bar on a spring. */
+@Composable
+private fun PageDots(count: Int, current: Int, modifier: Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        repeat(count) { i ->
+            val w by animateDpAsState(if (i == current) 16.dp else 6.dp, Motion.glide(), label = "dot")
+            Box(
+                Modifier.size(width = w, height = 6.dp)
+                    .background(Color.White.copy(alpha = if (i == current) 1f else 0.55f), CircleShape),
+            )
+        }
+    }
+}
+
+/** Back / menu buttons: dark glass over the photo, turning into plain icons over the title bar. */
+@Composable
+private fun GlassIcon(icon: ImageVector, description: String, solid: Float, onClick: () -> Unit) {
+    val glass = Color.Black.copy(alpha = 0.32f * (1f - solid))
+    val tint = androidx.compose.ui.graphics.lerp(Color.White, MaterialTheme.colorScheme.onSurface, solid)
+    IconButton(onClick = onClick, colors = IconButtonDefaults.iconButtonColors(containerColor = glass, contentColor = tint)) {
+        Icon(icon, description)
     }
 }
 
 @Composable
 fun MiniDishTile(card: DishCard, thumbUrl: String?, onClick: () -> Unit) {
-    Column(Modifier.width(140.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick)) {
-        DishImage(thumbUrl, card.cover?.placeholderColor, card.name, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(14.dp)))
-        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            VegMark(card.isVeg, size = 12.dp)
-            Spacer(Modifier.width(4.dp))
-            Text(card.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        Modifier
+            .width(132.dp)
+            .pressScale(interaction, 0.96f)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick),
+    ) {
+        DishImage(thumbUrl, card.cover?.placeholderColor, card.name, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
         Text(
-            if (card.stats.recommenders > 0) "♥ ${card.stats.recommenders}" else "New",
-            style = MaterialTheme.typography.labelSmall,
+            card.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            if (card.stats.recommenders > 0) "${card.stats.recommenders} recommend" else "New",
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-@Composable
-private fun RoundIcon(icon: ImageVector, description: String, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.4f), contentColor = Color.White),
-    ) { Icon(icon, description) }
 }

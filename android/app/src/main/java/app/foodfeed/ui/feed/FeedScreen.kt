@@ -3,13 +3,21 @@ package app.foodfeed.ui.feed
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,8 +26,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -30,9 +42,10 @@ import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
 import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.CenteredMessage
-import app.foodfeed.ui.components.LoadingBox
 import app.foodfeed.ui.components.LocalApp
 import app.foodfeed.ui.components.rememberDishActions
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.SkeletonBlock
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import kotlinx.coroutines.delay
@@ -96,6 +109,8 @@ fun FeedScreen(
     )
 }
 
+private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeedContent(
@@ -117,33 +132,73 @@ fun FeedContent(
     onAskLocation: () -> Unit,
     onSettled: (DishCard, List<DishCard>) -> Unit = { _, _ -> },
 ) {
-    Column(Modifier.fillMaxSize()) {
-        FeedHeader(state.city?.name ?: "Choose a city", onChangeCity, onSearch)
-        CategoryStories(state.categories, state.selectedCategory, onCategory)
-        FeedTabs(state.tab, onTab)
+    var showFilter by remember { mutableStateOf(false) }
+    val selectedCategory = state.categories.firstOrNull { it.id == state.selectedCategory }
 
-        Box(Modifier.weight(1f).padding(horizontal = 10.dp).padding(bottom = 8.dp)) {
-            when {
-                state.loading && state.items.isEmpty() -> LoadingBox()
-                state.error != null && state.items.isEmpty() -> CenteredMessage(
-                    title = "Couldn't load dishes",
-                    body = state.error,
-                    icon = Icons.Filled.Refresh,
-                    actionLabel = "Try again",
-                    onAction = onRetry,
-                )
-                state.needsLocation -> CenteredMessage(
-                    title = "See what's good near you",
-                    body = "Allow approximate location to sort dishes by distance. We only use it while the app is open and never store it.",
+    Column(Modifier.fillMaxSize()) {
+        FeedHeader(
+            cityName = state.city?.name ?: "Choose a city",
+            filterActive = selectedCategory != null,
+            onCityClick = onChangeCity,
+            onSearch = onSearch,
+            onFilter = { showFilter = true },
+        )
+        FeedTabs(state.tab, onTab)
+        ActiveFilterChip(selectedCategory) { onCategory(null) }
+
+        val body = when {
+            state.loading && state.items.isEmpty() -> FeedBody.Loading
+            state.error != null && state.items.isEmpty() -> FeedBody.Error
+            state.needsLocation -> FeedBody.NeedsLocation
+            state.items.isEmpty() -> FeedBody.Empty
+            else -> FeedBody.Cards
+        }
+        // States cross-fade; content arrives with a slight zoom-in so it feels placed, not swapped.
+        AnimatedContent(
+            targetState = body,
+            transitionSpec = {
+                (fadeIn(Motion.enter(Motion.MEDIUM, 60)) + scaleIn(Motion.enter(Motion.MEDIUM, 60), initialScale = 0.97f))
+                    .togetherWith(fadeOut(Motion.exit(120)))
+            },
+            modifier = Modifier.weight(1f).padding(horizontal = 12.dp).padding(bottom = 10.dp),
+            label = "feed-body",
+        ) { b ->
+            when (b) {
+                FeedBody.Loading -> FeedSkeleton()
+                FeedBody.Error -> CenteredMessage("Couldn't load dishes", state.error, Icons.Filled.Refresh, "Try again", onRetry)
+                FeedBody.NeedsLocation -> CenteredMessage(
+                    title = "What's good near you",
+                    body = "Allow approximate location to sort dishes by distance. It's only used while the app is open.",
                     icon = AppIcons.Near,
                     actionLabel = "Allow location",
                     onAction = onAskLocation,
                 )
-                state.items.isEmpty() -> EmptyFeed(state, onAddDish)
-                else -> PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
+                FeedBody.Empty -> EmptyFeed(state, onAddDish)
+                FeedBody.Cards -> PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
                     DishPager(state, engagementOf, imageUrlOf, onLoadMore, onOpenDish, onOpenRestaurant, onToggle, onShare, onSettled)
                 }
             }
+        }
+    }
+
+    if (showFilter) {
+        CategorySheet(
+            categories = state.categories,
+            selected = state.selectedCategory,
+            onSelect = { onCategory(it); showFilter = false },
+            onDismiss = { showFilter = false },
+        )
+    }
+}
+
+@Composable
+private fun FeedSkeleton() {
+    Box(Modifier.fillMaxSize()) {
+        SkeletonBlock(Modifier.fillMaxSize(), RoundedCornerShape(26.dp))
+        Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) {
+            SkeletonBlock(Modifier.width(200.dp).height(26.dp), RoundedCornerShape(6.dp))
+            Spacer(Modifier.height(10.dp))
+            SkeletonBlock(Modifier.width(140.dp).height(14.dp), RoundedCornerShape(4.dp))
         }
     }
 }
@@ -154,18 +209,15 @@ private fun EmptyFeed(state: FeedUiState, onAddDish: () -> Unit) {
     when (state.tab) {
         FeedTab.Gems -> CenteredMessage(
             title = "No hidden gems yet",
-            body = "A dish becomes a hidden gem when at least 5 people back it at a place few people post about. Keep recommending!",
-            icon = AppIcons.Gem,
+            body = "A dish becomes a gem when at least five people back it at a place few people post about.",
         )
         FeedTab.Trending -> CenteredMessage(
-            title = "Nothing trending this week",
+            title = "Quiet week",
             body = "Dishes people recommend, save or share in the last 7 days show up here.",
-            icon = AppIcons.Trending,
         )
         else -> CenteredMessage(
-            title = if (state.selectedCategory != null) "Nothing in this category yet" else "No dishes in $city yet",
+            title = if (state.selectedCategory != null) "Nothing here yet" else "No dishes in $city yet",
             body = "Be the first to post a dish you loved.",
-            icon = AppIcons.Restaurant,
             actionLabel = "Post a dish",
             onAction = onAddDish,
         )
@@ -187,7 +239,7 @@ private fun DishPager(
     val items = state.items
     val pager = rememberPagerState { items.size }
 
-    LaunchedEffect(state.generation) { if (pager.currentPage != 0) pager.scrollToPage(0) }
+    LaunchedEffect(state.generation) { if (pager.currentPage != 0) pager.animateScrollToPage(0) }
     LaunchedEffect(pager, items) {
         snapshotFlow { pager.settledPage }.distinctUntilChanged().collectLatest { page ->
             if (page >= items.size - 4) onLoadMore()
@@ -201,8 +253,7 @@ private fun DishPager(
         state = pager,
         key = { items[it].id },
         beyondViewportPageCount = 1,
-        pageSpacing = 10.dp,
-        contentPadding = PaddingValues(0.dp),
+        pageSpacing = 12.dp,
         modifier = Modifier.fillMaxSize(),
     ) { page ->
         val card = items[page]
@@ -214,6 +265,8 @@ private fun DishPager(
             onRestaurant = { onOpenRestaurant(card.restaurant.id) },
             onToggle = { kind -> onToggle(card, kind) },
             onShare = { onShare(card) },
+            // Signed distance of this page from the centre, read during draw only.
+            pageOffset = { (pager.currentPage - page) + pager.currentPageOffsetFraction },
         )
     }
 }

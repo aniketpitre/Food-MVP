@@ -48,7 +48,8 @@ import app.foodfeed.data.AppContainer
 import app.foodfeed.data.LoginBody
 import app.foodfeed.data.RegisterBody
 import app.foodfeed.data.apiCall
-import app.foodfeed.ui.theme.BrandGradient
+import app.foodfeed.ui.components.PrimaryButton
+import app.foodfeed.ui.components.Wordmark
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -133,10 +134,8 @@ fun AuthContent(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close") }
         }
-        Box(
-            Modifier.size(64.dp).background(BrandGradient, RoundedCornerShape(20.dp)),
-            contentAlignment = Alignment.Center,
-        ) { Text("🍛", fontSize = 30.sp) }
+        Wordmark()
+        Spacer(Modifier.height(12.dp))
         Text(
             if (state.register) "Join FoodFeed" else "Welcome back",
             style = MaterialTheme.typography.headlineMedium,
@@ -178,15 +177,16 @@ fun AuthContent(
             }
         }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(onClick = onSubmit, enabled = state.canSubmit, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            Text(
-                when {
-                    state.busy -> "Please wait…"
-                    state.register -> "Create account"
-                    else -> "Sign in"
-                },
-            )
-        }
+        PrimaryButton(
+            when {
+                state.busy -> "Please wait…"
+                state.register -> "Create account"
+                else -> "Sign in"
+            },
+            onSubmit,
+            Modifier.fillMaxWidth(),
+            enabled = state.canSubmit,
+        )
         TextButton(onClick = { onMode(!state.register) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text(if (state.register) "Already have an account? Sign in" else "New here? Create an account")
         }

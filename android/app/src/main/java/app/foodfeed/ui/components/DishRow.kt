@@ -1,9 +1,8 @@
 package app.foodfeed.ui.components
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,27 +11,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.foodfeed.data.DishCard
+import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
 import app.foodfeed.ui.Format
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.pressScale
 
 /**
- * A menu-style row (as on food delivery apps): details on the left, photo on the right
- * with a Save button sitting on its bottom edge.
+ * A quiet list row: optional rank numeral, text on the left, a square photo on the right,
+ * and a save mark that pops when tapped. The whole row presses down slightly.
  */
 @Composable
 fun DishRow(
@@ -43,33 +40,41 @@ fun DishRow(
     onSave: () -> Unit,
     showPlace: Boolean = true,
     rank: Int? = null,
+    modifier: Modifier = Modifier,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top,
+        modifier
+            .fillMaxWidth()
+            .pressScale(interaction, 0.985f)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                VegMark(card.isVeg, size = 14.dp)
-                if (rank != null && rank <= 3 && engagement.stats.recommenders > 0) {
-                    Text("#$rank here", style = MaterialTheme.typography.labelMedium, color = Saffron, fontWeight = FontWeight.Bold)
-                }
-            }
-            Text(card.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Format.price(card.priceInr)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold) }
+        if (rank != null) {
+            Text(
+                rank.toString(),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.width(34.dp),
+            )
+        }
+        Column(Modifier.weight(1f).padding(end = 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (engagement.stats.recommenders > 0) {
-                    Icon(Icons.Filled.Favorite, null, tint = Saffron, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "${engagement.stats.recommenders} recommend",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text("New", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                VegMark(card.isVeg)
+                if (card.isVeg != null) Spacer(Modifier.width(8.dp))
+                Text(card.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            val recs = engagement.stats.recommenders
+            Text(
+                listOfNotNull(
+                    Format.price(card.priceInr),
+                    if (recs > 0) "$recs recommend" else "New",
+                    if (showPlace) null else Format.distance(card.distanceM),
+                ).joinToString("  ·  "),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (showPlace) {
                 Text(
                     Format.placeLine(card.restaurant.name, card.restaurant.locality, card.distanceM),
@@ -80,39 +85,11 @@ fun DishRow(
                 )
             }
         }
-        Box(Modifier.width(118.dp), contentAlignment = Alignment.TopCenter) {
-            DishImage(
-                thumbUrl, card.cover?.placeholderColor, card.name,
-                Modifier.size(118.dp).clip(RoundedCornerShape(16.dp)),
-            )
-            Surface(
-                onClick = onSave,
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 3.dp,
-                modifier = Modifier
-                    .padding(top = 100.dp)
-                    .width(92.dp)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-            ) {
-                Row(
-                    Modifier.padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        if (engagement.me.saved) AppIcons.Bookmark else AppIcons.BookmarkBorder, null,
-                        tint = Saffron, modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        if (engagement.me.saved) "SAVED" else "SAVE",
-                        color = Saffron,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                }
-            }
-        }
+        DishImage(thumbUrl, card.cover?.placeholderColor, card.name, Modifier.size(76.dp).clip(RoundedCornerShape(16.dp)))
+        EngageAction(
+            Engagement.Save, engagement.me.saved, "", null,
+            if (engagement.me.saved) "Remove from saved" else "Save",
+            onSave, iconSize = 22.dp,
+        )
     }
 }

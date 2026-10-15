@@ -1,62 +1,67 @@
 package app.foodfeed.ui.feed
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.foodfeed.data.Category
 import app.foodfeed.data.DishCard
 import app.foodfeed.data.Engagement
@@ -65,125 +70,166 @@ import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.AvatarStack
 import app.foodfeed.ui.components.DishImage
-import app.foodfeed.ui.components.Pill
+import app.foodfeed.ui.components.EngageAction
+import app.foodfeed.ui.components.Tag
 import app.foodfeed.ui.components.VegMark
 import app.foodfeed.ui.theme.CardTitle
-import app.foodfeed.ui.theme.GemPurple
-import app.foodfeed.ui.theme.Saffron
-import app.foodfeed.ui.theme.StoryRing
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.pressScale
+import kotlin.math.abs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-/** Swiggy-style location header: pin, city, chevron; search on the right. */
+/** City on the left, search and filter on the right. Nothing else. */
 @Composable
-fun FeedHeader(cityName: String, onCityClick: () -> Unit, onSearch: () -> Unit) {
+fun FeedHeader(cityName: String, filterActive: Boolean, onCityClick: () -> Unit, onSearch: () -> Unit, onFilter: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp),
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val interaction = remember { MutableInteractionSource() }
         Row(
-            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClick = onCityClick).padding(6.dp),
+            Modifier
+                .weight(1f)
+                .pressScale(interaction, 0.97f)
+                .clickable(interaction, indication = null, role = Role.Button, onClick = onCityClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.LocationOn, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
-            Spacer(Modifier.width(4.dp))
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(cityName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    Icon(Icons.Filled.KeyboardArrowDown, "Change city")
-                }
-                Text(
-                    "Dishes people here recommend",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(cityName, style = MaterialTheme.typography.headlineSmall)
+            Icon(
+                Icons.Filled.KeyboardArrowDown, "Change city",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 2.dp, top = 3.dp).size(22.dp),
+            )
         }
         IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search dishes and places") }
-    }
-}
-
-/** Instagram-stories-style category bubbles. */
-@Composable
-fun CategoryStories(categories: List<Category>, selected: Int?, onSelect: (Int?) -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.padding(vertical = 6.dp),
-    ) {
-        item(key = "all") { StoryBubble("All", "🍽️", selected == null) { onSelect(null) } }
-        items(categories, key = { it.id }) { c ->
-            StoryBubble(c.name, c.emoji ?: "🍴", selected == c.id) { onSelect(if (selected == c.id) null else c.id) }
-        }
-    }
-}
-
-@Composable
-private fun StoryBubble(label: String, emoji: String, selected: Boolean, onClick: () -> Unit) {
-    Column(
-        Modifier.width(68.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            Modifier
-                .size(62.dp)
-                .border(
-                    width = if (selected) 3.dp else 1.5.dp,
-                    brush = if (selected) StoryRing else SolidColor(MaterialTheme.colorScheme.outline),
-                    shape = CircleShape,
-                )
-                .padding(5.dp)
-                .clip(CircleShape)
-                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(emoji, fontSize = 24.sp)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 8.dp),
-    ) {
-        items(FeedTab.entries) { tab ->
-            val on = tab == selected
-            val icon = when (tab) {
-                FeedTab.Top -> AppIcons.Fire
-                FeedTab.Trending -> AppIcons.Trending
-                FeedTab.Gems -> AppIcons.Gem
-                FeedTab.Nearby -> AppIcons.Near
-            }
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { onSelect(tab) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val fg = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant
-                Icon(icon, null, tint = fg, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(tab.label, color = fg, style = MaterialTheme.typography.labelLarge)
+        IconButton(onClick = onFilter) {
+            Box {
+                Icon(AppIcons.Tune, "Filter by dish type")
+                if (filterActive) {
+                    Box(
+                        Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(7.dp)
+                            .background(MaterialTheme.colorScheme.tertiary, CircleShape),
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * One full-height dish card, Reels style: photo, info at the bottom left, actions on the right.
- * Double-tap the photo to recommend, like a double-tap like on Instagram.
+ * Text tabs with one ink underline that glides between them on a spring and stretches to
+ * each label's width. Labels fade between ink and muted.
+ */
+@Composable
+fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit) {
+    val density = LocalDensity.current
+    val positions = remember { mutableStateMapOf<FeedTab, Pair<Float, Float>>() } // x, width in px
+    val target = positions[selected]
+    val x by animateDpAsState(with(density) { (target?.first ?: 0f).toDp() }, Motion.glide(), label = "tab-x")
+    val w by animateDpAsState(with(density) { (target?.second ?: 0f).toDp() }, Motion.glide(), label = "tab-w")
+    Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 6.dp, bottom = 10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            FeedTab.entries.forEach { tab ->
+                val color by animateColorAsState(
+                    if (tab == selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    Motion.enter(Motion.SHORT),
+                    label = "tab-color",
+                )
+                Text(
+                    tab.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = color,
+                    modifier = Modifier
+                        .onGloballyPositioned { positions[tab] = it.positionInParent().x to it.size.width.toFloat() }
+                        .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onSelect(tab) }
+                        .padding(vertical = 6.dp),
+                )
+            }
+        }
+        if (target != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = x)
+                    .width(w)
+                    .height(2.dp)
+                    .background(MaterialTheme.colorScheme.onSurface, RoundedCornerShape(1.dp)),
+            )
+        }
+    }
+}
+
+/** The active dish-type filter as a small dismissible chip; slides in and out horizontally. */
+@Composable
+fun ActiveFilterChip(category: Category?, onClear: () -> Unit) {
+    AnimatedVisibility(
+        visible = category != null,
+        enter = fadeIn(Motion.enter()) + expandHorizontally(Motion.enter()),
+        exit = fadeOut(Motion.exit()) + shrinkHorizontally(Motion.exit()),
+    ) {
+        Row(
+            Modifier
+                .padding(start = 20.dp, bottom = 10.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.onSurface)
+                .clickable(onClick = onClear)
+                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(category?.name.orEmpty(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.surface)
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Filled.Close, "Clear filter", tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun CategorySheet(categories: List<Category>, selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding().padding(bottom = 24.dp)) {
+            Text("Dish type", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(16.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterOption("All", selected == null) { onSelect(null) }
+                categories.forEach { c -> FilterOption(c.name, selected == c.id) { onSelect(c.id) } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterOption(label: String, on: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
+        Motion.enter(Motion.SHORT), label = "opt-bg",
+    )
+    val fg by animateColorAsState(
+        if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+        Motion.enter(Motion.SHORT), label = "opt-fg",
+    )
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = bg,
+        contentColor = fg,
+        interactionSource = interaction,
+        modifier = Modifier.pressScale(interaction, 0.95f),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
+    }
+}
+
+/**
+ * One full-height dish card.
+ *
+ * Motion while paging (all read inside graphicsLayer, so scrolling never recomposes):
+ *  - the photo moves at ~78% of the card's speed (parallax) and is overscaled so edges never show;
+ *  - the card eases down to 94% scale and dims as it leaves, so the next one feels like it rises;
+ *  - the text block drifts and fades a little faster than the card, which separates the layers.
+ * Double-tap anywhere recommends, with a heart that springs in, holds, and fades.
  */
 @Composable
 fun DishPage(
@@ -195,12 +241,20 @@ fun DishPage(
     onToggle: (Engagement) -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
+    pageOffset: () -> Float = { 0f },
 ) {
     var burst by remember { mutableIntStateOf(0) }
     Box(
         modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(28.dp))
+            .graphicsLayer {
+                val o = abs(pageOffset()).coerceAtMost(1f)
+                val s = 1f - 0.06f * o
+                scaleX = s
+                scaleY = s
+                alpha = 1f - 0.35f * o
+            }
+            .clip(RoundedCornerShape(26.dp))
             .pointerInput(card.id, engagement.me.recommended) {
                 detectTapGestures(
                     onTap = { onOpen() },
@@ -211,144 +265,137 @@ fun DishPage(
                 )
             },
     ) {
-        DishImage(imageUrl, card.cover?.placeholderColor, card.name, Modifier.fillMaxSize())
+        DishImage(
+            imageUrl, card.cover?.placeholderColor, card.name,
+            Modifier.fillMaxSize().graphicsLayer {
+                translationY = pageOffset() * size.height * 0.22f
+                scaleX = 1.14f
+                scaleY = 1.14f
+            },
+        )
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.25f),
-                    0.25f to Color.Transparent,
-                    0.55f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.82f),
+                    0f to Color.Black.copy(alpha = 0.18f),
+                    0.18f to Color.Transparent,
+                    0.5f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.72f),
                 ),
             ),
         )
 
-        Row(Modifier.align(Alignment.TopStart).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            when (card.lane) {
-                "gem" -> Pill("Hidden gem", GemPurple, Color.White, AppIcons.Gem)
-                "trending" -> Pill("Trending", Saffron, Color.White, AppIcons.Trending)
-                "fresh" -> if (engagement.stats.recommenders < 3) Pill("New", Color.White, Color.Black)
-            }
-            if (card.cover?.isSponsored == true) Pill("Sponsored", Color.Black.copy(alpha = 0.6f), Color.White)
+        val tag = when {
+            card.lane == "gem" -> "Hidden gem"
+            card.lane == "fresh" && engagement.stats.recommenders < 3 -> "New"
+            card.cover?.isSponsored == true -> "Sponsored"
+            else -> null
         }
+        if (tag != null) Tag(tag, onPhoto = true, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
 
         Column(
-            Modifier.align(Alignment.BottomStart).padding(start = 18.dp, end = 84.dp, bottom = 20.dp),
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 20.dp, end = 80.dp, bottom = 22.dp)
+                .graphicsLayer {
+                    val o = abs(pageOffset()).coerceAtMost(1f)
+                    translationY = o * 90f
+                    alpha = (1f - o * 1.8f).coerceIn(0f, 1f)
+                },
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                VegMark(card.isVeg)
-                Format.price(card.priceInr)?.let {
-                    Text(it, color = Color.White, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                }
-            }
             Text(card.name, color = Color.White, style = CardTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Row(
-                Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onRestaurant).padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(AppIcons.Restaurant, null, tint = Color.White, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(5.dp))
+            Text(
+                listOfNotNull(card.restaurant.name, card.restaurant.locality).joinToString(", "),
+                color = Color.White.copy(alpha = 0.92f),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(remember { MutableInteractionSource() }, indication = null, onClick = onRestaurant),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                VegMark(card.isVeg, Modifier.background(Color.White, RoundedCornerShape(2.dp)))
                 Text(
-                    Format.placeLine(card.restaurant.name, card.restaurant.locality, card.distanceM),
-                    color = Color.White.copy(alpha = 0.92f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (card.recentRecommenders.isNotEmpty() && engagement.stats.recommenders > 0) {
-                    AvatarStack(card.recentRecommenders, ringColor = Color.Black)
-                    Spacer(Modifier.width((10 + 14 * card.recentRecommenders.size.coerceAtMost(3)).dp))
-                }
-                Text(
-                    Format.recommended(engagement.stats.recommenders),
-                    color = Color.White,
+                    listOfNotNull(Format.price(card.priceInr), Format.distance(card.distanceM)).joinToString("  ·  "),
+                    color = Color.White.copy(alpha = 0.75f),
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val people = card.recentRecommenders
+                if (people.isNotEmpty() && engagement.stats.recommenders > 0) {
+                    AvatarStack(people, ringColor = Color.Black.copy(alpha = 0.6f))
+                    Spacer(Modifier.width((8 + 13 * people.size.coerceAtMost(3)).dp))
+                }
+                Text(
+                    Format.recommended(engagement.stats.recommenders),
+                    color = Color.White.copy(alpha = 0.9f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
 
         Column(
-            Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 20.dp),
+            Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 10.dp, bottom = 18.dp)
+                .graphicsLayer {
+                    val o = abs(pageOffset()).coerceAtMost(1f)
+                    translationY = o * 140f
+                    alpha = (1f - o * 2f).coerceIn(0f, 1f)
+                },
             verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            RailButton(
-                icon = if (engagement.me.recommended) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                label = if (engagement.stats.recommenders > 0) Format.compact(engagement.stats.recommenders) else "Recommend",
-                active = engagement.me.recommended,
-                description = if (engagement.me.recommended) "Remove recommendation" else "Recommend",
-            ) { onToggle(Engagement.Recommend) }
-            RailButton(
-                icon = if (engagement.me.saved) AppIcons.Bookmark else AppIcons.BookmarkBorder,
-                label = if (engagement.me.saved) "Saved" else "Save",
-                active = engagement.me.saved,
-                description = if (engagement.me.saved) "Remove from saved" else "Save",
-            ) { onToggle(Engagement.Save) }
-            RailButton(
-                icon = if (engagement.me.tried) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                label = "Tried",
-                active = engagement.me.tried,
-                description = if (engagement.me.tried) "Unmark tried" else "I tried this",
-            ) { onToggle(Engagement.Tried) }
-            RailButton(Icons.Filled.Share, "Share", false, "Share") { onShare() }
+            EngageAction(
+                Engagement.Recommend, engagement.me.recommended, "Love", engagement.stats.recommenders,
+                if (engagement.me.recommended) "Remove recommendation" else "Recommend",
+                { onToggle(Engagement.Recommend) }, onPhoto = true,
+            )
+            EngageAction(
+                Engagement.Save, engagement.me.saved, if (engagement.me.saved) "Saved" else "Save", null,
+                if (engagement.me.saved) "Remove from saved" else "Save", { onToggle(Engagement.Save) }, onPhoto = true,
+            )
+            EngageAction(
+                Engagement.Tried, engagement.me.tried, "Tried", null,
+                if (engagement.me.tried) "Unmark tried" else "I tried this", { onToggle(Engagement.Tried) }, onPhoto = true,
+            )
+            EngageAction(null, false, "Share", null, "Share", onShare, onPhoto = true)
         }
 
         HeartBurst(burst, Modifier.align(Alignment.Center))
     }
 }
 
-@Composable
-private fun RailButton(icon: ImageVector, label: String, active: Boolean, description: String, onClick: () -> Unit) {
-    val scale by animateFloatAsState(
-        if (active) 1.12f else 1f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "rail",
-    )
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier
-                .size(50.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.32f))
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon, description,
-                tint = if (active) Saffron else Color.White,
-                modifier = Modifier.size(28.dp).scale(scale),
-            )
-        }
-        Text(
-            label,
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.7f), blurRadius = 6f)),
-            modifier = Modifier.padding(top = 3.dp),
-        )
-    }
-}
-
+/**
+ * The double-tap heart: springs from 40% to full size with a soft overshoot and a slight
+ * tilt, holds for a beat, then drifts up while fading. Restarts cleanly on rapid taps.
+ */
 @Composable
 private fun HeartBurst(trigger: Int, modifier: Modifier) {
-    var visible by remember { mutableIntStateOf(0) }
+    val scale = remember { Animatable(0f) }
+    val alpha = remember { Animatable(0f) }
+    val rise = remember { Animatable(0f) }
     LaunchedEffect(trigger) {
-        if (trigger > 0) {
-            visible = trigger
-            delay(650)
-            visible = 0
-        }
+        if (trigger == 0) return@LaunchedEffect
+        alpha.snapTo(1f)
+        rise.snapTo(0f)
+        scale.snapTo(0.4f)
+        launch { scale.animateTo(1f, Motion.pop()) }
+        delay(520)
+        launch { rise.animateTo(-60f, Motion.exit(260)) }
+        alpha.animateTo(0f, Motion.exit(260))
     }
-    val scale by animateFloatAsState(
-        if (visible > 0) 1f else 0f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "burst",
-    )
-    if (scale > 0.01f) {
-        Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = modifier.size(110.dp).scale(scale))
+    if (alpha.value > 0.01f) {
+        Icon(
+            Icons.Filled.Favorite, null, tint = Color.White,
+            modifier = modifier.size(104.dp).graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                this.alpha = alpha.value
+                translationY = rise.value
+                rotationZ = -8f * (1f - scale.value.coerceIn(0f, 1f)) - 6f
+            },
+        )
     }
 }

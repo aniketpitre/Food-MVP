@@ -1,5 +1,39 @@
 package app.foodfeed.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.outlined.AddCircle
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavBackStackEntry
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.pressScale
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,9 +46,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -89,15 +120,16 @@ object Routes {
     fun setup(step: OnboardingStep? = null) = if (step == null) "setup" else "setup?step=${step.name}"
 }
 
-private data class Tab(val route: String, val label: String, val icon: ImageVector)
+private data class Tab(val route: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector)
 
 private val tabs = listOf(
-    Tab(Routes.FEED, "Home", Icons.Filled.Home),
-    Tab(Routes.SEARCH, "Search", Icons.Filled.Search),
-    Tab(Routes.ADD, "Post", AppIcons.AddBox),
-    Tab(Routes.SAVED, "Saved", AppIcons.Bookmark),
-    Tab(Routes.ME, "Profile", Icons.Filled.Person),
+    Tab(Routes.FEED, "Home", Icons.Outlined.Home, Icons.Filled.Home),
+    Tab(Routes.SEARCH, "Search", Icons.Outlined.Search, Icons.Filled.Search),
+    Tab(Routes.ADD, "Post a dish", Icons.Outlined.AddCircle, Icons.Filled.AddCircle),
+    Tab(Routes.SAVED, "Saved", AppIcons.BookmarkBorder, AppIcons.Bookmark),
+    Tab(Routes.ME, "Profile", Icons.Outlined.Person, Icons.Filled.Person),
 )
+private val tabRoutes = tabs.map { it.route }.toSet()
 
 @Composable
 inline fun <reified VM : ViewModel> appViewModel(key: String? = null, crossinline create: (AppContainer) -> VM): VM {
@@ -143,27 +175,38 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            if (showBottomBar) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentRoute == tab.route,
-                            onClick = { nav.navigateToTab(tab.route) },
-                            icon = { Icon(tab.icon, tab.label) },
-                            label = { Text(tab.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            ),
-                        )
-                    }
-                }
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = slideInVertically(Motion.enter()) { it } + fadeIn(Motion.enter()),
+                exit = slideOutVertically(Motion.exit()) { it } + fadeOut(Motion.exit()),
+            ) {
+                MinimalTabBar(currentRoute) { nav.navigateToTab(it) }
             }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).then(if (showBottomBar) Modifier else Modifier.navigationBarsPadding())) {
-            NavHost(nav, startDestination = startRoute) {
+            NavHost(
+                nav,
+                startDestination = startRoute,
+                // Tabs cross-fade in place; pushed pages slide in from the right with the
+                // emphasized curve while the page underneath drifts back a little and dims.
+                enterTransition = {
+                    if (isTabSwitch()) fadeIn(Motion.enter(Motion.MEDIUM, 60))
+                    else slideInHorizontally(Motion.enter(Motion.LONG)) { it / 3 } + fadeIn(Motion.enter(Motion.MEDIUM))
+                },
+                exitTransition = {
+                    if (isTabSwitch()) fadeOut(Motion.exit(90))
+                    else slideOutHorizontally(Motion.enter(Motion.LONG)) { -it / 8 } + fadeOut(Motion.exit(Motion.MEDIUM))
+                },
+                popEnterTransition = {
+                    if (isTabSwitch()) fadeIn(Motion.enter(Motion.MEDIUM, 60))
+                    else slideInHorizontally(Motion.enter(Motion.LONG)) { -it / 8 } + fadeIn(Motion.enter(Motion.MEDIUM))
+                },
+                popExitTransition = {
+                    if (isTabSwitch()) fadeOut(Motion.exit(90))
+                    else slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { it / 3 } + fadeOut(Motion.exit(Motion.MEDIUM))
+                },
+            ) {
                 val openDish: (String) -> Unit = { nav.navigate(Routes.dish(it)) }
                 val openRestaurant: (String) -> Unit = { nav.navigate(Routes.restaurant(it)) }
                 val openUser: (String) -> Unit = { nav.navigate(Routes.user(it)) }
@@ -260,5 +303,54 @@ private fun NavHostController.navigateToTab(route: String) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boolean =
+    initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes
+
+/**
+ * Icons only, no pill indicator: the active icon fills in, and a 4dp ink dot glides
+ * underneath it on a spring.
+ */
+@Composable
+private fun MinimalTabBar(currentRoute: String?, onSelect: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding()) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        BoxWithConstraints(Modifier.fillMaxWidth().height(56.dp)) {
+            val slot = maxWidth / tabs.size
+            Row(Modifier.fillMaxSize()) {
+                tabs.forEach { tab ->
+                    val selected = tab.route == currentRoute
+                    val tint by animateColorAsState(
+                        if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        Motion.enter(Motion.SHORT),
+                        label = "tab-tint",
+                    )
+                    val interaction = remember { MutableInteractionSource() }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable(interaction, indication = null, role = Role.Tab) { onSelect(tab.route) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (selected) tab.selectedIcon else tab.icon, tab.label, tint = tint,
+                            modifier = Modifier.size(26.dp).pressScale(interaction, 0.82f),
+                        )
+                    }
+                }
+            }
+            val index = tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+            val dotX by animateDpAsState(slot * index + slot / 2 - 2.dp, Motion.glide(), label = "tab-dot")
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = dotX, y = (-7).dp)
+                    .size(4.dp)
+                    .background(MaterialTheme.colorScheme.onSurface, CircleShape),
+            )
+        }
     }
 }

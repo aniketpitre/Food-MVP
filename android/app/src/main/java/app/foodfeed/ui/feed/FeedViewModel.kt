@@ -21,7 +21,7 @@ import java.util.UUID
 enum class FeedTab(val api: String, val label: String) {
     Top("top", "Top"),
     Trending("trending", "Trending"),
-    Gems("gems", "Hidden gems"),
+    Gems("gems", "Gems"),
     Nearby("nearby", "Nearby"),
 }
 

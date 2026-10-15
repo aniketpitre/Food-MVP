@@ -68,6 +68,8 @@ import app.foodfeed.data.PlaceOption
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.CenteredMessage
+import app.foodfeed.ui.components.PrimaryButton
+import app.foodfeed.ui.components.QuietButton
 import app.foodfeed.ui.components.LocalApp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
@@ -90,7 +92,7 @@ fun AddDishScreen(
         CenteredMessage(
             "Share a dish you loved",
             "Sign in to post a photo. It takes under 30 seconds.",
-            AppIcons.AddBox, "Sign in", onSignIn,
+            null, "Sign in", onSignIn,
         )
         return
     }
@@ -182,9 +184,8 @@ fun AddDishContent(
 
         // Photo
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(22.dp),
             color = MaterialTheme.colorScheme.surfaceContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth().aspectRatio(if (photoModel == null) 1.8f else 0.9f),
         ) {
             if (photoModel == null) {
@@ -193,7 +194,7 @@ fun AddDishContent(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("A real photo of the dish", style = MaterialTheme.typography.titleMedium)
+                    Text("Photo of the dish", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Photo location data is removed before upload.",
                         style = MaterialTheme.typography.bodySmall,
@@ -201,12 +202,8 @@ fun AddDishContent(
                     )
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onCamera) {
-                            Icon(AppIcons.Camera, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Camera")
-                        }
-                        OutlinedButton(onClick = onGallery) {
-                            Icon(AppIcons.Photo, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Gallery")
-                        }
+                        PrimaryButton("Camera", onCamera, leading = AppIcons.Camera)
+                        QuietButton("Gallery", onGallery, leading = AppIcons.Photo)
                     }
                 }
             } else {
@@ -247,7 +244,7 @@ fun AddDishContent(
                     FilterChip(
                         selected = state.categoryId == c.id,
                         onClick = { onCategory(c.id) },
-                        label = { Text("${c.emoji ?: ""} ${c.name}".trim()) },
+                        label = { Text(c.name) },
                     )
                 }
             }
@@ -372,11 +369,7 @@ fun AddDishContent(
 
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 
-        Button(onClick = onSubmit, enabled = state.canSubmit, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            if (state.submitting) Text("Posting…") else {
-                Icon(Icons.Filled.Check, null); Spacer(Modifier.width(6.dp)); Text("Post")
-            }
-        }
+        PrimaryButton(if (state.submitting) "Posting…" else "Post", onSubmit, Modifier.fillMaxWidth(), enabled = state.canSubmit)
         Spacer(Modifier.height(24.dp))
     }
 }

@@ -1,12 +1,14 @@
 package app.foodfeed.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,14 +18,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,31 +45,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.foodfeed.data.UserRef
 import app.foodfeed.ui.Format
+import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.NonVegRed
 import app.foodfeed.ui.theme.VegGreen
 import coil3.compose.AsyncImage
 
-/** The Indian veg / non-veg mark: a square with a dot (green) or triangle-ish dot (red). */
+/** The Indian veg / non-veg mark, kept small and quiet. */
 @Composable
-fun VegMark(isVeg: Boolean?, modifier: Modifier = Modifier, size: Dp = 16.dp) {
+fun VegMark(isVeg: Boolean?, modifier: Modifier = Modifier, size: Dp = 12.dp) {
     if (isVeg == null) return
     val color = if (isVeg) VegGreen else NonVegRed
     Box(
         modifier
             .size(size)
-            .background(Color.White, RoundedCornerShape(3.dp))
-            .border(1.5.dp, color, RoundedCornerShape(3.dp))
+            .border(1.2.dp, color, RoundedCornerShape(2.dp))
             .semantics { contentDescription = if (isVeg) "Vegetarian" else "Non-vegetarian" },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(size * 0.45f).background(color, if (isVeg) CircleShape else RoundedCornerShape(1.dp)))
+        Box(Modifier.size(size * 0.42f).background(color, CircleShape))
     }
 }
 
 /** Lets screenshot tests and previews supply images without a network. */
 val LocalImageOverride = staticCompositionLocalOf<((String) -> ImageBitmap?)?> { null }
 
-/** A photo served by our API with its dominant colour shown while it loads. */
+/** A photo served by our API, showing its dominant colour while it loads (Coil crossfades it in). */
 @Composable
 fun DishImage(
     url: String?,
@@ -73,7 +77,7 @@ fun DishImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
 ) {
-    val bg = Format.parseColor(placeholderColor, MaterialTheme.colorScheme.surfaceVariant)
+    val bg = Format.parseColor(placeholderColor, MaterialTheme.colorScheme.surfaceContainerHigh)
     Box(modifier.background(bg)) {
         val override = url?.let { LocalImageOverride.current?.invoke(it) }
         if (override != null) {
@@ -85,57 +89,57 @@ fun DishImage(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            Icon(
-                AppIcons.Restaurant, null,
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.align(Alignment.Center).size(40.dp),
-            )
         }
     }
 }
 
+/** A plain initial-letter avatar. */
 @Composable
 fun Avatar(handle: String, displayName: String?, size: Dp = 32.dp, modifier: Modifier = Modifier, ring: Color? = null) {
     Box(
         modifier
             .size(size)
-            .then(if (ring != null) Modifier.border(2.dp, ring, CircleShape) else Modifier)
+            .then(if (ring != null) Modifier.border(1.5.dp, ring, CircleShape) else Modifier)
             .clip(CircleShape)
-            .background(Format.avatarColor(handle)),
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             Format.initials(handle, displayName),
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = (size.value * 0.38f).sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = (size.value * 0.36f).sp,
         )
     }
 }
 
-/** Overlapping faces of recent recommenders, like Instagram's "liked by" strip. */
+/** Overlapping faces of recent recommenders. */
 @Composable
-fun AvatarStack(people: List<UserRef>, ringColor: Color, size: Dp = 22.dp, max: Int = 3) {
+fun AvatarStack(people: List<UserRef>, ringColor: Color, size: Dp = 20.dp, max: Int = 3) {
     Box {
         people.take(max).forEachIndexed { i, p ->
-            Avatar(p.handle, p.displayName, size, Modifier.offset(x = (size * 0.62f) * i), ring = ringColor)
+            Avatar(p.handle, p.displayName, size, Modifier.offset(x = (size * 0.66f) * i), ring = ringColor)
         }
     }
 }
 
+/** A small text tag. Over photos it is a dark glass chip; elsewhere it is plain muted text on a tint. */
 @Composable
-fun Pill(text: String, background: Color, contentColor: Color, icon: ImageVector? = null, modifier: Modifier = Modifier) {
-    Row(
-        modifier.background(background, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (icon != null) Icon(icon, null, tint = contentColor, modifier = Modifier.size(14.dp))
-        Text(text, color = contentColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-    }
+fun Tag(text: String, onPhoto: Boolean = false, modifier: Modifier = Modifier) {
+    val bg = if (onPhoto) Color.Black.copy(alpha = 0.38f) else MaterialTheme.colorScheme.surfaceContainerHigh
+    val fg = if (onPhoto) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text,
+        color = fg,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = modifier.background(bg, RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 3.dp),
+    )
 }
 
+/**
+ * Empty, error and sign-in states: a quiet line of text that rises gently into place,
+ * with at most one action. No big coloured circles.
+ */
 @Composable
 fun CenteredMessage(
     title: String,
@@ -147,34 +151,33 @@ fun CenteredMessage(
     onSecondary: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        if (icon != null) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(72.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    Box(modifier.fillMaxSize().padding(40.dp), contentAlignment = Alignment.Center) {
+        AnimatedVisibility(
+            visible = shown,
+            enter = fadeIn(Motion.enter(Motion.LONG)) + slideInVertically(Motion.enter(Motion.LONG)) { it / 6 },
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (icon != null) {
+                    Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.height(4.dp))
+                }
+                Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+                if (body != null) {
+                    Text(
+                        body, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (actionLabel != null && onAction != null) {
+                    Spacer(Modifier.height(8.dp))
+                    PrimaryButton(actionLabel, onAction)
+                }
+                if (secondaryLabel != null && onSecondary != null) {
+                    TextButton(onClick = onSecondary) { Text(secondaryLabel, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-        }
-        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-        if (body != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                body, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (actionLabel != null && onAction != null) {
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onAction) { Text(actionLabel) }
-        }
-        if (secondaryLabel != null && onSecondary != null) {
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onSecondary) { Text(secondaryLabel) }
         }
     }
 }
@@ -182,7 +185,11 @@ fun CenteredMessage(
 @Composable
 fun LoadingBox(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+        androidx.compose.material3.CircularProgressIndicator(
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 
@@ -191,6 +198,16 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         style = MaterialTheme.typography.titleMedium,
-        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+    )
+}
+
+/** The logo is just the name, set tight. */
+@Composable
+fun Wordmark(large: Boolean = false) {
+    Text(
+        "foodfeed",
+        style = if (large) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium,
+        fontWeight = FontWeight.Black,
     )
 }

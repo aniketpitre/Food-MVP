@@ -1,5 +1,13 @@
 package app.foodfeed.ui.search
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -128,14 +136,20 @@ fun SearchContent(
         OutlinedTextField(
             value = state.query,
             onValueChange = onQuery,
-            placeholder = { Text("Search \"misal\", \"cold coffee\", a place…") },
-            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            placeholder = { Text("Dish or place", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
             trailingIcon = {
                 if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Clear, "Clear") }
             },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(12.dp).focusRequester(focus),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = Color.Transparent,
+                focusedBorderColor = Color.Transparent,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).focusRequester(focus),
         )
         val r = state.result
         when {
@@ -143,31 +157,31 @@ fun SearchContent(
             state.error != null -> CenteredMessage("Search failed", state.error)
             r == null -> CenteredMessage(
                 "Find a dish",
-                "Search by dish, spelling it any way you like (wada pav, vada pav), or by place.",
-                Icons.Filled.Search,
+                "Spell it any way you like: wada pav, vada pav, vadapav.",
             )
             r.dishes.isEmpty() && r.restaurants.isEmpty() -> CenteredMessage(
-                "Nothing found", "Try another spelling or a broader word like \"dosa\".", AppIcons.Restaurant,
+                "Nothing found", "Try another spelling or a broader word like \"dosa\".",
             )
             else -> LazyColumn {
                 if (r.restaurants.isNotEmpty()) {
-                    item { SectionTitle("Places") }
-                    item {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(r.restaurants, key = { it.id }) { p ->
-                                AssistChip(
-                                    onClick = { onOpenRestaurant(p.id) },
-                                    label = { Text(listOfNotNull(p.name, p.locality).joinToString(" · ")) },
-                                    leadingIcon = { Icon(AppIcons.Restaurant, null) },
-                                )
+                    item(key = "places-title") { SectionTitle("Places") }
+                    items(r.restaurants, key = { "p" + it.id }) { p ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onOpenRestaurant(p.id) }.padding(horizontal = 20.dp, vertical = 12.dp).animateItem(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(AppIcons.Restaurant, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text(p.name, style = MaterialTheme.typography.titleMedium)
+                            p.locality?.let {
+                                Text("  ·  $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
                 }
                 if (r.dishes.isNotEmpty()) item { SectionTitle("Dishes") }
                 items(r.dishes, key = { it.id }) { d ->
-                    DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) })
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) }, modifier = Modifier.animateItem())
                 }
             }
         }

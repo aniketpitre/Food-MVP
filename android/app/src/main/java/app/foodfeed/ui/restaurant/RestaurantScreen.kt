@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -45,10 +46,11 @@ import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.CenteredMessage
 import app.foodfeed.ui.components.DishRow
 import app.foodfeed.ui.components.LoadingBox
+import app.foodfeed.ui.components.QuietButton
+import app.foodfeed.ui.components.Reveal
+import app.foodfeed.ui.components.Tag
 import app.foodfeed.ui.components.LocalApp
-import app.foodfeed.ui.components.Pill
 import app.foodfeed.ui.components.rememberDishActions
-import app.foodfeed.ui.theme.Saffron
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -115,56 +117,48 @@ fun RestaurantContent(
     onMaps: (RestaurantDetail) -> Unit,
 ) {
     val totalRecs = place.dishes.sumOf { engagementOf(it).stats.recommenders }
-    LazyColumn(Modifier.fillMaxSize()) {
-        item {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
-                    .statusBarsPadding()
-                    .padding(bottom = 18.dp),
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (place.status == "pending") {
-                        Pill("Waiting for review", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    Text(place.name, style = MaterialTheme.typography.headlineMedium)
-                    Text(
-                        listOfNotNull(place.locality, Format.distance(place.distanceM), place.priceBand?.let { "₹".repeat(it) })
-                            .joinToString(" · "),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Favorite, null, tint = Saffron, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
+    LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
+        item(key = "header") {
+            Column(Modifier.padding(bottom = 8.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
+                Reveal(0) {
+                    Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (place.status == "pending") Tag("Waiting for review")
+                        Text(place.name, style = MaterialTheme.typography.headlineMedium)
                         Text(
-                            "$totalRecs recommendations across ${place.dishes.size} dishes",
-                            style = MaterialTheme.typography.labelLarge,
+                            listOfNotNull(place.locality, Format.distance(place.distanceM), place.priceBand?.let { "₹".repeat(it) })
+                                .joinToString("  ·  "),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    OutlinedButton(onClick = { onMaps(place) }) {
-                        Icon(AppIcons.Directions, null, Modifier.size(18.dp), tint = Saffron)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Directions")
+                        Text(
+                            if (totalRecs > 0) "$totalRecs recommendations across ${place.dishes.size} dishes"
+                            else "${place.dishes.size} dishes, no recommendations yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        QuietButton("Directions", { onMaps(place) }, leading = AppIcons.Directions)
                     }
                 }
             }
         }
-        item {
+        item(key = "title") {
             Text(
-                "What people recommend here",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 4.dp),
+                "Most recommended here",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 4.dp),
             )
         }
         if (place.dishes.isEmpty()) {
-            item { CenteredMessage("No photos yet", "Post the first dish from this place.", AppIcons.Restaurant) }
+            item(key = "empty") { CenteredMessage("No photos yet", "Post the first dish from this place.") }
         }
         itemsIndexed(place.dishes, key = { _, d -> d.id }) { i, d ->
-            DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) }, showPlace = false, rank = i + 1)
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            Reveal(60 + 50 * i.coerceAtMost(8)) {
+                DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) }, showPlace = false, rank = i + 1)
+            }
         }
+        item(key = "end") { Spacer(Modifier.height(24.dp)) }
     }
 }

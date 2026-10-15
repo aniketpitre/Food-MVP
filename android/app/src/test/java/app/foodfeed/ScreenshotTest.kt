@@ -79,7 +79,12 @@ class ScreenshotTest {
         if (f.exists()) BitmapFactory.decodeFile(f.path)?.asImageBitmap() else null
     }
 
-    private fun shoot(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
+    /**
+     * Renders [content] and saves a PNG. Screens with endless motion (the loading shimmer)
+     * use a frozen clock advanced by a fixed time, so the shot is deterministic.
+     */
+    private fun shoot(name: String, dark: Boolean = false, frozenClockMs: Long? = null, content: @Composable () -> Unit) {
+        if (frozenClockMs != null) compose.mainClock.autoAdvance = false
         compose.setContent {
             FoodFeedTheme(darkTheme = dark) {
                 CompositionLocalProvider(LocalImageOverride provides ::load) {
@@ -87,7 +92,7 @@ class ScreenshotTest {
                 }
             }
         }
-        compose.waitForIdle()
+        if (frozenClockMs != null) compose.mainClock.advanceTimeBy(frozenClockMs) else compose.waitForIdle()
         compose.onRoot().captureRoboImage("screenshots/$name.png")
     }
 
@@ -167,6 +172,21 @@ class ScreenshotTest {
             imageUrl = { it }, onBack = {}, onToggle = {}, onShare = {}, onMaps = {}, onOpenRestaurant = {},
             onOpenDish = {}, onOpenUser = {}, onReport = { _, _ -> }, onBlock = {},
         )
+    }
+
+    @Test
+    fun feedTopDark() = shoot("13_feed_top_dark", dark = true) {
+        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, items = listOf(coffee, misal), loading = false))
+    }
+
+    @Test
+    fun feedFiltered() = shoot("14_feed_filtered") {
+        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, selectedCategory = 4, items = listOf(biryani), loading = false))
+    }
+
+    @Test
+    fun feedLoading() = shoot("15_feed_loading", frozenClockMs = 700) {
+        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, loading = true))
     }
 
     @Test

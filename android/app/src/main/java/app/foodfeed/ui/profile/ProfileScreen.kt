@@ -55,9 +55,9 @@ import app.foodfeed.ui.components.CenteredMessage
 import app.foodfeed.ui.components.DishImage
 import app.foodfeed.ui.components.LoadingBox
 import app.foodfeed.ui.components.LocalApp
-import app.foodfeed.ui.components.Pill
+import app.foodfeed.ui.components.Tag
 import app.foodfeed.ui.components.ReportSheet
-import app.foodfeed.ui.theme.StoryRing
+import app.foodfeed.ui.components.QuietButton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -117,8 +117,8 @@ fun ProfileScreen(
             }
             CenteredMessage(
                 "Your food profile",
-                "Sign in to post dishes, see your recommendations and get credit for the places you discover.",
-                AppIcons.Restaurant, "Sign in", onSignIn,
+                "Sign in to post dishes and get credit for the places you discover.",
+                null, "Sign in", onSignIn,
             )
         }
         return
@@ -178,29 +178,28 @@ fun ProfileContent(
                 Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                     Text(
-                        "@${profile.handle}", style = MaterialTheme.typography.titleLarge,
+                        "@${profile.handle}", style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f).padding(start = if (onBack == null) 12.dp else 0.dp),
                     )
                     if (onSettings != null) IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings") }
                 }
-                Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.border(3.dp, StoryRing, CircleShape).padding(5.dp)) {
-                        Avatar(profile.handle, profile.displayName, 76.dp)
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(profile.handle, profile.displayName, 64.dp)
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(profile.displayName ?: "@${profile.handle}", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "${profile.postCount} dishes  ·  ${profile.recommendations} recommended" +
+                                (if (profile.postCount >= 10) "  ·  Local expert" else ""),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    Spacer(Modifier.width(20.dp))
-                    Stat(profile.postCount, "dishes", Modifier.weight(1f))
-                    Stat(profile.recommendations, "recommended", Modifier.weight(1f))
-                }
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    profile.displayName?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    if (profile.role == "admin") Text("FoodFeed team", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    if (profile.postCount >= 10) Text("Local expert", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
                 if (!profile.isMe) {
-                    Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (profile.blockedByMe) Button(onClick = onBlockToggle, Modifier.weight(1f)) { Text("Unblock") }
-                        else OutlinedButton(onClick = onBlockToggle, Modifier.weight(1f)) { Text("Block") }
-                        OutlinedButton(onClick = onReport, Modifier.weight(1f)) { Text("Report") }
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        QuietButton(if (profile.blockedByMe) "Unblock" else "Block", onBlockToggle, Modifier.weight(1f))
+                        QuietButton("Report", onReport, Modifier.weight(1f))
                     }
                 }
             }
@@ -236,7 +235,7 @@ private fun PostTile(p: ProfilePost, thumb: String?, onClick: () -> Unit) {
             p.status == "hidden" -> "Hidden"
             else -> null
         }
-        if (label != null) Pill(label, Color.Black.copy(alpha = 0.65f), Color.White, modifier = Modifier.align(Alignment.TopStart).padding(4.dp))
+        if (label != null) Tag(label, onPhoto = true, modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         Text(
             p.dishName, color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),

@@ -1,6 +1,11 @@
 package app.foodfeed.ui.saved
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.Role
+import app.foodfeed.ui.components.EngageAction
+import app.foodfeed.ui.theme.pressScale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -94,9 +99,9 @@ fun SavedScreen(
     val actions = rememberDishActions(onSignIn, showMessage)
     if (session == null) {
         CenteredMessage(
-            "Save dishes to try later",
-            "Sign in to keep a list of dishes you want to try, with directions when you're nearby.",
-            AppIcons.BookmarkBorder, "Sign in", onSignIn,
+            "Dishes to try",
+            "Sign in to keep a list of dishes you want to try.",
+            null, "Sign in", onSignIn,
         )
         return
     }
@@ -128,8 +133,7 @@ fun SavedContent(
         error != null && items.isEmpty() -> CenteredMessage("Couldn't load saved dishes", error, Icons.Filled.Refresh, "Try again", onRetry)
         items.isEmpty() -> CenteredMessage(
             "Nothing saved yet",
-            "Tap the bookmark on any dish to keep it here.",
-            AppIcons.BookmarkBorder,
+            "Tap the bookmark on any dish to keep it here for later.",
         )
         else -> LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -139,31 +143,33 @@ fun SavedContent(
             modifier = Modifier.fillMaxSize(),
         ) {
             item(span = { GridItemSpan(2) }) {
-                Text("Saved · ${items.size}", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(4.dp))
+                Text("Saved", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 6.dp, bottom = 6.dp))
             }
             items(items, key = { it.id }) { d ->
-                Column(Modifier.clip(RoundedCornerShape(16.dp)).clickable { onOpenDish(d.id) }) {
-                    Box {
-                        DishImage(
-                            thumbOf(d), d.cover?.placeholderColor, d.name,
-                            Modifier.fillMaxWidth().aspectRatio(0.85f).clip(RoundedCornerShape(16.dp)),
-                        )
-                        IconButton(onClick = { onUnsave(d) }, modifier = Modifier.align(Alignment.TopEnd)) {
-                            Icon(AppIcons.Bookmark, "Remove from saved", tint = Color.White)
-                        }
-                    }
-                    Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        VegMark(d.isVeg, size = 12.dp)
-                        Spacer(Modifier.width(4.dp))
-                        Text(d.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Text(
-                        Format.placeLine(d.restaurant.name, d.restaurant.locality, d.distanceM),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                val interaction = remember { MutableInteractionSource() }
+                Column(
+                    Modifier
+                        .animateItem()
+                        .pressScale(interaction, 0.97f)
+                        .clickable(interaction, indication = null, role = Role.Button) { onOpenDish(d.id) },
+                ) {
+                    DishImage(
+                        thumbOf(d), d.cover?.placeholderColor, d.name,
+                        Modifier.fillMaxWidth().aspectRatio(0.85f).clip(RoundedCornerShape(18.dp)),
                     )
+                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(d.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                Format.placeLine(d.restaurant.name, null, d.distanceM),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        EngageAction(Engagement.Save, true, "", null, "Remove from saved", { onUnsave(d) }, iconSize = 20.dp)
+                    }
                 }
             }
         }

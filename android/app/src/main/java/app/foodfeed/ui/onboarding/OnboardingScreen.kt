@@ -49,7 +49,8 @@ import app.foodfeed.data.City
 import app.foodfeed.data.DeviceLocation
 import app.foodfeed.data.SelectedCity
 import app.foodfeed.data.apiCall
-import app.foodfeed.ui.theme.BrandGradient
+import app.foodfeed.ui.components.PrimaryButton
+import app.foodfeed.ui.components.Wordmark
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -192,11 +193,7 @@ fun OnboardingContent(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        Box(
-            Modifier.size(72.dp).background(BrandGradient, RoundedCornerShape(22.dp)),
-            contentAlignment = Alignment.Center,
-        ) { Text("🍛", fontSize = 34.sp) }
-        Text("FoodFeed", style = MaterialTheme.typography.headlineMedium)
+        Wordmark(large = true)
         Text(
             "The dishes people in your city actually recommend, whatever the restaurant's rating.",
             style = MaterialTheme.typography.bodyLarge,
@@ -222,9 +219,10 @@ fun OnboardingContent(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Button(onClick = onConnect, enabled = !state.testing && state.serverInput.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Text(if (state.testing) "Connecting…" else "Connect")
-                }
+                PrimaryButton(
+                    if (state.testing) "Connecting…" else "Connect", onConnect, Modifier.fillMaxWidth(),
+                    enabled = !state.testing && state.serverInput.isNotBlank(),
+                )
             }
             OnboardingStep.City -> {
                 Text("Show dishes near you?", style = MaterialTheme.typography.titleMedium)
@@ -233,11 +231,10 @@ fun OnboardingContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(onClick = onDetect, enabled = !state.detecting, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Icon(Icons.Filled.LocationOn, null)
-                    Spacer(Modifier.size(6.dp))
-                    Text(if (state.detecting) "Finding your city…" else "Use my location")
-                }
+                PrimaryButton(
+                    if (state.detecting) "Finding your city…" else "Use my location", onDetect, Modifier.fillMaxWidth(),
+                    enabled = !state.detecting, leading = Icons.Filled.LocationOn,
+                )
                 state.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 Text("Or choose a city", style = MaterialTheme.typography.titleSmall)
                 Column {
@@ -245,7 +242,6 @@ fun OnboardingContent(
                         ListItem(
                             headlineContent = { Text(c.name) },
                             supportingContent = { Text(if (c.isActive) listOfNotNull(c.state, "Live").joinToString(" · ") else "Coming soon") },
-                            leadingContent = { Icon(Icons.Filled.LocationOn, null) },
                             modifier = if (c.isActive) Modifier.clickable { onChoose(c) } else Modifier,
                         )
                         HorizontalDivider()
