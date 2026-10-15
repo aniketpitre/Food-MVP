@@ -130,4 +130,5 @@ jobs:
             2. Open it and allow "Install unknown apps" for your browser or file manager when asked.
             3. Open FoodFeed and pick your city. The app connects to the FoodFeed server built into it; no setup needed.
 
-            The pilot APK is signed with a public test key so new versions install over old ones. Do not use it for a Play Store release.
+            Signed with the FoodFeed release key (SHA-256 `BE:1C:81:BE:…:FF:54:9E:FD`, full value in `android/keystore/RELEASE_KEY_FINGERPRINT.txt`).
+            Coming from 0.2.0 or older? Uninstall the old app once first: earlier builds used a different key.
