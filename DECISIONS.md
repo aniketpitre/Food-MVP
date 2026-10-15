@@ -17,3 +17,4 @@ One line per decision and why (plan section 11.6). Newest at the bottom.
 | 2026-10-15 | Demo content is drawn illustrations, labelled "DEMO IMAGE", and demo activity comes from `demo_` accounts behind a flag | No copyright questions; the flag and `remove-demo` command keep fake endorsements out of a real pilot. |
 | 2026-10-15 | Pilot APKs are signed with a committed public test key | Updates install over each other from GitHub Releases; must be replaced by a private key before Google Play. |
 | 2026-10-15 | Cleartext HTTP allowed in the app | Home/LAN pilots usually have no certificate. Turn it off once the server runs the `https` profile. |
+| 2026-10-15 | Releases signed with a private release key (fingerprint BE:1C:81:BE…:9E:FD), held in GitHub secrets and the owner's backups; CI verifies the fingerprint | Required for Android developer verification; the public test key must never be registered. One-time key, independent of where the backend is hosted. |

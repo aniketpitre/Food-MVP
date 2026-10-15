@@ -59,6 +59,31 @@ jobs:
           path: android/app/screenshots/
           if-no-files-found: ignore
 
+      - name: Release signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          IS_RELEASE: ${{ steps.version.outputs.release }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            {
+              echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks"
+              echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+              echo "SIGNED_WITH_RELEASE_KEY=true"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the private release key."
+          elif [[ "$IS_RELEASE" == "true" ]]; then
+            echo "::error::Releases must be signed with the private key. Add the ANDROID_KEYSTORE_* secrets (see README)."
+            exit 1
+          else
+            echo "::notice::No release key secrets; this build is signed with the public pilot test key."
+          fi
+
       - name: Build release APK
         env:
           # Optional repository variable to override serverUrl from android/gradle.properties.
@@ -68,6 +93,20 @@ jobs:
             -PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ github.run_number }}
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/FoodFeed-${{ steps.version.outputs.name }}.apk"
+
+      - name: Verify the APK signature
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$APKSIGNER" verify --print-certs dist/*.apk | tee signer.txt
+          actual=$(grep -m1 'SHA-256 digest' signer.txt | awk '{print $NF}' | tr 'a-f' 'A-F')
+          expected=$(grep -v '^#' keystore/RELEASE_KEY_FINGERPRINT.txt | tr -d ':[:space:]')
+          if [[ "$SIGNED_WITH_RELEASE_KEY" == "true" ]]; then
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::APK is signed with $actual but the registered release key is $expected"
+              exit 1
+            fi
+            echo "Signed with the registered release key ($expected)."
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

@@ -1,0 +1,6 @@
+# SHA-256 fingerprint of the FoodFeed release signing key (public information).
+# Owner: CN=Aniket Pitre, OU=Food-Feed, O=Food-Feed, L=Nashik, ST=Maharashtra, C=IN
+# Created 2026-10-15, valid until 2054-03-02. The key itself is NOT in this repository:
+# it lives in GitHub Actions secrets and in the owner's private backups.
+# CI refuses to publish a release whose APK is not signed with exactly this key.
+BE:1C:81:BE:33:67:FA:5B:81:43:E5:A7:64:5B:6D:BB:6E:1C:E3:B3:61:7C:8B:16:D9:B1:91:56:FF:54:9E:FD

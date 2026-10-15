@@ -84,9 +84,13 @@ The server address is built into the app from `serverUrl` in `android/gradle.pro
 publish a new release. Builds with an empty `serverUrl` ask for the address on first launch instead, which
 is handy for testing against a local server (`http://10.0.2.2:8080` from the emulator).
 
-Pilot APKs are signed with the public test key in `android/keystore/` so updates install over each other.
-For Google Play, create a private upload key and pass it via the `ANDROID_KEYSTORE_*` environment
-variables read in `android/app/build.gradle.kts`.
+Release APKs are signed with the owner's private key (SHA-256 fingerprint in
+`android/keystore/RELEASE_KEY_FINGERPRINT.txt`), supplied to CI through the repository secrets
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`.
+CI refuses to publish a release without them and checks every release APK against that fingerprint.
+The key is independent of where the backend runs; keep it backed up, because losing it means the app
+can no longer be updated. Builds without the secrets (forks, local) fall back to the public test key in
+`android/keystore/`.
 
 ## Develop
 
