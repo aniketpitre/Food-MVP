@@ -15,6 +15,16 @@ The UI borrows patterns people already know: an **Instagram**-style full-screen 
 Reels-like action rail, double-tap to recommend and story-style category rings; and **Swiggy**-style
 location header, veg/non-veg marks and menu-style dish rows with a Save button on the photo.
 
+## Screenshots
+
+Rendered by the app's screenshot tests with the illustrated demo data (refresh with the **Screenshots** workflow in GitHub Actions).
+
+| Feed | Hidden gems (dark) | Dish | Place |
+|---|---|---|---|
+| ![Feed](docs/screenshots/01_feed_top.jpg) | ![Hidden gem](docs/screenshots/02_feed_hidden_gem_dark.jpg) | ![Dish](docs/screenshots/05_dish_detail.jpg) | ![Place](docs/screenshots/06_restaurant.jpg) |
+| **Search** | **Saved** | **Post a dish** | **Profile** |
+| ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Add](docs/screenshots/09_add_dish.jpg) | ![Profile](docs/screenshots/10_profile.jpg) |
+
 ## Features in this MVP
 
 - Guest browsing (no sign-up wall); sign-in is asked for only on the first recommend, save or post, and the action completes right after sign-in.

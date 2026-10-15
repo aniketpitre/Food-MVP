@@ -113,7 +113,7 @@ class ScreenshotTest {
 
     private val categories = listOf(
         Category(1, "misal", "Misal", "🌶️"), Category(2, "snacks", "Vada Pav & Snacks", "🥟"),
-        Category(3, "south-indian", "Dosa & South Indian", "🫓"), Category(4, "biryani", "Biryani", "🍛"),
+        Category(3, "south-indian", "Dosa & South Indian", "🥞"), Category(4, "biryani", "Biryani", "🍛"),
         Category(5, "thali", "Thali", "🍱"), Category(6, "chai-coffee", "Chai & Coffee", "☕"),
     )
 

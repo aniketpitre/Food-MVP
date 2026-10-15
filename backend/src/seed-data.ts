@@ -11,7 +11,7 @@ export const cities = [
 export const categories = [
   { slug: 'misal', name: 'Misal', emoji: '🌶️' },
   { slug: 'snacks', name: 'Vada Pav & Snacks', emoji: '🥟' },
-  { slug: 'south-indian', name: 'Dosa & South Indian', emoji: '🫓' },
+  { slug: 'south-indian', name: 'Dosa & South Indian', emoji: '🥞' },
   { slug: 'biryani', name: 'Biryani', emoji: '🍛' },
   { slug: 'thali', name: 'Thali', emoji: '🍱' },
   { slug: 'chai-coffee', name: 'Chai & Coffee', emoji: '☕' },
