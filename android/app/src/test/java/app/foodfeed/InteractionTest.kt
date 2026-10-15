@@ -98,7 +98,9 @@ class InteractionTest {
         compose.waitForIdle()
         assertEquals(1, toggles.size)
         compose.onNodeWithContentDescription("Remove recommendation").assertIsDisplayed()
+        // A single tap only counts once the double-tap window (300 ms) has passed.
         compose.onNodeWithText("Kolhapuri Misal").performClick()
+        compose.mainClock.advanceTimeBy(500)
         compose.waitForIdle()
         assertEquals(1, opened)
     }
