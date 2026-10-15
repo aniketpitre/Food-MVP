@@ -70,11 +70,12 @@ The database is not exposed outside Docker; only the API is. Photos are stored i
 
 ## Install the Android app
 
-Every push builds an APK in GitHub Actions (artifact **FoodFeed-apk**). Pushing a tag like `v0.1.0`
-publishes it on the [Releases page](https://github.com/aniketpitre/Food-MVP/releases):
+Every push builds an APK in GitHub Actions (artifact **FoodFeed-apk**). To publish one on the
+[Releases page](https://github.com/aniketpitre/Food-MVP/releases), either run **Actions → Android → Run
+workflow** with a version such as `0.2.0`, or push a tag:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 On the phone: download the APK from Releases, allow "Install unknown apps", open FoodFeed and enter your
