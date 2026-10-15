@@ -64,7 +64,9 @@ fun SettingsScreen(
             Text("Settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 10.dp))
         }
         Item(Icons.Filled.LocationOn, "City", city?.name ?: "Not chosen", onChangeCity)
-        Item(Icons.Filled.Settings, "Server", server.ifBlank { "Not set" }, onChangeServer)
+        if (BuildConfig.DEFAULT_SERVER_URL.isBlank()) {
+            Item(Icons.Filled.Settings, "Server", server.ifBlank { "Not set" }, onChangeServer)
+        }
         HorizontalDivider()
         if (session == null) {
             Item(Icons.Filled.Lock, "Sign in", "Recommend, save and post dishes", onSignIn)

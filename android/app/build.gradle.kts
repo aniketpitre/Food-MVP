@@ -6,12 +6,12 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
-// Version and server address can be set by CI:
+// Version and server address can be set by CI (the server defaults to serverUrl in gradle.properties):
 //   ./gradlew assembleRelease -PversionName=0.2.0 -PversionCode=3 -PserverUrl=https://food.example.com
 val appVersionName = (findProperty("versionName") as String?) ?: "0.1.0"
 val appVersionCode = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-val defaultServerUrl = (findProperty("serverUrl") as String?)
-    ?: System.getenv("FOODFEED_SERVER_URL")
+val defaultServerUrl = System.getenv("FOODFEED_SERVER_URL")?.takeIf { it.isNotBlank() }
+    ?: (findProperty("serverUrl") as String?)
     ?: ""
 
 android {

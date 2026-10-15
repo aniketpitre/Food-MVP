@@ -42,6 +42,7 @@ import androidx.compose.foundation.clickable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.foodfeed.BuildConfig
 import app.foodfeed.data.ApiException
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.City
@@ -250,7 +251,10 @@ fun OnboardingContent(
                         HorizontalDivider()
                     }
                 }
-                TextButton(onClick = onChangeServer) { Text("Use a different server") }
+                // Builds with a server baked in behave like a normal app: no server choice at all.
+                if (BuildConfig.DEFAULT_SERVER_URL.isBlank()) {
+                    TextButton(onClick = onChangeServer) { Text("Use a different server") }
+                }
             }
         }
     }

@@ -61,7 +61,7 @@ jobs:
 
       - name: Build release APK
         env:
-          # Optional repository variable: bakes your server address into the app so testers skip setup.
+          # Optional repository variable to override serverUrl from android/gradle.properties.
           FOODFEED_SERVER_URL: ${{ vars.FOODFEED_SERVER_URL }}
         run: |
           ./gradlew --no-daemon assembleRelease \
@@ -89,6 +89,6 @@ jobs:
 
             1. Download `FoodFeed-${{ steps.version.outputs.name }}.apk` below on your phone.
             2. Open it and allow "Install unknown apps" for your browser or file manager when asked.
-            3. On first launch, enter your server address (for example `http://192.168.1.20:8080`) unless this build already includes one.
+            3. Open FoodFeed and pick your city. The app connects to the FoodFeed server built into it; no setup needed.
 
             The pilot APK is signed with a public test key so new versions install over old ones. Do not use it for a Play Store release.

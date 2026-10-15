@@ -78,10 +78,11 @@ workflow** with a version such as `0.2.0`, or push a tag:
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-On the phone: download the APK from Releases, allow "Install unknown apps", open FoodFeed and enter your
-server address, e.g. `http://192.168.1.20:8080` (the phone must reach that address; on the same Wi-Fi use
-the server's LAN IP). To skip that step for testers, set a repository variable
-`FOODFEED_SERVER_URL` (Settings → Secrets and variables → Actions → Variables) before tagging.
+On the phone: download the APK from Releases, allow "Install unknown apps", open FoodFeed and pick a city.
+The server address is built into the app from `serverUrl` in `android/gradle.properties`
+(currently `https://foodfeed-aniket.eastus.cloudapp.azure.com`). If the server moves, change that line and
+publish a new release. Builds with an empty `serverUrl` ask for the address on first launch instead, which
+is handy for testing against a local server (`http://10.0.2.2:8080` from the emulator).
 
 Pilot APKs are signed with the public test key in `android/keystore/` so updates install over each other.
 For Google Play, create a private upload key and pass it via the `ANDROID_KEYSTORE_*` environment
