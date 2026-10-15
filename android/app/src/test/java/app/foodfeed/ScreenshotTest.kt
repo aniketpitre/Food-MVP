@@ -58,7 +58,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 /**
- * Renders each screen with sample data into app/screenshots/*.png (run with
+ * Renders each screen with sample data into PNGs under app/screenshots (run with
  * `./gradlew recordRoborazziDebug`). CI uploads them so the UI can be reviewed without a phone.
  * The images are the demo dish illustrations from backend/seed/images.
  */
