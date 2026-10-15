@@ -117,6 +117,7 @@ class ScreenshotTest {
         Category(5, "thali", "Thali", "🍱"), Category(6, "chai-coffee", "Chai & Coffee", "☕"),
     )
 
+    @Composable
     private fun feed(state: FeedUiState) = FeedContent(
         state = state,
         engagementOf = { EngagementState(it.stats, it.me) },
