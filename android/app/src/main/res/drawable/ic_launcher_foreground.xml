@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A bowl with steam and a dot: "the dish, here". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,52h48c0,13.25 -10.75,24 -24,24S30,65.25 30,52z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M27,48h54a2,2 0,0 1,2 2v0a2,2 0,0 1,-2 2H27a2,2 0,0 1,-2 -2v0a2,2 0,0 1,2 -2z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M44,42c-3,-4 3,-6 0,-11M54,42c-3,-4 3,-6 0,-11M64,42c-3,-4 3,-6 0,-11" />
+    <path
+        android:fillColor="#FFD7C2"
+        android:pathData="M49,58a5,5 0,1 1,10 0a5,5 0,1 1,-10 0z" />
+</vector>

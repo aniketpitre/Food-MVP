@@ -1,0 +1,77 @@
+name: Android
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=0.1.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Unit tests and screenshot tests
+        run: ./gradlew --no-daemon testDebugUnitTest recordRoborazziDebug
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: android/app/screenshots/
+          if-no-files-found: ignore
+
+      - name: Build release APK
+        env:
+          # Optional repository variable: bakes your server address into the app so testers skip setup.
+          FOODFEED_SERVER_URL: ${{ vars.FOODFEED_SERVER_URL }}
+        run: |
+          ./gradlew --no-daemon assembleRelease \
+            -PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ github.run_number }}
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/FoodFeed-${{ steps.version.outputs.name }}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FoodFeed-apk
+          path: android/dist/*.apk
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/dist/*.apk
+          generate_release_notes: true
+          body: |
+            **FoodFeed pilot build ${{ steps.version.outputs.name }}** (Android 8.0+)
+
+            1. Download `FoodFeed-${{ steps.version.outputs.name }}.apk` below on your phone.
+            2. Open it and allow "Install unknown apps" for your browser or file manager when asked.
+            3. On first launch, enter your server address (for example `http://192.168.1.20:8080`) unless this build already includes one.
+
+            The pilot APK is signed with a public test key so new versions install over old ones. Do not use it for a Play Store release.

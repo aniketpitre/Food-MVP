@@ -121,6 +121,7 @@ describe('browsing as a guest', () => {
   it('finds the nearest active city and says when you are out of range', async () => {
     const near = (await app.inject(`/cities/nearest?lat=20.01&lng=73.78`)).json();
     expect(near).toMatchObject({ city: { slug: 'nashik' }, inRange: true });
+    expect(typeof near.city.distanceKm).toBe('number');
     const far = (await app.inject(`/cities/nearest?lat=28.61&lng=77.2`)).json();
     expect(far.inRange).toBe(false);
   });

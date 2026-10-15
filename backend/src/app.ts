@@ -78,7 +78,7 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean 
     immutable: true,
   });
 
-  app.get('/health', async () => {
+  app.get('/health', { logLevel: 'warn' }, async () => {
     await db.query('select 1');
     return { ok: true };
   });

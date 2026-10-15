@@ -1,0 +1,72 @@
+package app.foodfeed.data
+
+import kotlinx.serialization.json.Json
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import retrofit2.HttpException
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+val AppJson = Json {
+    ignoreUnknownKeys = true
+    explicitNulls = false
+    coerceInputValues = true
+}
+
+/** An error the user can read: the server's own message, or a plain network message. */
+class ApiException(val code: String, override val message: String, val status: Int = 0) : Exception(message)
+
+fun Throwable.toApiException(): ApiException = when (this) {
+    is ApiException -> this
+    is HttpException -> {
+        val body = response()?.errorBody()?.string()
+        val parsed = body?.let { runCatching { AppJson.decodeFromString(ApiError.serializer(), it) }.getOrNull() }
+        ApiException(parsed?.error ?: "http_${code()}", parsed?.message ?: "The server answered ${code()}.", code())
+    }
+    is IOException -> ApiException("offline", "Can't reach the FoodFeed server. Check your connection.")
+    is kotlinx.serialization.SerializationException ->
+        ApiException("bad_response", "The server sent something this app version doesn't understand.")
+    else -> ApiException("unknown", message ?: "Something went wrong.")
+}
+
+/** Runs a call and turns any failure into an [ApiException]. */
+suspend inline fun <T> apiCall(crossinline block: suspend () -> T): T =
+    try {
+        block()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        throw e.toApiException()
+    }
+
+fun normaliseServerUrl(raw: String): String {
+    var url = raw.trim().trimEnd('/')
+    if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) url = "http://$url"
+    return url
+}
+
+class NetworkFactory(private val tokenProvider: () -> String?) {
+    val okHttp: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .addInterceptor(Interceptor { chain ->
+            val token = tokenProvider()
+            val req = chain.request().newBuilder().apply {
+                if (token != null) header("Authorization", "Bearer $token")
+                header("Accept", "application/json")
+            }.build()
+            chain.proceed(req)
+        })
+        .build()
+
+    fun api(baseUrl: String): FoodFeedApi = Retrofit.Builder()
+        .baseUrl("${normaliseServerUrl(baseUrl)}/")
+        .client(okHttp)
+        .addConverterFactory(AppJson.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(FoodFeedApi::class.java)
+}

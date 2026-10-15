@@ -28,7 +28,7 @@ export async function browseRoutes(app: FastifyInstance) {
     if (!q) return;
     const { rows } = await db.query(
       `select id, slug, name, state, radius_km as "radiusKm",
-              round(st_distance(center, st_setsrid(st_makepoint($2, $1), 4326)::geography) / 1000) as "distanceKm"
+              round(st_distance(center, st_setsrid(st_makepoint($2, $1), 4326)::geography) / 1000)::int as "distanceKm"
        from cities where is_active
        order by center <-> st_setsrid(st_makepoint($2, $1), 4326)::geography limit 1`,
       [q.lat, q.lng],
@@ -135,7 +135,7 @@ export async function browseRoutes(app: FastifyInstance) {
               price_band as "priceBand", status, created_by as "createdBy",
               st_y(geo::geometry) as lat, st_x(geo::geometry) as lng,
               case when $2::float8 is not null and $3::float8 is not null
-                   then round(st_distance(geo, st_setsrid(st_makepoint($3, $2), 4326)::geography)) end as "distanceM"
+                   then round(st_distance(geo, st_setsrid(st_makepoint($3, $2), 4326)::geography))::int end as "distanceM"
        from restaurants where id = $1`,
       [p.id, q.lat ?? null, q.lng ?? null],
     );
@@ -236,7 +236,7 @@ export async function browseRoutes(app: FastifyInstance) {
     if (!q) return;
     const { rows } = await db.query(
       `select id, name, locality,
-              round(st_distance(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography)) as "distanceM"
+              round(st_distance(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography))::int as "distanceM"
        from restaurants
        where status = 'active'
          and st_dwithin(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography, $3)
