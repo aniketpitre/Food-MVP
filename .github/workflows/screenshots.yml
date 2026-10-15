@@ -20,7 +20,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Record screenshots
         working-directory: android
-        run: ./gradlew --no-daemon recordRoborazziDebug
+        run: ./gradlew --no-daemon --no-build-cache recordRoborazziDebug
       - name: Shrink and commit
         run: |
           pip install --quiet pillow

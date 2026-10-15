@@ -114,3 +114,8 @@ dependencies {
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
 }
+
+tasks.withType<Test>().configureEach {
+    // Screenshot tests write PNGs here; declaring it lets the build cache restore them too.
+    outputs.dir(layout.projectDirectory.dir("screenshots"))
+}

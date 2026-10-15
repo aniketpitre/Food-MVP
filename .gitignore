@@ -18,3 +18,4 @@ android/.kotlin/
 *.keystore
 *.jks
 !android/keystore/pilot-debug.keystore
+android/app/screenshots/
