@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Self-hosted pilots often run on a LAN address over plain HTTP, so cleartext is allowed.
-     Once your server has HTTPS (docker compose --profile https), set cleartextTrafficPermitted to false. -->
+     Once your server has HTTPS (the compose "https" profile), set cleartextTrafficPermitted to false. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>

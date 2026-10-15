@@ -109,7 +109,7 @@ fun SettingsScreen(
 private fun Item(icon: ImageVector, title: String, subtitle: String?, onClick: (() -> Unit)?) {
     ListItem(
         headlineContent = { Text(title) },
-        supportingContent = subtitle?.let { { Text(it) } },
+        supportingContent = if (subtitle != null) { { Text(subtitle) } } else null,
         leadingContent = { Icon(icon, null) },
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
     )

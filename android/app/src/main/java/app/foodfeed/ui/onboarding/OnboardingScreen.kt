@@ -217,7 +217,7 @@ fun OnboardingContent(
                     label = { Text("Server address") },
                     singleLine = true,
                     isError = state.serverError != null,
-                    supportingText = state.serverError?.let { { Text(it) } },
+                    supportingText = if (state.serverError != null) { { Text(state.serverError) } } else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
                 )
