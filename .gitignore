@@ -1,0 +1,20 @@
+.env
+backups/
+node_modules/
+backend/dist/
+backend/data/
+*.log
+.DS_Store
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/captures/
+android/.kotlin/
+*.keystore
+*.jks
+!android/keystore/pilot-debug.keystore
