@@ -6,7 +6,19 @@ BASE="${1:-http://localhost:8080}"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31m✗ %s\033[0m\n' "$1"; exit 1; }
-json() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);console.log(eval('o'+process.argv[1]))})" "$1"; }
+# Reads a field from JSON on stdin, e.g. json .items.length or json [0].id (uses node, else python3).
+json() {
+  if command -v node >/dev/null 2>&1; then
+    node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);console.log(eval('o'+process.argv[1]))})" "$1"
+  else
+    python3 -c '
+import json, re, sys
+o = json.load(sys.stdin)
+for key, idx in re.findall(r"\.(\w+)|\[(\d+)\]", sys.argv[1]):
+    o = len(o) if key == "length" else (o[int(idx)] if idx else o[key])
+print("true" if o is True else "false" if o is False else o)' "$1"
+  fi
+}
 
 echo "FoodFeed smoke test against $BASE"
 [ "$(curl -fsS "$BASE/health" | json .ok)" = "true" ] && pass "health" || fail "health"
