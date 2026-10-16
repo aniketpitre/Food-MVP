@@ -6,6 +6,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import app.foodfeed.ui.components.DashedLine
 import app.foodfeed.ui.components.KickerText
 import app.foodfeed.ui.components.PrimaryButton
@@ -33,7 +39,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -130,15 +135,21 @@ fun RestaurantContent(
                 }
                 Reveal(0) {
                     // The place as a big restaurant token: name on top, perforation, then the numbers.
+                    // The notches follow the perforation, wherever the name's length puts it.
+                    var stub by remember { mutableStateOf(120.dp) }
+                    val density = LocalDensity.current
                     Column(
                         Modifier
                             .padding(horizontal = 16.dp)
                             .fillMaxWidth()
-                            .clip(TicketShape(corner = 28.dp, notch = 13.dp, notchFromTop = 150.dp))
+                            .clip(TicketShape(corner = 28.dp, notch = 13.dp, notchFromTop = stub))
                             .background(MaterialTheme.colorScheme.primaryContainer),
                     ) {
                         Column(
-                            Modifier.height(150.dp).padding(horizontal = 22.dp, vertical = 18.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .onSizeChanged { stub = with(density) { it.height.toDp() } }
+                                .padding(horizontal = 22.dp, vertical = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             KickerText(

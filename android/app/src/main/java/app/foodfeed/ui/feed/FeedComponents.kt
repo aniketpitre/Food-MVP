@@ -520,16 +520,16 @@ fun DishPage(
                 Text(
                     if (n > 0) {
                         buildAnnotatedString {
-                            append("Recommended by ")
-                            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) {
-                                append(if (n == 1) "1 person" else "${Format.compact(n)} people")
-                            }
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.White)) { append(Format.compact(n)) }
+                            append(if (n == 1) " person recommends" else " people recommend")
                         }
                     } else {
                         buildAnnotatedString { append(Format.recommended(0)) }
                     },
                     color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -582,7 +582,7 @@ fun DishPage(
 }
 
 /**
- * The double-tap heart, at the finger: a chili heart with a white rim springs up from
+ * The double-tap heart, at the finger: a white heart with a chili rim springs up from
  * nothing with a tilt, a shockwave ring and a spray of spice confetti burst around it, it
  * holds for a beat, then floats up, shrinks and fades. Alternate taps tilt the other way.
  */
@@ -633,8 +633,8 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.fillMaxSize())
-                Icon(Icons.Filled.Favorite, null, tint = Chili, modifier = Modifier.fillMaxSize(0.84f))
+                Icon(Icons.Filled.Favorite, null, tint = Chili, modifier = Modifier.fillMaxSize())
+                Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.fillMaxSize(0.8f))
             }
         }
     }

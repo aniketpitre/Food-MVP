@@ -11,9 +11,11 @@ The repository has two parts:
 | [`backend/`](backend) | Self-hosted API, database and photo storage | Node 22 + Fastify, Postgres 16 + PostGIS, Docker Compose |
 | [`android/`](android) | The Android app (Android 8.0+) | Kotlin, Jetpack Compose, Material 3, Coil, Retrofit |
 
-The UI borrows patterns people already know: an **Instagram**-style full-screen vertical feed with a
-Reels-like action rail, double-tap to recommend and story-style category rings; and **Swiggy**-style
-location header, veg/non-veg marks and menu-style dish rows with a Save button on the photo.
+The look is a **street-food zine**: warm cream paper, tamarind ink and a saffron signature, with
+loud spice accents used like stickers on a menu board (chili for "recommended", turmeric price
+tags, mint for veg). Headlines are set in Bricolage Grotesque (OFL, bundled). The feed is a
+full-screen vertical deck with a Reels-style action rail; lists are menu cards; places are paper
+tokens with notches and a perforation.
 
 ## Screenshots
 
@@ -22,8 +24,39 @@ Rendered by the app's screenshot tests with the illustrated demo data (refresh w
 | Feed | Hidden gems (dark) | Dish | Place |
 |---|---|---|---|
 | ![Feed](docs/screenshots/01_feed_top.jpg) | ![Hidden gem](docs/screenshots/02_feed_hidden_gem_dark.jpg) | ![Dish](docs/screenshots/05_dish_detail.jpg) | ![Place](docs/screenshots/06_restaurant.jpg) |
-| **Search** | **Saved** | **Post a dish** | **Profile** |
-| ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Add](docs/screenshots/09_add_dish.jpg) | ![Profile](docs/screenshots/10_profile.jpg) |
+| **Search** | **Saved** | **Welcome** | **Profile** |
+| ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Welcome](docs/screenshots/12_onboarding_city.jpg) | ![Profile](docs/screenshots/10_profile.jpg) |
+
+## Motion
+
+Recorded frame by frame from the real composables (`MotionTest`) and stitched into GIFs by the
+Screenshots workflow.
+
+| Card landing | Double-tap | Recommend |
+|---|---|---|
+| ![Card landing](docs/motion/card_landing.gif) | ![Double tap](docs/motion/double_tap.gif) | ![Recommend](docs/motion/recommend_tile.gif) |
+
+| Liquid tab dock | Squiggle tabs |
+|---|---|
+| ![Dock](docs/motion/liquid_dock.gif) | ![Tabs](docs/motion/tab_squiggle.gif) |
+
+The motion rules (all in `ui/theme/Motion.kt`):
+
+- **Choreography, not dumping.** When a card lands, the photo settles from a push-in first, then
+  the title rises out of a mask, the sticker slaps on with an overshoot and a swing, and the
+  details and action rail cascade in 60-90 ms apart. One progress value drives the whole sequence,
+  so it costs one animation and no recomposition.
+- **Deal like a deck.** Swiping, the outgoing card holds back, shrinks and dims while the next card
+  slides over it.
+- **Celebrate the good stuff.** Recommend, save and tried squash, fill with their colour and burst
+  with a ring and spice confetti; the double-tap heart appears under your finger.
+- **Liquid, not sliding.** The tab dock's blob leads with a stiff spring and trails with a soft one,
+  so it stretches and thins as it travels, then snaps back round. The feed tabs' squiggle rolls its
+  wave as it moves and redraws itself.
+- **Hero photos.** A dish photo morphs from wherever you tapped it (feed card, list row, polaroid,
+  tile) into the dish page, and back.
+- Everything that follows a finger is a spring, so it can be interrupted mid-flight; nothing loops
+  except the loading shimmer.
 
 ## Features in this MVP
 
