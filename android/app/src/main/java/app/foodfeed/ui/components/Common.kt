@@ -146,6 +146,16 @@ fun Avatar(
     }
 }
 
+/** Overlapping faces of recent recommenders. */
+@Composable
+fun AvatarStack(people: List<UserRef>, ringColor: Color, size: Dp = 20.dp, max: Int = 3) {
+    Box {
+        people.take(max).forEachIndexed { i, p ->
+            Avatar(p.handle, p.displayName, size, Modifier.offset(x = (size * 0.66f) * i), ring = ringColor, photo = p.avatarUrl)
+        }
+    }
+}
+
 /** A small text tag. Over photos it is a dark glass chip; elsewhere it is plain muted text on a tint. */
 @Composable
 fun Tag(text: String, onPhoto: Boolean = false, modifier: Modifier = Modifier) {
