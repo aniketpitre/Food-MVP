@@ -131,6 +131,9 @@ fun AdminScreen(vm: AdminViewModel, onBack: () -> Unit, onOpenDish: (String) -> 
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     if (r.targetType == "user") {
                                         TextButton(onClick = { vm.act({ apiCall { app.api.adminDismissUser(r.targetId) } }, showMessage, "Dismissed") }) { Text("Dismiss") }
+                                    } else if (r.targetType == "message" || r.targetType == "story") {
+                                        TextButton(onClick = { vm.act({ apiCall { app.api.adminTalk(r.targetType, r.targetId, "remove") } }, showMessage, "Removed") }) { Text("Remove") }
+                                        TextButton(onClick = { vm.act({ apiCall { app.api.adminTalk(r.targetType, r.targetId, "dismiss") } }, showMessage, "Dismissed") }) { Text("Dismiss") }
                                     } else {
                                         val type = when (r.targetType) { "post" -> "posts"; "comment" -> "comments"; else -> "dishes" }
                                         if (r.status == "hidden") {

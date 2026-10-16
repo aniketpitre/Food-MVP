@@ -1,5 +1,19 @@
 package app.foodfeed.ui
 
+import app.foodfeed.ui.messages.InboxScreen
+import app.foodfeed.ui.messages.InboxViewModel
+import app.foodfeed.ui.messages.ChatScreen
+import app.foodfeed.ui.messages.ChatViewModel
+import app.foodfeed.ui.stories.StoryViewerScreen
+import app.foodfeed.ui.stories.StoryViewerViewModel
+import app.foodfeed.ui.stories.StoryComposerScreen
+import app.foodfeed.ui.stories.StoryComposerViewModel
+import app.foodfeed.data.OpenChat
+import app.foodfeed.data.ApiException
+import app.foodfeed.data.apiCall
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.EnterTransition
@@ -87,12 +101,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.DeviceLocation
 import app.foodfeed.ui.activity.ActivityScreen
@@ -132,7 +144,6 @@ import app.foodfeed.ui.saved.SavedScreen
 import app.foodfeed.ui.saved.SavedViewModel
 import app.foodfeed.ui.search.SearchScreen
 import app.foodfeed.ui.search.SearchViewModel
-import kotlinx.coroutines.launch
 
 object Routes {
     const val HOME = "home"
@@ -154,6 +165,14 @@ object Routes {
     const val SETTINGS = "settings"
     const val ADMIN = "admin"
     const val SETUP = "setup?step={step}"
+    const val INBOX = "inbox"
+    const val CHAT = "chat/{id}"
+    const val STORIES = "stories/{start}"
+    const val USER_STORIES = "user-stories/{handle}"
+    const val NEW_STORY = "new-story"
+    fun chat(id: String) = "chat/$id"
+    fun stories(start: Int) = "stories/$start"
+    fun userStories(handle: String) = "user-stories/$handle"
     fun dish(id: String) = "dish/$id"
     fun restaurant(id: String) = "restaurant/$id"
     fun user(handle: String) = "user/$handle"
@@ -279,6 +298,37 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                 val openRestaurant: (String) -> Unit = { nav.navigate(Routes.restaurant(it)) }
                 val openUser: (String) -> Unit = { nav.navigate(Routes.user(it)) }
                 val signIn: () -> Unit = { nav.navigate(Routes.AUTH) }
+                val openChatWith: suspend (String) -> Unit = { handle ->
+                    try {
+                        nav.navigate(Routes.chat(apiCall { app.api.openChat(OpenChat(handle)) }.id))
+                    } catch (e: ApiException) {
+                        showMessage(e.message)
+                    }
+                }
+
+                composable(Routes.INBOX) {
+                    val vm = appViewModel { InboxViewModel(it) }
+                    InboxScreen(vm, { nav.popBackStack() }, { nav.navigate(Routes.chat(it)) }, signIn, showMessage)
+                }
+                composable(Routes.CHAT, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                    val id = entry.arguments?.getString("id").orEmpty()
+                    val vm = appViewModel(key = "chat-$id") { ChatViewModel(it, id) }
+                    ChatScreen(vm, { nav.popBackStack() }, openUser, openDish, showMessage)
+                }
+                composable(Routes.STORIES, arguments = listOf(navArgument("start") { type = NavType.IntType })) { entry ->
+                    val start = entry.arguments?.getInt("start") ?: 0
+                    val vm = appViewModel(key = "stories-$start") { StoryViewerViewModel(it, null, start) }
+                    StoryViewerScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                }
+                composable(Routes.USER_STORIES) { entry ->
+                    val handle = entry.arguments?.getString("handle").orEmpty()
+                    val vm = appViewModel(key = "user-stories-$handle") { StoryViewerViewModel(it, handle, 0) }
+                    StoryViewerScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                }
+                composable(Routes.NEW_STORY) {
+                    val vm = appViewModel { StoryComposerViewModel(it) }
+                    StoryComposerScreen(vm, { nav.popBackStack() }, signIn, showMessage)
+                }
 
                 composable(Routes.SETUP, arguments = listOf(navArgument("step") { type = NavType.StringType; nullable = true })) { entry ->
                     val step = entry.arguments?.getString("step")?.let { OnboardingStep.valueOf(it) }
@@ -300,6 +350,9 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                                 onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
                                 onExplore = { nav.navigateToTab(Routes.FEED) },
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
+                                onOpenStory = { nav.navigate(Routes.stories(it)) },
+                                onAddStory = { if (app.session.value == null) signIn() else nav.navigate(Routes.NEW_STORY) },
+                                onInbox = { nav.navigate(Routes.INBOX) },
                             )
                         }
                     }
@@ -367,6 +420,8 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                                 vm, true, null, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage,
                                 onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
                                 onFollows = { h, f -> nav.navigate(Routes.follows(h, f)) },
+                                onMessage = { h -> scope.launch { openChatWith(h) } },
+                                onOpenStory = { h -> nav.navigate(Routes.userStories(h)) },
                             )
                         }
                     }
@@ -380,6 +435,8 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                                 vm, false, { nav.popBackStack() }, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage,
                                 onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
                                 onFollows = { h, f -> nav.navigate(Routes.follows(h, f)) },
+                                onMessage = { h -> scope.launch { openChatWith(h) } },
+                                onOpenStory = { h -> nav.navigate(Routes.userStories(h)) },
                             )
                         }
                     }

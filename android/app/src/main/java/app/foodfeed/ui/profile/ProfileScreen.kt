@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,6 +116,9 @@ data class ProfileUiState(
     val tab: ProfileTab = ProfileTab.Posts,
     val loved: List<DishCard>? = null,
     val saved: List<DishCard>? = null,
+    /** They have a live story: their photo gets a ring you can tap. */
+    val hasStory: Boolean = false,
+    val storySeen: Boolean = false,
 )
 
 class ProfileViewModel(private val app: AppContainer, private val handle: String?) : ViewModel() {
@@ -141,6 +145,9 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
                 val p = apiCall { app.api.user(target) }
                 _state.update { it.copy(loading = false, profile = p, loved = null, saved = null) }
                 loadTab(_state.value.tab)
+                runCatching { apiCall { app.api.userStories(target) } }.onSuccess { r ->
+                    _state.update { it.copy(hasStory = r.stories.isNotEmpty(), storySeen = r.allSeen) }
+                }
             } catch (e: ApiException) {
                 _state.update { it.copy(loading = false, error = e.message) }
             }
@@ -210,6 +217,8 @@ fun ProfileScreen(
     showMessage: (String) -> Unit,
     onEditProfile: () -> Unit = {},
     onFollows: (handle: String, followers: Boolean) -> Unit = { _, _ -> },
+    onMessage: (String) -> Unit = {},
+    onOpenStory: (String) -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -245,6 +254,8 @@ fun ProfileScreen(
             onTab = vm::selectTab,
             onBlockToggle = { if (session == null) onSignIn() else vm.toggleBlock(showMessage) },
             onReport = { if (session == null) onSignIn() else reporting = true },
+            onMessage = { if (session == null) onSignIn() else onMessage(it) },
+            onOpenStory = onOpenStory,
             onShare = { handle ->
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
@@ -278,6 +289,8 @@ fun ProfileContent(
     onBlockToggle: () -> Unit,
     onReport: () -> Unit,
     onShare: (String) -> Unit,
+    onMessage: (String) -> Unit = {},
+    onOpenStory: (String) -> Unit = {},
 ) {
     val profile = state.profile ?: return
     var menu by remember { mutableStateOf(false) }
@@ -311,7 +324,7 @@ fun ProfileContent(
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SpiceRingAvatar(profile)
+                    SpiceRingAvatar(profile, state.hasStory, state.storySeen) { onOpenStory(profile.handle) }
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly) {
                         Count(profile.postCount, "posts", null)
                         Count(profile.followers, "followers") { onFollows(profile.handle, true) }
@@ -363,7 +376,8 @@ fun ProfileContent(
                         QuietButton("Share", { onShare(profile.handle) }, Modifier.weight(1f), leading = Icons.Outlined.Share)
                     } else {
                         FollowButton(profile.isFollowing, onFollow, Modifier.weight(1f), followsYou = profile.followsYou)
-                        QuietButton("Share", { onShare(profile.handle) }, Modifier.weight(1f), leading = Icons.Outlined.Share)
+                        QuietButton("Message", { onMessage(profile.handle) }, Modifier.weight(1f))
+                        QuietButton("", { onShare(profile.handle) }, leading = Icons.Outlined.Share)
                     }
                 }
                 ProfileTabs(tabs, state.tab, onTab)
@@ -402,17 +416,20 @@ fun ProfileContent(
 
 /** The profile photo inside a spice-coloured ring that spins once into place. */
 @Composable
-private fun SpiceRingAvatar(profile: UserProfile) {
+private fun SpiceRingAvatar(profile: UserProfile, hasStory: Boolean = false, storySeen: Boolean = false, onOpenStory: () -> Unit = {}) {
     val spin = remember { Animatable(0f) }
     LaunchedEffect(Unit) { spin.animateTo(1f, tween(1000, easing = Motion.EmphasizedDecelerate)) }
+    // A live story thickens the ring (grey once watched) and makes the photo open it.
+    val ring = if (hasStory && storySeen) listOf(Color.Gray, Color.Gray) else listOf(Saffron, Turmeric, Chili, Saffron)
     Box(
         Modifier
             .size(92.dp)
+            .then(if (hasStory) Modifier.clip(CircleShape).clickable(onClick = onOpenStory) else Modifier)
             .graphicsLayer { rotationZ = -200f * (1f - spin.value) }
             .drawBehind {
                 drawCircle(
-                    Brush.sweepGradient(listOf(Saffron, Turmeric, Chili, Saffron)),
-                    style = Stroke(width = 3.5.dp.toPx()),
+                    Brush.sweepGradient(ring),
+                    style = Stroke(width = (if (hasStory) 4.5.dp else 3.5.dp).toPx()),
                     radius = size.minDimension / 2 - 2.dp.toPx(),
                 )
             },

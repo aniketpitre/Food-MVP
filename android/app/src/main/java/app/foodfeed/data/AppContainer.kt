@@ -89,6 +89,12 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
 
     /** Unread Activity items, refreshed every minute while signed in. */
     val unreadActivity = MutableStateFlow(0)
+
+    /** The stories tray as Home last loaded it; the story viewer pages through the same list. */
+    val storyTray = MutableStateFlow<List<StoryReel>>(emptyList())
+
+    /** Chats with something new plus waiting message requests: the badge on the messages button. */
+    val unreadMessages = MutableStateFlow(0)
     private val network = NetworkFactory { session.value?.token }
     val okHttp get() = network.okHttp
 
@@ -192,9 +198,16 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     suspend fun refreshUnread() {
         if (_session.value == null) {
             unreadActivity.value = 0
+            unreadMessages.value = 0
             return
         }
         runCatching { apiCall { api.unread() } }.onSuccess { unreadActivity.value = it.count }
+        refreshUnreadMessages()
+    }
+
+    suspend fun refreshUnreadMessages() {
+        if (_session.value == null) return
+        runCatching { apiCall { api.inboxUnread() } }.onSuccess { unreadMessages.value = it.chats + it.requests }
     }
 
     private suspend fun activityLoop() {
@@ -235,6 +248,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     suspend fun signOut() {
         _session.value = null
         unreadActivity.value = 0
+        unreadMessages.value = 0
         prefs.saveSession(null, null)
         _overrides.value = emptyMap()
         pendingAction = null
@@ -290,6 +304,18 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
             add(MultipartBody.Part.createFormData("image", "dish.jpg", jpeg.toRequestBody("image/jpeg".toMediaType())))
         }
         val created = apiCall { api.createPost(parts) }
+        contentVersion.update { it + 1 }
+        return created
+    }
+
+    /** Posts a 24-hour story: a photo plus optional caption and dish or place tag. */
+    suspend fun createStory(fields: Map<String, String>, jpeg: ByteArray): StoryCreated {
+        val parts = buildList {
+            fields.forEach { (k, v) -> add(MultipartBody.Part.createFormData(k, v)) }
+            _city.value?.let { add(MultipartBody.Part.createFormData("cityId", it.id.toString())) }
+            add(MultipartBody.Part.createFormData("image", "story.jpg", jpeg.toRequestBody("image/jpeg".toMediaType())))
+        }
+        val created = apiCall { api.createStory(parts) }
         contentVersion.update { it + 1 }
         return created
     }

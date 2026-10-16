@@ -16,7 +16,7 @@ object Format {
 
     /** Instagram-style age: "now", "5m", "3h", "2d", "4w", then a date. */
     fun timeAgo(iso: String, now: Long = System.currentTimeMillis()): String {
-        val then = runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull() ?: return ""
+        val then = epochMillis(iso) ?: return ""
         val s = ((now - then) / 1000).coerceAtLeast(0)
         return when {
             s < 60 -> "now"
@@ -27,6 +27,11 @@ object Format {
             else -> java.time.Instant.ofEpochMilli(then).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
         }
     }
+
+    /** Parses server times, whether they end in "Z" or "+00:00". */
+    fun epochMillis(iso: String): Long? =
+        runCatching { java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
+            ?: runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
 
     /** "Recommended by 38 people", or an honest "New" label instead of "by 0". */
     fun recommended(n: Int): String = when (n) {

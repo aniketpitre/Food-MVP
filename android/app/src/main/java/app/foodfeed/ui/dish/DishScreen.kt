@@ -148,8 +148,10 @@ fun DishScreen(
     val overrides by app.overrides.collectAsState()
     val session by app.session.collectAsState()
     val actions = rememberDishActions(onNeedSignIn, showMessage)
+    val context = androidx.compose.ui.platform.LocalContext.current
     var reportTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var sendingCard by remember { mutableStateOf<app.foodfeed.data.DishCard?>(null) }
     val commentCounts by app.commentCounts.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -167,8 +169,8 @@ fun DishScreen(
                 imageUrl = { app.mediaUrl(it) },
                 onBack = onBack,
                 onToggle = { actions.toggle(card, it) },
-                onShare = { actions.share(card) },
-                onMaps = { actions.openMaps(dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
+                onShare = { sendingCard = card },
+                onMaps = { app.foodfeed.ui.components.takeMeThere(context, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
                 onOpenRestaurant = { onOpenRestaurant(dish.restaurant.id) },
                 onOpenDish = onOpenDish,
                 onOpenUser = onOpenUser,
@@ -192,6 +194,15 @@ fun DishScreen(
     }
     reportTarget?.let { (type, id) ->
         ReportSheet(targetType = type, targetId = id, onDismiss = { reportTarget = null }, showMessage = showMessage)
+    }
+    sendingCard?.let { c ->
+        app.foodfeed.ui.messages.SendToSheet(
+            dishId = c.id,
+            onDismiss = { sendingCard = null },
+            onShareElsewhere = { actions.share(c) },
+            onNeedSignIn = onNeedSignIn,
+            showMessage = showMessage,
+        )
     }
 }
 

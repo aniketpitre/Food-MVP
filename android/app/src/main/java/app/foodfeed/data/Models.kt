@@ -173,8 +173,35 @@ data class RestaurantDetail(
     val lat: Double = 0.0,
     val lng: Double = 0.0,
     val distanceM: Int? = null,
+    val cuisine: String? = null,
+    val openingHours: String? = null,
+    val phone: String? = null,
+    val website: String? = null,
+    val photos: List<PlacePhoto> = emptyList(),
+    /** Whether the server can show Google Maps photos of this place (fetched separately). */
+    val googlePhotos: Boolean = false,
     val dishes: List<DishCard> = emptyList(),
 )
+
+/** A photo of a place from an openly licensed source, with the credit we must show. */
+@Serializable
+data class PlacePhoto(
+    val imageUrl: String,
+    val thumbUrl: String,
+    val placeholderColor: String? = null,
+    val attribution: String,
+    val sourceUrl: String? = null,
+    val source: String = "wikimedia",
+)
+
+@Serializable
+data class GoogleAuthor(val name: String, val uri: String? = null)
+
+@Serializable
+data class GooglePhoto(val url: String, val authors: List<GoogleAuthor> = emptyList())
+
+@Serializable
+data class GooglePhotos(val photos: List<GooglePhoto> = emptyList())
 
 @Serializable
 data class PlaceOption(val id: String, val name: String, val locality: String? = null, val distanceM: Int? = null)
@@ -230,6 +257,7 @@ data class User(
     val bio: String? = null,
     val avatarUrl: String? = null,
     val commentPolicy: String = "everyone",
+    val dmPolicy: String = "everyone",
     val createdAt: String = "",
 )
 
@@ -368,6 +396,7 @@ data class ProfileUpdate(
     val username: String? = null,
     val bio: String? = null,
     val commentPolicy: String? = null,
+    val dmPolicy: String? = null,
 )
 
 @Serializable
@@ -433,7 +462,16 @@ data class HomeData(
 )
 
 @Serializable
-data class MapTopDish(val dishId: String, val name: String, val loves: Int = 0, val percent: Int? = null, val thumbUrl: String? = null)
+data class MapTopDish(
+    val dishId: String,
+    val name: String,
+    val loves: Int = 0,
+    val percent: Int? = null,
+    val thumbUrl: String? = null,
+    val priceInr: Int? = null,
+    val isVeg: Boolean? = null,
+    val emoji: String? = null,
+)
 
 @Serializable
 data class MapPlace(
@@ -441,11 +479,130 @@ data class MapPlace(
     val name: String,
     val locality: String? = null,
     val cuisine: String? = null,
+    val address: String? = null,
+    val openingHours: String? = null,
     val lat: Double,
     val lng: Double,
     val dishCount: Int = 0,
+    val lovers: Int = 0,
+    val photoUrl: String? = null,
+    /** The food logo drawn on the pin: the best dish's category, else a guess from the cuisine. */
+    val emoji: String = "🍽️",
     val topDish: MapTopDish? = null,
 )
 
 @Serializable
 data class MapPlaces(val places: List<MapPlace> = emptyList())
+
+// ---------- Direct messages ----------
+
+@Serializable
+data class LastMessage(val kind: String = "text", val body: String? = null, val mine: Boolean = false, val createdAt: String = "")
+
+@Serializable
+data class ChatSummary(
+    val id: String,
+    val folder: String = "inbox",
+    val with: UserRef,
+    val lastMessage: LastMessage = LastMessage(),
+    val unread: Boolean = false,
+)
+
+@Serializable
+data class Inbox(val items: List<ChatSummary> = emptyList(), val requests: Int = 0)
+
+@Serializable
+data class InboxUnread(val chats: Int = 0, val requests: Int = 0)
+
+@Serializable
+data class MessageDish(val id: String, val name: String, val restaurantName: String? = null, val priceInr: Int? = null, val thumbUrl: String? = null)
+
+@Serializable
+data class MessageStory(val id: String? = null, val thumbUrl: String? = null, val expired: Boolean = true)
+
+@Serializable
+data class Message(
+    val id: String,
+    val kind: String = "text",
+    val body: String? = null,
+    val createdAt: String,
+    val mine: Boolean = false,
+    val dish: MessageDish? = null,
+    val story: MessageStory? = null,
+)
+
+@Serializable
+data class Conversation(
+    val id: String,
+    val folder: String = "inbox",
+    val with: UserRef,
+    val canMessage: Boolean = true,
+    val theirLastReadAt: String? = null,
+    val messages: List<Message> = emptyList(),
+)
+
+@Serializable
+data class ConversationId(val id: String)
+
+@Serializable
+data class NewMessage(val body: String? = null, val dishId: String? = null)
+
+@Serializable
+data class ShareMessage(val handles: List<String>, val body: String? = null, val dishId: String? = null)
+
+@Serializable
+data class ShareResult2(val sent: List<String> = emptyList(), val failed: List<String> = emptyList())
+
+@Serializable
+data class OpenChat(val handle: String)
+
+// ---------- Stories ----------
+
+@Serializable
+data class StoryDish(val id: String, val name: String, val restaurantName: String? = null)
+
+@Serializable
+data class StoryPlace(val id: String, val name: String)
+
+@Serializable
+data class Story(
+    val id: String,
+    val imageUrl: String,
+    val thumbUrl: String,
+    val placeholderColor: String? = null,
+    val caption: String? = null,
+    val createdAt: String = "",
+    val expiresAt: String = "",
+    val seen: Boolean = false,
+    val liked: Boolean = false,
+    val viewCount: Int? = null,
+    val dish: StoryDish? = null,
+    val place: StoryPlace? = null,
+)
+
+@Serializable
+data class StoryReel(val user: UserRef, val isMe: Boolean = false, val allSeen: Boolean = false, val stories: List<Story> = emptyList())
+
+@Serializable
+data class StoryTray(val items: List<StoryReel> = emptyList())
+
+@Serializable
+data class StoryViewer(val handle: String, val displayName: String? = null, val avatarUrl: String? = null, val liked: Boolean = false)
+
+@Serializable
+data class StoryViewers(val items: List<StoryViewer> = emptyList())
+
+@Serializable
+data class LikeBody(val liked: Boolean)
+
+@Serializable
+data class LikeState(val liked: Boolean)
+
+@Serializable
+data class ReplyBody(val body: String)
+
+@Serializable
+data class StoryCreated(val id: String)
+
+@Serializable
+data class ReplySent(val conversationId: String)

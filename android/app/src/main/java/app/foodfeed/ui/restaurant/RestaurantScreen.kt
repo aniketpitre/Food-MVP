@@ -1,5 +1,7 @@
 package app.foodfeed.ui.restaurant
 
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,6 +102,15 @@ fun RestaurantScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val overrides by app.overrides.collectAsState()
     val actions = rememberDishActions(onNeedSignIn, showMessage)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Google Maps photos are fetched live by the server (never stored), only if it has a key.
+    var googlePhotos by remember { mutableStateOf<List<app.foodfeed.data.GooglePhoto>>(emptyList()) }
+    LaunchedEffect(state.place?.id, state.place?.googlePhotos) {
+        val p = state.place
+        if (p != null && p.googlePhotos) {
+            googlePhotos = runCatching { app.foodfeed.data.apiCall { app.api.googlePhotos(p.id) }.photos }.getOrDefault(emptyList())
+        }
+    }
     when {
         state.loading -> LoadingBox()
         state.place == null -> CenteredMessage(
@@ -112,7 +123,10 @@ fun RestaurantScreen(
             onBack = onBack,
             onOpenDish = onOpenDish,
             onSave = { actions.toggle(it, Engagement.Save) },
-            onMaps = { p -> actions.openMaps(p.lat, p.lng, p.name) },
+            onMaps = { p -> app.foodfeed.ui.components.takeMeThere(context, p.lat, p.lng, p.name) },
+            mediaUrl = { app.mediaUrl(it) },
+            googlePhotos = googlePhotos,
+            onOpenLink = { app.foodfeed.ui.components.openUrl(context, it) },
         )
     }
 }
@@ -126,6 +140,9 @@ fun RestaurantContent(
     onOpenDish: (String) -> Unit,
     onSave: (DishCard) -> Unit,
     onMaps: (RestaurantDetail) -> Unit,
+    mediaUrl: (String?) -> String? = { it },
+    googlePhotos: List<app.foodfeed.data.GooglePhoto> = emptyList(),
+    onOpenLink: (String) -> Unit = {},
 ) {
     val totalRecs = place.dishes.sumOf { engagementOf(it).stats.recommenders }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -183,6 +200,10 @@ fun RestaurantContent(
                 }
             }
         }
+        item(key = "info") { PlaceInfo(place, onOpenLink) }
+        if (place.photos.isNotEmpty() || googlePhotos.isNotEmpty()) {
+            item(key = "photos") { PlacePhotos(place.photos, googlePhotos, mediaUrl, onOpenLink) }
+        }
         item(key = "title") {
             Text(
                 "Most recommended here",
@@ -207,5 +228,83 @@ private fun BigStat(value: String, label: String) {
     Column {
         Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+    }
+}
+
+/** Cuisine, hours, phone and website, from OpenStreetMap, when we have them. */
+@Composable
+private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit) {
+    val lines = listOfNotNull(
+        place.cuisine?.let { "🍽️  ${it.replaceFirstChar { c -> c.uppercase() }}" to null },
+        place.openingHours?.let { "🕒  ${app.foodfeed.ui.map.friendlyHours(it)}" to null },
+        place.address?.let { "📍  $it" to null },
+        place.phone?.let { "📞  $it" to "tel:${it.filter { c -> c.isDigit() || c == '+' }}" },
+        place.website?.let { "🌐  ${it.removePrefix("https://").removePrefix("http://").trimEnd('/')}" to it },
+    )
+    if (lines.isEmpty()) return
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        lines.forEach { (text, link) ->
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (link != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                modifier = if (link != null) Modifier.clickable { onOpenLink(link) } else Modifier,
+            )
+        }
+    }
+}
+
+/**
+ * Real photos of the place: openly licensed ones we keep (Wikimedia Commons, Mapillary
+ * street views) with their credit under each, then Google Maps photos with Google's
+ * attribution and the photographers' names, as Google requires.
+ */
+@Composable
+private fun PlacePhotos(
+    photos: List<app.foodfeed.data.PlacePhoto>,
+    google: List<app.foodfeed.data.GooglePhoto>,
+    mediaUrl: (String?) -> String?,
+    onOpenLink: (String) -> Unit,
+) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Text("Photos of this place", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+        androidx.compose.foundation.lazy.LazyRow(
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(photos.size) { i ->
+                val p = photos[i]
+                Column(Modifier.width(220.dp)) {
+                    app.foodfeed.ui.components.DishImage(
+                        mediaUrl(p.thumbUrl), p.placeholderColor, p.attribution,
+                        Modifier.width(220.dp).height(160.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
+                    )
+                    Text(
+                        p.attribution,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        modifier = Modifier.padding(top = 4.dp).then(p.sourceUrl?.let { u -> Modifier.clickable { onOpenLink(u) } } ?: Modifier),
+                    )
+                }
+            }
+            items(google.size) { i ->
+                val g = google[i]
+                Column(Modifier.width(220.dp)) {
+                    app.foodfeed.ui.components.DishImage(
+                        g.url, null, "Photo from Google Maps",
+                        Modifier.width(220.dp).height(160.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
+                    )
+                    Text(
+                        "Google Maps · " + g.authors.joinToString { it.name }.ifEmpty { "Google Maps user" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        modifier = Modifier.padding(top = 4.dp).then(g.authors.firstOrNull()?.uri?.let { u -> Modifier.clickable { onOpenLink(u) } } ?: Modifier),
+                    )
+                }
+            }
+        }
     }
 }

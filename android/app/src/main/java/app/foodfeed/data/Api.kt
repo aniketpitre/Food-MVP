@@ -141,6 +141,49 @@ interface FoodFeedApi {
 
     @GET("map") suspend fun map(@Query("city") city: Int, @Query("all") all: Boolean = false): MapPlaces
 
+    @GET("restaurants/{id}/google-photos") suspend fun googlePhotos(@Path("id") id: String): GooglePhotos
+
+    // ---- Messages ----
+    @GET("inbox") suspend fun inbox(@Query("folder") folder: String = "inbox"): Inbox
+
+    @GET("inbox/unread") suspend fun inboxUnread(): InboxUnread
+
+    @POST("conversations") suspend fun openChat(@Body body: OpenChat): ConversationId
+
+    @GET("conversations/{id}")
+    suspend fun conversation(@Path("id") id: String, @Query("after") after: String? = null, @Query("before") before: String? = null): Conversation
+
+    @POST("conversations/{id}/messages") suspend fun sendMessage(@Path("id") id: String, @Body body: NewMessage): Message
+
+    @POST("messages") suspend fun shareMessage(@Body body: ShareMessage): ShareResult2
+
+    @POST("conversations/{id}/read") suspend fun readChat(@Path("id") id: String): OkResult
+
+    @POST("conversations/{id}/accept") suspend fun acceptChat(@Path("id") id: String): OkResult
+
+    @DELETE("conversations/{id}") suspend fun deleteChat(@Path("id") id: String): retrofit2.Response<Unit>
+
+    @DELETE("messages/{id}") suspend fun unsend(@Path("id") id: String): retrofit2.Response<Unit>
+
+    // ---- Stories ----
+    @GET("stories") suspend fun stories(@Query("city") city: Int?): StoryTray
+
+    @GET("users/{handle}/stories") suspend fun userStories(@Path("handle") handle: String): StoryReel
+
+    @Multipart
+    @POST("stories")
+    suspend fun createStory(@Part parts: List<MultipartBody.Part>): StoryCreated
+
+    @POST("stories/{id}/view") suspend fun viewStory(@Path("id") id: String): OkResult
+
+    @PUT("stories/{id}/like") suspend fun likeStory(@Path("id") id: String, @Body body: LikeBody): LikeState
+
+    @POST("stories/{id}/reply") suspend fun replyStory(@Path("id") id: String, @Body body: ReplyBody): ReplySent
+
+    @GET("stories/{id}/viewers") suspend fun storyViewers(@Path("id") id: String): StoryViewers
+
+    @DELETE("stories/{id}") suspend fun deleteStory(@Path("id") id: String): retrofit2.Response<Unit>
+
     @GET("admin/queue") suspend fun adminQueue(): AdminQueue
 
     @POST("admin/restaurants/{id}/{action}")
@@ -148,6 +191,9 @@ interface FoodFeedApi {
 
     @POST("admin/{type}/{id}/{action}")
     suspend fun adminContent(@Path("type") type: String, @Path("id") id: String, @Path("action") action: String): OkResult
+
+    @POST("admin/talk/{type}/{id}/{action}")
+    suspend fun adminTalk(@Path("type") type: String, @Path("id") id: String, @Path("action") action: String): OkResult
 
     @POST("admin/users/{id}/dismiss")
     suspend fun adminDismissUser(@Path("id") id: String): OkResult

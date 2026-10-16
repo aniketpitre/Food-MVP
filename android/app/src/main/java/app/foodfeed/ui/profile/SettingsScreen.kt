@@ -93,6 +93,27 @@ fun SettingsScreen(
                     },
                     onClick = onEditProfile,
                 )
+                Item(
+                    AppIcons.Send, "Who can message you",
+                    when (user.dmPolicy) {
+                        "following" -> "Only people you follow"
+                        "off" -> "Nobody (existing chats stay open)"
+                        else -> "Everyone (people you don't follow land in Requests)"
+                    },
+                ) {
+                    val next = when (user.dmPolicy) {
+                        "everyone" -> "following"
+                        "following" -> "off"
+                        else -> "everyone"
+                    }
+                    scope.launch {
+                        try {
+                            app.updateProfile(app.foodfeed.data.ProfileUpdate(dmPolicy = next))
+                        } catch (e: ApiException) {
+                            showMessage(e.message)
+                        }
+                    }
+                }
                 Item(AppIcons.Block, "Blocked accounts", null, onClick = onBlocked)
                 if (user.role == "admin") Item(AppIcons.Shield, "Moderation", "Review new places and reports", onClick = onAdmin)
             }

@@ -1,5 +1,25 @@
 package app.foodfeed.ui.home
 
+import app.foodfeed.data.StoryReel
+import app.foodfeed.data.UserRef
+import app.foodfeed.ui.stories.StoriesRow
+import app.foodfeed.ui.components.AppIcons
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.fadeIn
@@ -7,27 +27,21 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -36,23 +50,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -129,6 +136,8 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
                 val loc = app.location.value
                 val data = apiCall { app.api.home(city.id, loc?.lat, loc?.lng) }
                 _state.update { it.copy(loading = false, refreshing = false, data = data) }
+                runCatching { apiCall { app.api.stories(city.id) } }.onSuccess { app.storyTray.value = it.items }
+                app.refreshUnreadMessages()
             } catch (e: ApiException) {
                 _state.update { it.copy(loading = false, refreshing = false, error = e.message) }
             }
@@ -145,10 +154,22 @@ fun HomeScreen(
     onChangeCity: () -> Unit,
     onExplore: () -> Unit,
     onAddDish: () -> Unit,
+    onOpenStory: (Int) -> Unit = {},
+    onAddStory: () -> Unit = {},
+    onInbox: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
+    val stories by app.storyTray.collectAsState()
+    val unreadMessages by app.unreadMessages.collectAsState()
+    val session by app.session.collectAsState()
     HomeContent(
+        stories = stories,
+        me = session?.user?.let { UserRef(it.handle, it.displayName, it.avatarUrl) },
+        unreadMessages = unreadMessages,
+        onOpenStory = onOpenStory,
+        onAddStory = onAddStory,
+        onInbox = onInbox,
         state = state,
         imageUrl = { app.mediaUrl(it) },
         onCraving = onCraving,
@@ -186,10 +207,23 @@ fun HomeContent(
     onRetry: () -> Unit,
     greeting: String = greetingFor(java.time.LocalTime.now().hour),
     cyclePlaceholder: Boolean = true,
+    stories: List<StoryReel> = emptyList(),
+    me: UserRef? = null,
+    unreadMessages: Int = 0,
+    onOpenStory: (Int) -> Unit = {},
+    onAddStory: () -> Unit = {},
+    onInbox: () -> Unit = {},
 ) {
     val d = state.data
     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "stories") {
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("FoodFeed", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                    MessagesButton(unreadMessages, onInbox)
+                }
+                StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
+            }
             item(key = "hero") {
                 CravingHero(state.city?.name ?: "your city", greeting, onChangeCity, onCraving, cyclePlaceholder)
             }
@@ -488,6 +522,30 @@ private fun HomeSkeleton() {
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             repeat(2) { SkeletonBlock(Modifier.width(236.dp).aspectRatio(0.82f), RoundedCornerShape(24.dp)) }
+        }
+    }
+}
+
+/** The paper plane in Home's corner, with a count of chats waiting for you. */
+@Composable
+private fun MessagesButton(unread: Int, onClick: () -> Unit) {
+    Box {
+        IconButton(onClick = onClick, modifier = Modifier.testTag("messages_button")) {
+            Icon(AppIcons.Send, if (unread > 0) "Messages, $unread unread" else "Messages", modifier = Modifier.size(26.dp))
+        }
+        if (unread > 0) {
+            Text(
+                if (unread > 9) "9+" else unread.toString(),
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 2.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+            )
         }
     }
 }

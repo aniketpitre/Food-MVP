@@ -70,6 +70,20 @@ fun openMaps(context: Context, lat: Double, lng: Double, name: String) {
     }
 }
 
+/**
+ * Directions to a place: Google Maps' directions screen if it is installed, else any maps
+ * app, else the browser. The person still taps Start, so nothing begins by surprise.
+ */
+fun takeMeThere(context: Context, lat: Double, lng: Double, name: String) {
+    val dir = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving")
+    val google = Intent(Intent.ACTION_VIEW, dir).setPackage("com.google.android.apps.maps").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(google)
+    } catch (e: ActivityNotFoundException) {
+        openMaps(context, lat, lng, name)
+    }
+}
+
 fun openUrl(context: Context, url: String) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
