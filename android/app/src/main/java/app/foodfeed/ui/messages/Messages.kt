@@ -1,5 +1,6 @@
 package app.foodfeed.ui.messages
 
+import app.foodfeed.data.ShareMessage
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -718,7 +719,7 @@ fun SendToSheet(dishId: String, onDismiss: () -> Unit, onShareElsewhere: () -> U
                         scope.launch {
                             try {
                                 val r = apiCall {
-                                    app.api.shareMessage(app.foodfeed.data.ShareMessage(picked.toList(), note.trim().ifEmpty { null }, dishId))
+                                    app.api.shareMessage(ShareMessage(picked.toList(), note.trim().ifEmpty { null }, dishId))
                                 }
                                 showMessage(
                                     if (r.failed.isEmpty()) "Sent." else "Sent to ${r.sent.size}. Couldn't send to ${r.failed.joinToString { "@$it" }}.",

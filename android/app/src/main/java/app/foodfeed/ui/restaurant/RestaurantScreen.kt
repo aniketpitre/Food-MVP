@@ -1,5 +1,12 @@
 package app.foodfeed.ui.restaurant
 
+import app.foodfeed.data.GooglePhoto
+import app.foodfeed.data.PlacePhoto
+import app.foodfeed.data.apiCall
+import app.foodfeed.ui.components.DishImage
+import app.foodfeed.ui.components.openUrl
+import app.foodfeed.ui.components.takeMeThere
+import app.foodfeed.ui.map.friendlyHours
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
@@ -53,7 +60,6 @@ import app.foodfeed.data.DishCard
 import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
 import app.foodfeed.data.RestaurantDetail
-import app.foodfeed.data.apiCall
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.CenteredMessage
@@ -104,11 +110,11 @@ fun RestaurantScreen(
     val actions = rememberDishActions(onNeedSignIn, showMessage)
     val context = androidx.compose.ui.platform.LocalContext.current
     // Google Maps photos are fetched live by the server (never stored), only if it has a key.
-    var googlePhotos by remember { mutableStateOf<List<app.foodfeed.data.GooglePhoto>>(emptyList()) }
+    var googlePhotos by remember { mutableStateOf<List<GooglePhoto>>(emptyList()) }
     LaunchedEffect(state.place?.id, state.place?.googlePhotos) {
         val p = state.place
         if (p != null && p.googlePhotos) {
-            googlePhotos = runCatching { app.foodfeed.data.apiCall { app.api.googlePhotos(p.id) }.photos }.getOrDefault(emptyList())
+            googlePhotos = runCatching { apiCall { app.api.googlePhotos(p.id) }.photos }.getOrDefault(emptyList())
         }
     }
     when {
@@ -123,10 +129,10 @@ fun RestaurantScreen(
             onBack = onBack,
             onOpenDish = onOpenDish,
             onSave = { actions.toggle(it, Engagement.Save) },
-            onMaps = { p -> app.foodfeed.ui.components.takeMeThere(context, p.lat, p.lng, p.name) },
+            onMaps = { p -> takeMeThere(context, p.lat, p.lng, p.name) },
             mediaUrl = { app.mediaUrl(it) },
             googlePhotos = googlePhotos,
-            onOpenLink = { app.foodfeed.ui.components.openUrl(context, it) },
+            onOpenLink = { openUrl(context, it) },
         )
     }
 }
@@ -141,7 +147,7 @@ fun RestaurantContent(
     onSave: (DishCard) -> Unit,
     onMaps: (RestaurantDetail) -> Unit,
     mediaUrl: (String?) -> String? = { it },
-    googlePhotos: List<app.foodfeed.data.GooglePhoto> = emptyList(),
+    googlePhotos: List<GooglePhoto> = emptyList(),
     onOpenLink: (String) -> Unit = {},
 ) {
     val totalRecs = place.dishes.sumOf { engagementOf(it).stats.recommenders }
@@ -236,7 +242,7 @@ private fun BigStat(value: String, label: String) {
 private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit) {
     val lines = listOfNotNull(
         place.cuisine?.let { "🍽️  ${it.replaceFirstChar { c -> c.uppercase() }}" to null },
-        place.openingHours?.let { "🕒  ${app.foodfeed.ui.map.friendlyHours(it)}" to null },
+        place.openingHours?.let { "🕒  ${friendlyHours(it)}" to null },
         place.address?.let { "📍  $it" to null },
         place.phone?.let { "📞  $it" to "tel:${it.filter { c -> c.isDigit() || c == '+' }}" },
         place.website?.let { "🌐  ${it.removePrefix("https://").removePrefix("http://").trimEnd('/')}" to it },
@@ -262,8 +268,8 @@ private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit) {
  */
 @Composable
 private fun PlacePhotos(
-    photos: List<app.foodfeed.data.PlacePhoto>,
-    google: List<app.foodfeed.data.GooglePhoto>,
+    photos: List<PlacePhoto>,
+    google: List<GooglePhoto>,
     mediaUrl: (String?) -> String?,
     onOpenLink: (String) -> Unit,
 ) {
@@ -276,7 +282,7 @@ private fun PlacePhotos(
             items(photos.size) { i ->
                 val p = photos[i]
                 Column(Modifier.width(220.dp)) {
-                    app.foodfeed.ui.components.DishImage(
+                    DishImage(
                         mediaUrl(p.thumbUrl), p.placeholderColor, p.attribution,
                         Modifier.width(220.dp).height(160.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                     )
@@ -292,7 +298,7 @@ private fun PlacePhotos(
             items(google.size) { i ->
                 val g = google[i]
                 Column(Modifier.width(220.dp)) {
-                    app.foodfeed.ui.components.DishImage(
+                    DishImage(
                         g.url, null, "Photo from Google Maps",
                         Modifier.width(220.dp).height(160.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                     )

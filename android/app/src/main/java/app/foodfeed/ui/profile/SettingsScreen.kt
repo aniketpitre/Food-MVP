@@ -1,5 +1,6 @@
 package app.foodfeed.ui.profile
 
+import app.foodfeed.data.ProfileUpdate
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -108,7 +109,7 @@ fun SettingsScreen(
                     }
                     scope.launch {
                         try {
-                            app.updateProfile(app.foodfeed.data.ProfileUpdate(dmPolicy = next))
+                            app.updateProfile(ProfileUpdate(dmPolicy = next))
                         } catch (e: ApiException) {
                             showMessage(e.message)
                         }

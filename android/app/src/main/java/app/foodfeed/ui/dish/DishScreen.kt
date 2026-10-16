@@ -1,5 +1,8 @@
 package app.foodfeed.ui.dish
 
+import app.foodfeed.data.DishCard
+import app.foodfeed.ui.components.takeMeThere
+import app.foodfeed.ui.messages.SendToSheet
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -75,7 +78,6 @@ import androidx.lifecycle.viewModelScope
 import app.foodfeed.data.ApiException
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.BlockBody
-import app.foodfeed.data.DishCard
 import app.foodfeed.data.DishDetail
 import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
@@ -151,7 +153,7 @@ fun DishScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     var reportTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
-    var sendingCard by remember { mutableStateOf<app.foodfeed.data.DishCard?>(null) }
+    var sendingCard by remember { mutableStateOf<DishCard?>(null) }
     val commentCounts by app.commentCounts.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -170,7 +172,7 @@ fun DishScreen(
                 onBack = onBack,
                 onToggle = { actions.toggle(card, it) },
                 onShare = { sendingCard = card },
-                onMaps = { app.foodfeed.ui.components.takeMeThere(context, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
+                onMaps = { takeMeThere(context, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
                 onOpenRestaurant = { onOpenRestaurant(dish.restaurant.id) },
                 onOpenDish = onOpenDish,
                 onOpenUser = onOpenUser,
@@ -196,7 +198,7 @@ fun DishScreen(
         ReportSheet(targetType = type, targetId = id, onDismiss = { reportTarget = null }, showMessage = showMessage)
     }
     sendingCard?.let { c ->
-        app.foodfeed.ui.messages.SendToSheet(
+        SendToSheet(
             dishId = c.id,
             onDismiss = { sendingCard = null },
             onShareElsewhere = { actions.share(c) },
