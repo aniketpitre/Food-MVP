@@ -11,9 +11,14 @@ adb install -r "$TESTS" || exit 1
 adb logcat -c
 adb shell am instrument -w -r -e class app.foodfeed.DeviceJourneyTest "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee journey.log
 mkdir -p device-shots
-adb pull "/sdcard/Android/data/$PKG/files/device-shots/." device-shots/ || true
+# The test app's own files; run-as works because the debug build is debuggable.
+for f in $(adb shell run-as "$PKG" ls files/device-shots 2>/dev/null | tr -d '\r'); do
+  adb exec-out run-as "$PKG" cat "files/device-shots/$f" > "device-shots/$f"
+done
 ls -la device-shots
 adb logcat -d > logcat.txt
+echo "--- UI tree and app log lines"
+grep -E "JOURNEY|FoodFeed|app.foodfeed" logcat.txt | tail -150
 if grep -q "OK (1 test)" journey.log; then
   echo "Device journey passed."
 else

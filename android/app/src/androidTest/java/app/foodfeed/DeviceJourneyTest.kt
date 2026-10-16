@@ -15,6 +15,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.Intents.intended
@@ -60,7 +62,7 @@ class DeviceJourneyTest {
     private val app get() = instrumentation.targetContext.applicationContext as FoodFeedApp
     private val container: AppContainer get() = app.container
     private val shots by lazy {
-        File(instrumentation.targetContext.getExternalFilesDir(null), "device-shots").apply { deleteRecursively(); mkdirs() }
+        File(instrumentation.targetContext.filesDir, "device-shots").apply { deleteRecursively(); mkdirs() }
     }
     private lateinit var scenario: ActivityScenario<MainActivity>
 
@@ -99,6 +101,17 @@ class DeviceJourneyTest {
 
     @Test
     fun mapLogosPopupAndDirections_storiesAndMessages() {
+        try {
+            journey()
+        } catch (e: Throwable) {
+            // Leave evidence: what was on screen and the UI tree, for the CI log.
+            runCatching { shot("99_failure") }
+            runCatching { compose.onRoot(useUnmergedTree = true).printToLog("JOURNEY") }
+            throw e
+        }
+    }
+
+    private fun journey() {
         // Home with the stories row and the craving search.
         compose.waitUntilAtLeastOneExists(hasText("What are you\ncraving?"), 30_000)
         compose.waitUntilAtLeastOneExists(hasTestTag("stories_row"), 10_000)

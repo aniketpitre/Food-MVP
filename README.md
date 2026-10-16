@@ -28,6 +28,15 @@ Rendered by the app's screenshot tests with the illustrated demo data (refresh w
 | ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Welcome](docs/screenshots/12_onboarding_city.jpg) | ![Comments](docs/screenshots/16_comments.jpg) |
 | **Home: what are you craving?** | **People's Pick for pav bhaji** | **Profile** | **Activity** |
 | ![Home](docs/screenshots/17_home.jpg) | ![Craving](docs/screenshots/18_craving_pav_bhaji.jpg) | ![Profile](docs/screenshots/10_profile.jpg) | ![Activity](docs/screenshots/19_activity.jpg) |
+| **Map place card** | **Messages** | **Chat** | |
+| ![Place card](docs/screenshots/20_map_place_card.jpg) | ![Messages](docs/screenshots/21_messages.jpg) | ![Chat](docs/screenshots/22_chat.jpg) | |
+
+### On a real (emulated) phone
+
+The **Device smoke test** workflow also runs the app on an Android emulator against a real
+FoodFeed server and walks through it: Home and stories, a story, messages, the map with its
+food logos, tapping a logo, the 3D place card, and Take me there (checked to open Google Maps
+directions). Its screenshots land in [`docs/device`](docs/device).
 
 ## Motion
 
@@ -67,6 +76,10 @@ The motion rules (all in `ui/theme/Motion.kt`):
 - **Explore** keeps the dish deck (Top, Trending, Hidden gems); **Nearby** is now an in-app map (MapLibre with free OpenFreeMap tiles, recoloured to the app's theme) that shows only places in FoodFeed, with a swipeable card strip.
 - **Real places from OpenStreetMap:** `docker compose exec api node dist/cli.js import-places <city-slug> [km]` imports cafes and restaurants (name, cuisine, hours, location). Photos come from people who post there.
 - **Instagram-style social:** profiles with photo, bio and username; followers/following; follow from anywhere; people search; an Activity tab (follows, comments, replies, likes, mentions, recommends, agreements); comment controls (everyone, people you follow, off); blocked accounts; change password; theme (light/dark/system).
+- **Food-logo map:** each place on the map is a little badge with its food (🌶️ misal, ☕ cafe, 🍕 pizza…). Tap one and a card swings up in 3D with the photo, the best dish, the people's rating, hours, distance and **Take me there** (Google Maps directions).
+- **Direct messages:** chats, message requests from people you don't follow, send a dish to friends ("let's go here?"), seen receipts, unsend, block and report, and who-can-message-you settings.
+- **Stories:** 24-hour photo stories with a dish or place tag, a stories row on Home, a full-screen viewer (cube swipe between people, tap to step, hold to pause), likes and replies that arrive as messages, and who watched yours.
+- **Real photos of places:** openly licensed photos from Wikimedia Commons and Mapillary street views (with credits), and optional Google Maps photos on place pages. See [`docs/REAL_PHOTOS.md`](docs/REAL_PHOTOS.md).
 - **Lite mode** (automatic on low-RAM phones, or switch it in Settings) turns off blur, confetti and card choreography. Release builds are shrunk with R8 and ship only ARM and x86_64 code.
 - Guest browsing (no sign-up wall); sign-in is asked for only on the first recommend, save or post, and the action completes right after sign-in.
 - Works in every Indian city: location (precise or approximate, never stored) picks your city from ~900 cities with 50,000+ people, or search for one. New places are filed under the right city automatically.
@@ -106,6 +119,7 @@ with your own (see the plan, section 7.1), and fill in the bracketed parts of th
 | HTTPS with automatic certificates (set `DOMAIN` in `.env`, open ports 80/443) | `docker compose --profile https up -d` |
 | Recompute rankings now | `docker compose exec api node dist/cli.js refresh` |
 | Import real cafes and restaurants from OpenStreetMap | `docker compose exec api node dist/cli.js import-places nashik 12` |
+| Fetch real photos of those places (Wikimedia, Mapillary) | `docker compose exec api node dist/cli.js fetch-place-photos nashik` |
 | Restore a backup | `docker compose exec -T db pg_restore -U foodfeed -d foodfeed --clean < backups/db-<date>.dump` |
 | Become admin | put your email in `ADMIN_EMAILS`, restart the api, sign up or sign in |
 

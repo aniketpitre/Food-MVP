@@ -84,6 +84,7 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: false
+          profile: pixel_6
           script: bash scripts/device-journey.sh android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
       - name: Keep logs and screenshots
         if: always()
@@ -96,8 +97,9 @@ jobs:
             device-shots/
           if-no-files-found: ignore
       - name: Commit the screenshots
-        if: success() && github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request'
         run: |
+          shopt -s nullglob
           mkdir -p docs/device
           for f in device-shots/*.png; do
             # Smaller JPEGs for the repo.
