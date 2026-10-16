@@ -148,17 +148,16 @@ fun FeedHeader(
         Spacer(Modifier.width(8.dp))
         Box {
             RoundIconButton(AppIcons.Tune, "Filter by dish type", onFilter)
-            AnimatedVisibility(
-                visible = filterActive,
-                enter = scaleIn(Motion.bouncy()) + fadeIn(),
-                exit = scaleOut(Motion.exit()) + fadeOut(),
-                modifier = Modifier.align(Alignment.TopEnd),
-            ) {
-                Box(
-                    Modifier.size(12.dp).background(MaterialTheme.colorScheme.background, CircleShape).padding(2.dp)
-                        .background(MaterialTheme.colorScheme.tertiary, CircleShape),
-                )
-            }
+            val dot by animateFloatAsState(if (filterActive) 1f else 0f, Motion.bouncy(), label = "filter-dot")
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(12.dp)
+                    .graphicsLayer { scaleX = dot; scaleY = dot }
+                    .background(MaterialTheme.colorScheme.background, CircleShape)
+                    .padding(2.dp)
+                    .background(MaterialTheme.colorScheme.tertiary, CircleShape),
+            )
         }
     }
 }
