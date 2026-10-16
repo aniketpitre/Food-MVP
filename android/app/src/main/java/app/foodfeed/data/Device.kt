@@ -72,19 +72,24 @@ object DeviceLocation {
     }
 
     /** Coordinates, or null for any failure. */
-    suspend fun current(context: Context): Coords? = (locate(context) as? LocationResult.Found)?.coords
+    suspend fun current(context: Context, precise: Boolean = false): Coords? =
+        (locate(context, precise) as? LocationResult.Found)?.coords
+
+    fun hasPrecise(context: Context) = granted(context, Manifest.permission.ACCESS_FINE_LOCATION)
 
     /**
-     * A recent last-known fix if there is one (under 10 minutes old), otherwise a fresh fix
-     * from every usable provider at once (fused, GPS when precise location is allowed,
-     * network), taking whichever answers first. Gives up after 15 seconds.
+     * Where the phone is. Quick mode (finding your city) takes a recent reading or the first
+     * provider to answer. Precise mode (the map, distances) only trusts readings that are
+     * fresh and accurate: it asks GPS, network and the fused provider at once, keeps the
+     * most accurate answer, and stops early once one is within 30 m. Gives up after 15 s
+     * and then returns the best it has.
      */
     @SuppressLint("MissingPermission")
-    suspend fun locate(context: Context): LocationResult {
+    suspend fun locate(context: Context, precise: Boolean = false): LocationResult {
         if (!hasPermission(context)) return LocationResult.NoPermission
         if (!isOn(context)) return LocationResult.Off
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val fine = granted(context, Manifest.permission.ACCESS_FINE_LOCATION)
+        val fine = hasPrecise(context)
         val providers = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(LocationManager.FUSED_PROVIDER)
             if (fine) add(LocationManager.GPS_PROVIDER)
@@ -92,40 +97,80 @@ object DeviceLocation {
             add(LocationManager.PASSIVE_PROVIDER)
         }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
 
-        val recent = providers
-            .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-            .maxByOrNull { it.time }
-        if (recent != null && System.currentTimeMillis() - recent.time < 10 * 60 * 1000) {
-            return LocationResult.Found(recent.toCoords())
-        }
+        val maxAge = if (precise) 60_000L else 10 * 60_000L
+        val maxError = if (precise) 50f else 5_000f
+        val now = System.currentTimeMillis()
+        val known = providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+        val recent = known
+            .filter { now - it.time < maxAge && (!it.hasAccuracy() || it.accuracy <= maxError) }
+            .minByOrNull { if (it.hasAccuracy()) it.accuracy else 9_999f }
+        if (recent != null) return LocationResult.Found(recent.toCoords())
 
         val active = providers.filter { it != LocationManager.PASSIVE_PROVIDER }
-        val fresh = if (active.isEmpty()) null else withTimeoutOrNull(15_000) {
-            suspendCancellableCoroutine<Location?> { cont ->
+        val good = 30f
+        var best: Location? = null
+        if (active.isNotEmpty()) withTimeoutOrNull(15_000) {
+            suspendCancellableCoroutine<Unit> { cont ->
                 val signals = active.map { CancellationSignal() }
                 var pending = active.size
                 cont.invokeOnCancellation { signals.forEach { it.cancel() } }
+                fun done() {
+                    signals.forEach { it.cancel() }
+                    if (cont.isActive) cont.resume(Unit)
+                }
                 active.forEachIndexed { i, provider ->
                     try {
                         LocationManagerCompat.getCurrentLocation(lm, provider, signals[i], ContextCompat.getMainExecutor(context)) { loc ->
                             pending--
                             if (!cont.isActive) return@getCurrentLocation
-                            if (loc != null) {
-                                signals.forEach { it.cancel() }
-                                cont.resume(loc)
-                            } else if (pending == 0) {
-                                cont.resume(null)
+                            if (loc != null && (best == null || accuracyOf(loc) < accuracyOf(best!!))) best = loc
+                            val b = best
+                            when {
+                                // Quick mode: any answer will do.
+                                !precise && b != null -> done()
+                                // Precise mode: stop as soon as it's within 30 m.
+                                b != null && accuracyOf(b) <= good -> done()
+                                pending == 0 -> done()
                             }
                         }
                     } catch (e: Exception) {
                         pending--
-                        if (pending == 0 && cont.isActive) cont.resume(null)
+                        if (pending == 0) done()
                     }
                 }
             }
         }
-        val best = fresh ?: recent
-        return if (best != null) LocationResult.Found(best.toCoords()) else LocationResult.Unavailable
+        val pick = best ?: known.maxByOrNull { it.time }
+        return if (pick != null) LocationResult.Found(pick.toCoords()) else LocationResult.Unavailable
+    }
+
+    private fun accuracyOf(l: Location) = if (l.hasAccuracy()) l.accuracy else 9_999f
+
+    /**
+     * Follows the phone while a screen needs it (the map): GPS when precise location is
+     * allowed, else network, every few seconds or 5 m. Returns a stop function.
+     */
+    @SuppressLint("MissingPermission")
+    fun follow(context: Context, onUpdate: (Coords) -> Unit): () -> Unit {
+        if (!hasPermission(context) || !isOn(context)) return {}
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val provider = when {
+            hasPrecise(context) && runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false) -> LocationManager.GPS_PROVIDER
+            runCatching { lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) }.getOrDefault(false) -> LocationManager.NETWORK_PROVIDER
+            else -> return {}
+        }
+        val listener = androidx.core.location.LocationListenerCompat { loc -> onUpdate(loc.toCoords()) }
+        val request = androidx.core.location.LocationRequestCompat.Builder(3_000L)
+            .setMinUpdateDistanceMeters(5f)
+            .setQuality(androidx.core.location.LocationRequestCompat.QUALITY_HIGH_ACCURACY)
+            .build()
+        val stop: () -> Unit = { runCatching { LocationManagerCompat.removeUpdates(lm, listener) } }
+        return try {
+            LocationManagerCompat.requestLocationUpdates(lm, provider, request, ContextCompat.getMainExecutor(context), listener)
+            stop
+        } catch (e: Exception) {
+            {}
+        }
     }
 
     /** A sentence for the person when we could not get a location. */
@@ -136,7 +181,7 @@ object DeviceLocation {
         LocationResult.Unavailable -> "Couldn't get a location fix. Try again near a window or with mobile data on."
     }
 
-    private fun Location.toCoords() = Coords(latitude, longitude)
+    private fun Location.toCoords() = Coords(latitude, longitude, if (hasAccuracy()) accuracy else null)
 }
 
 object ImageCompressor {

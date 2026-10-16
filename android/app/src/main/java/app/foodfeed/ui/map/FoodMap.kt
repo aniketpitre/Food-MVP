@@ -1,5 +1,9 @@
 package app.foodfeed.ui.map
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.graphics.Color
+import app.foodfeed.data.DeviceLocation
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -241,7 +245,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
 
     // Logos follow the data; the camera fits the city's places (or you) the first time.
     var framed by remember { mutableStateOf(false) }
-    LaunchedEffect(map, styleReady, places, location) {
+    LaunchedEffect(map, styleReady, places) {
         val m = map ?: return@LaunchedEffect
         if (!styleReady) return@LaunchedEffect
         val style = m.style ?: return@LaunchedEffect
@@ -264,9 +268,6 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 }
             }),
         )
-        style.getSourceAs<GeoJsonSource>(ME)?.setGeoJson(
-            FeatureCollection.fromFeatures(listOfNotNull(location?.let { Feature.fromGeometry(Point.fromLngLat(it.lng, it.lat)) })),
-        )
         if (!framed && places.isNotEmpty()) {
             framed = true
             val pts = places.filter { it.dishCount > 0 }.ifEmpty { places }
@@ -276,8 +277,74 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lng)) } }.build()
                 m.moveCamera(CameraUpdateFactory.newLatLngBounds(b, 120, 200, 120, 460))
             }
-        } else if (!framed && location != null) {
-            m.cameraPosition = CameraPosition.Builder().target(LatLng(location.lat, location.lng)).zoom(13.0).build()
+        }
+    }
+
+    // You: a blue dot with a soft halo the size of the phone's own error estimate. It moves
+    // on its own as new readings come in; only this tiny source is updated.
+    LaunchedEffect(map, styleReady, location) {
+        val m = map ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        m.style?.getSourceAs<GeoJsonSource>(ME)?.setGeoJson(
+            FeatureCollection.fromFeatures(listOfNotNull(location?.let {
+                Feature.fromGeometry(Point.fromLngLat(it.lng, it.lat)).apply { addNumberProperty("acc", (it.accuracyM ?: 0f).toDouble()) }
+            })),
+        )
+        if (!framed && places.isEmpty() && location != null) {
+            m.cameraPosition = CameraPosition.Builder().target(LatLng(location.lat, location.lng)).zoom(14.0).build()
+        }
+    }
+
+    // While the map is on screen: a precise fix first, then follow the phone.
+    val scope = rememberCoroutineScope()
+    var askedPrecise by remember { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    fun startFollowing(): () -> Unit = DeviceLocation.follow(context) { c ->
+        val old = app.location.value
+        // Ignore a vaguer reading when we already have a sharper one from moments ago.
+        if (old?.accuracyM == null || c.accuracyM == null || c.accuracyM <= old.accuracyM * 2) app.location.value = c
+    }
+    DisposableEffect(lifecycle, askedPrecise) {
+        var stop: () -> Unit = {}
+        val observer = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_RESUME -> {
+                    stop()
+                    stop = startFollowing()
+                    scope.launch { DeviceLocation.current(context, precise = true)?.let { app.location.value = it } }
+                }
+                Lifecycle.Event.ON_PAUSE -> stop()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            stop()
+        }
+    }
+    val askPrecise = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+        askedPrecise = !askedPrecise
+        scope.launch {
+            val c = DeviceLocation.current(context, precise = true)
+            if (c != null) {
+                app.location.value = c
+                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(c.lat, c.lng), 16.0), 600)
+            }
+        }
+    }
+    val locateMe: () -> Unit = {
+        if (!DeviceLocation.hasPrecise(context)) {
+            askPrecise.launch(DeviceLocation.PERMISSIONS)
+        } else {
+            location?.let { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(it.lat, it.lng), 16.0), 600) }
+            scope.launch {
+                val c = DeviceLocation.current(context, precise = true)
+                if (c != null) {
+                    app.location.value = c
+                    map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(c.lat, c.lng), 16.0), 600)
+                }
+            }
         }
     }
 
@@ -317,6 +384,10 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
         Row(Modifier.align(Alignment.TopStart).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MapChip(if (state.showAll) "All food places" else "Places with dishes", AppIcons.Map) { vm.toggleAll() }
         }
+        LocateButton(
+            onClick = locateMe,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 52.dp, end = 14.dp),
+        )
         Text(
             "© OpenMapTiles © OpenStreetMap",
             style = MaterialTheme.typography.labelSmall,
@@ -556,6 +627,26 @@ fun friendlyHours(raw: String): String =
         .replace("Fr", "Fri").replace("Sa", "Sat").replace("Su", "Sun").replace("-", "–")
         .replace(Regex("\\b0(\\d):"), "$1:").replace(";", ",")
 
+/** Round "show me where I am" button, like every maps app. */
+@Composable
+private fun LocateButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier
+            .size(46.dp)
+            .pressScale(interaction, 0.9f)
+            .shadow(6.dp, CircleShape)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Show my location" }
+            .testTag("locate_me"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(AppIcons.MyLocation, null, tint = Color(0xFF1E88E5), modifier = Modifier.size(22.dp))
+    }
+}
+
 @Composable
 private fun MapChip(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
@@ -690,6 +781,24 @@ private fun addLayers(style: Style) {
             PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.symbolSortKey(Expression.get("rank")),
         ).withFilter(hasDishes),
+    )
+    // The accuracy halo: metres → pixels depends on zoom (doubles per level; at zoom 15 a
+    // pixel is ~4.8 m on screen at India's latitudes).
+    style.addLayer(
+        CircleLayer("ff-me-halo", ME).withProperties(
+            PropertyFactory.circleRadius(
+                Expression.interpolate(
+                    Expression.exponential(2f), Expression.zoom(),
+                    Expression.stop(10, Expression.division(Expression.get("acc"), Expression.literal(150f))),
+                    Expression.stop(20, Expression.division(Expression.get("acc"), Expression.literal(0.146f))),
+                ),
+            ),
+            PropertyFactory.circleColor("#1E88E5"),
+            PropertyFactory.circleOpacity(0.15f),
+            PropertyFactory.circleStrokeColor("#1E88E5"),
+            PropertyFactory.circleStrokeOpacity(0.35f),
+            PropertyFactory.circleStrokeWidth(1f),
+        ),
     )
     style.addLayer(
         CircleLayer("ff-me", ME).withProperties(

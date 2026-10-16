@@ -15,7 +15,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 data class Session(val token: String, val user: User)
 data class SelectedCity(val id: Int, val name: String)
-data class Coords(val lat: Double, val lng: Double)
+/** A position; [accuracyM] is the phone's own error estimate in metres, when known. */
+data class Coords(val lat: Double, val lng: Double, val accuracyM: Float? = null)
 
 enum class Engagement(val api: String) { Recommend("recommend"), Save("save"), Tried("tried"), Pass("pass") }
 

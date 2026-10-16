@@ -229,7 +229,7 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
 
     // Refresh the approximate location quietly when permission was already given.
     LaunchedEffect(Unit) {
-        if (DeviceLocation.hasPermission(context)) app.location.value = DeviceLocation.current(context)
+        if (DeviceLocation.hasPermission(context)) app.location.value = DeviceLocation.current(context, precise = DeviceLocation.hasPrecise(context))
     }
     LaunchedEffect(deepLinkDishId, needsSetup) {
         if (deepLinkDishId != null && !needsSetup) {
