@@ -98,7 +98,7 @@ import app.foodfeed.ui.components.PrimaryButton
 import app.foodfeed.ui.components.QuietButton
 import app.foodfeed.ui.components.RatingPill
 import app.foodfeed.ui.components.VegMark
-import app.foodfeed.ui.components.takeMeThere
+import app.foodfeed.ui.components.directionsTo
 import app.foodfeed.ui.theme.LocalLiteMode
 import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -141,7 +141,10 @@ class MapViewModel(private val app: AppContainer) : ViewModel() {
         }
     }
 
+    private var userChose = false
+
     fun toggleAll() {
+        userChose = true
         _state.update { it.copy(showAll = !it.showAll) }
         load()
     }
@@ -151,6 +154,13 @@ class MapViewModel(private val app: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 val r = apiCall { app.api.map(city.id, _state.value.showAll) }
+                // Few real places with dishes yet? Show every real food place instead, so the
+                // map is never a handful of pins (or empty) while a city is getting started.
+                if (!userChose && !_state.value.showAll && r.places.count { it.dishCount > 0 && !it.demo } < 3) {
+                    _state.update { it.copy(showAll = true) }
+                    load()
+                    return@launch
+                }
                 _state.update { it.copy(loading = false, places = r.places, error = null) }
             } catch (e: ApiException) {
                 _state.update { it.copy(loading = false, error = e.message) }
@@ -418,7 +428,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
             distanceM = current?.let { p -> location?.let { metres(it.lat, it.lng, p.lat, p.lng) } },
             photoUrl = current?.let { app.mediaUrl(it.topDish?.thumbUrl ?: it.photoUrl) },
             onDismiss = { selected = null },
-            onTakeMeThere = { p -> takeMeThere(context, p.lat, p.lng, p.name) },
+            onTakeMeThere = { p -> directionsTo(scope, app.api, context, p.id, p.lat, p.lng, p.name) },
             onOpenDish = onOpenDish,
             onOpenPlace = onOpenPlace,
             modifier = Modifier.align(Alignment.BottomCenter),

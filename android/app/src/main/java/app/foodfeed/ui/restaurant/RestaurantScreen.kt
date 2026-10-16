@@ -5,7 +5,7 @@ import app.foodfeed.data.PlacePhoto
 import app.foodfeed.data.apiCall
 import app.foodfeed.ui.components.DishImage
 import app.foodfeed.ui.components.openUrl
-import app.foodfeed.ui.components.takeMeThere
+import app.foodfeed.ui.components.directionsTo
 import app.foodfeed.ui.map.friendlyHours
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.LaunchedEffect
@@ -109,6 +109,7 @@ fun RestaurantScreen(
     val overrides by app.overrides.collectAsState()
     val actions = rememberDishActions(onNeedSignIn, showMessage)
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Google Maps photos are fetched live by the server (never stored), only if it has a key.
     var googlePhotos by remember { mutableStateOf<List<GooglePhoto>>(emptyList()) }
     LaunchedEffect(state.place?.id, state.place?.googlePhotos) {
@@ -129,7 +130,7 @@ fun RestaurantScreen(
             onBack = onBack,
             onOpenDish = onOpenDish,
             onSave = { actions.toggle(it, Engagement.Save) },
-            onMaps = { p -> takeMeThere(context, p.lat, p.lng, p.name) },
+            onMaps = { p -> directionsTo(scope, app.api, context, p.id, p.lat, p.lng, p.name) },
             mediaUrl = { app.mediaUrl(it) },
             googlePhotos = googlePhotos,
             onOpenLink = { openUrl(context, it) },

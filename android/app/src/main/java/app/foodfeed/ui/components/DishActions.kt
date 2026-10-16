@@ -72,15 +72,31 @@ fun openMaps(context: Context, lat: Double, lng: Double, name: String) {
 
 /**
  * Directions to a place: Google Maps' directions screen if it is installed, else any maps
- * app, else the browser. The person still taps Start, so nothing begins by surprise.
+ * app, else the browser. With the place's Google id, Maps opens the business's own listing
+ * as the destination rather than a bare pin. The person still taps Start.
  */
-fun takeMeThere(context: Context, lat: Double, lng: Double, name: String) {
-    val dir = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving")
+fun takeMeThere(context: Context, lat: Double, lng: Double, name: String, googlePlaceId: String? = null) {
+    val dest = if (googlePlaceId != null) "destination=${Uri.encode(name)}&destination_place_id=${Uri.encode(googlePlaceId)}"
+    else "destination=$lat,$lng"
+    val dir = Uri.parse("https://www.google.com/maps/dir/?api=1&$dest&travelmode=driving")
     val google = Intent(Intent.ACTION_VIEW, dir).setPackage("com.google.android.apps.maps").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
         context.startActivity(google)
     } catch (e: ActivityNotFoundException) {
-        openMaps(context, lat, lng, name)
+        if (googlePlaceId != null) openUrl(context, dir.toString()) else openMaps(context, lat, lng, name)
+    }
+}
+
+/**
+ * Take me there for a FoodFeed place: asks our server for the place's Google id (a second
+ * at most), then opens directions; falls back to the coordinates.
+ */
+fun directionsTo(scope: kotlinx.coroutines.CoroutineScope, api: app.foodfeed.data.FoodFeedApi, context: Context, restaurantId: String, lat: Double, lng: Double, name: String) {
+    scope.launch {
+        val id = kotlinx.coroutines.withTimeoutOrNull(2_500) {
+            runCatching { api.mapsLink(restaurantId).googlePlaceId }.getOrNull()
+        }
+        takeMeThere(context, lat, lng, name, id)
     }
 }
 

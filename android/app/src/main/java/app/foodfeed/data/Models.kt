@@ -201,6 +201,9 @@ data class GoogleAuthor(val name: String, val uri: String? = null)
 data class GooglePhoto(val url: String, val authors: List<GoogleAuthor> = emptyList())
 
 @Serializable
+data class MapsLink(val googlePlaceId: String? = null)
+
+@Serializable
 data class GooglePhotos(val photos: List<GooglePhoto> = emptyList())
 
 @Serializable
@@ -486,6 +489,8 @@ data class MapPlace(
     val dishCount: Int = 0,
     val lovers: Int = 0,
     val photoUrl: String? = null,
+    /** One of the invented demo places (not a real business). */
+    val demo: Boolean = false,
     /** The food logo drawn on the pin: the best dish's category, else a guess from the cuisine. */
     val emoji: String = "🍽️",
     val topDish: MapTopDish? = null,

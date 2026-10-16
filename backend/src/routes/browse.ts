@@ -4,7 +4,7 @@ import { parse } from '../app.js';
 import { optionalAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
 import { inCity, nearestCity } from '../geo.js';
-import { googlePlacePhotos } from '../photos.js';
+import { googlePlaceId, googlePlacePhotos } from '../photos.js';
 
 const coords = {
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -181,6 +181,26 @@ export async function browseRoutes(app: FastifyInstance) {
       googlePhotos: !!config.googlePlacesApiKey && isReal,
       dishes: await loadDishCards(db, dishIds.map((d) => d.id), viewer, q.lat, q.lng),
     };
+  });
+
+  // The Google Maps id for Take me there, so directions open the real listing. Null for
+  // demo places, without a Google key, or when Google doesn't know the place.
+  app.get('/restaurants/:id/maps', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const p = parse(z.object({ id: uuid }), req.params, reply);
+    if (!p) return;
+    const { rows } = await db.query(
+      `select r.id, r.name, r.locality, c.name as city, st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
+              r.google_place_id as "googlePlaceId"
+       from restaurants r join cities c on c.id = r.city_id where r.id = $1 and r.status = 'active' and r.source <> 'seed'`,
+      [p.id],
+    );
+    if (!rows[0] || !config.googlePlacesApiKey) return { googlePlaceId: rows[0]?.googlePlaceId ?? null };
+    try {
+      return { googlePlaceId: await googlePlaceId(db, rows[0], { apiKey: config.googlePlacesApiKey }) };
+    } catch (err) {
+      req.log.warn(err);
+      return { googlePlaceId: null };
+    }
   });
 
   // Google Maps photos of a place, fetched live (never stored). Empty when not configured.

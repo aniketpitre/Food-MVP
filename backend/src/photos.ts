@@ -240,23 +240,8 @@ export async function googlePlacePhotos(
   if (google.used >= opts.dailyLimit) return [];
   const headers = { 'X-Goog-Api-Key': opts.apiKey, 'content-type': 'application/json' };
 
-  let placeId = place.googlePlaceId;
-  if (!placeId) {
-    // Text Search asking only for ids, which Google doesn't bill as a full search.
-    const res = await f('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: { ...headers, 'X-Goog-FieldMask': 'places.id' },
-      body: JSON.stringify({
-        textQuery: [place.name, place.locality, place.city].filter(Boolean).join(', '),
-        locationBias: { circle: { center: { latitude: place.lat, longitude: place.lng }, radius: 150 } },
-        pageSize: 1,
-      }),
-    });
-    if (!res.ok) return [];
-    placeId = ((await res.json()) as { places?: { id: string }[] }).places?.[0]?.id ?? null;
-    if (!placeId) return [];
-    await db.query('update restaurants set google_place_id = $2 where id = $1', [place.id, placeId]);
-  }
+  const placeId = await googlePlaceId(db, place, opts);
+  if (!placeId) return [];
   const details = await f(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
     headers: { ...headers, 'X-Goog-FieldMask': 'photos' },
   });
@@ -279,6 +264,33 @@ export async function googlePlacePhotos(
   }
   google.cache.set(place.id, { at: Date.now(), photos });
   return photos;
+}
+
+/**
+ * The Google Maps id of a real place (found once with an ids-only Text Search, which Google
+ * doesn't bill as a full search, then stored, which Google allows). Lets Take me there open
+ * the place's own Google Maps listing instead of a bare pin.
+ */
+export async function googlePlaceId(
+  db: Db,
+  place: { id: string; name: string; locality: string | null; city: string; lat: number; lng: number; googlePlaceId: string | null },
+  opts: { apiKey: string; fetchImpl?: Fetch },
+): Promise<string | null> {
+  if (place.googlePlaceId) return place.googlePlaceId;
+  const f = opts.fetchImpl ?? fetch;
+  const res = await f('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: { 'X-Goog-Api-Key': opts.apiKey, 'content-type': 'application/json', 'X-Goog-FieldMask': 'places.id' },
+    body: JSON.stringify({
+      textQuery: [place.name, place.locality, place.city].filter(Boolean).join(', '),
+      locationBias: { circle: { center: { latitude: place.lat, longitude: place.lng }, radius: 150 } },
+      pageSize: 1,
+    }),
+  });
+  if (!res.ok) return null;
+  const id = ((await res.json()) as { places?: { id: string }[] }).places?.[0]?.id ?? null;
+  if (id) await db.query('update restaurants set google_place_id = $2 where id = $1', [place.id, id]);
+  return id;
 }
 
 /** For tests. */

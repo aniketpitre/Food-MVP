@@ -995,6 +995,10 @@ describe('photos of places', () => {
     // Cached for an hour: no new paid calls.
     await googlePlacePhotos(db, place, { apiKey: 'k', dailyLimit: 2, fetchImpl: fake });
     expect(mediaCalls).toBe(2);
+    // Take me there gets the stored Google id; invented demo places never get one.
+    expect((await app.inject(`/restaurants/${place.id}/maps`)).json()).toEqual({ googlePlaceId: 'gp1' });
+    const { rows: demo } = await db.query<{ id: string }>("select id from restaurants where source = 'seed' limit 1");
+    if (demo[0]) expect((await app.inject(`/restaurants/${demo[0].id}/maps`)).json()).toEqual({ googlePlaceId: null });
   });
 });
 

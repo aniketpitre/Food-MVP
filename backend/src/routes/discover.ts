@@ -191,6 +191,7 @@ export async function discoverRoutes(app: FastifyInstance) {
     if (!q) return;
     const { rows } = await db.query(
       `select r.id, r.name, r.locality, r.cuisine, r.address, r.opening_hours as "openingHours",
+              (r.source = 'seed') as demo,
               st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
               count(d.id)::int as "dishCount",
               (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id

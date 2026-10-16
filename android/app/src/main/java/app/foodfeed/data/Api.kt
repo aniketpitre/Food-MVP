@@ -143,6 +143,8 @@ interface FoodFeedApi {
 
     @GET("restaurants/{id}/google-photos") suspend fun googlePhotos(@Path("id") id: String): GooglePhotos
 
+    @GET("restaurants/{id}/maps") suspend fun mapsLink(@Path("id") id: String): MapsLink
+
     // ---- Messages ----
     @GET("inbox") suspend fun inbox(@Query("folder") folder: String = "inbox"): Inbox
 

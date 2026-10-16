@@ -1,7 +1,7 @@
 package app.foodfeed.ui.dish
 
 import app.foodfeed.data.DishCard
-import app.foodfeed.ui.components.takeMeThere
+import app.foodfeed.ui.components.directionsTo
 import app.foodfeed.ui.messages.SendToSheet
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -172,7 +172,7 @@ fun DishScreen(
                 onBack = onBack,
                 onToggle = { actions.toggle(card, it) },
                 onShare = { sendingCard = card },
-                onMaps = { takeMeThere(context, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
+                onMaps = { directionsTo(scope, app.api, context, dish.restaurant.id, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
                 onOpenRestaurant = { onOpenRestaurant(dish.restaurant.id) },
                 onOpenDish = onOpenDish,
                 onOpenUser = onOpenUser,
