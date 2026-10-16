@@ -23,7 +23,7 @@ export async function storePostImage(mediaDir: string, postId: string, input: Bu
 }
 
 /** Same as [storePostImage] for any kind of photo, stored under media/<kind>/<id>/. */
-export async function storeImage(mediaDir: string, kind: 'posts' | 'stories' | 'places', id: string, input: Buffer): Promise<StoredImage> {
+export async function storeImage(mediaDir: string, kind: 'posts' | 'stories' | 'places' | 'messages', id: string, input: Buffer): Promise<StoredImage> {
   const meta = await sharp(input, { failOn: 'error' }).metadata();
   if (!meta.width || !meta.height) throw new Error('not_an_image');
   if (meta.width < 200 || meta.height < 200) throw new Error('image_too_small');
@@ -56,7 +56,7 @@ export async function storeImage(mediaDir: string, kind: 'posts' | 'stories' | '
   };
 }
 
-export async function deleteImages(mediaDir: string, kind: 'posts' | 'stories' | 'places', id: string): Promise<void> {
+export async function deleteImages(mediaDir: string, kind: 'posts' | 'stories' | 'places' | 'messages', id: string): Promise<void> {
   await fs.rm(path.join(mediaDir, kind, id), { recursive: true, force: true });
 }
 

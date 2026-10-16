@@ -2,24 +2,49 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { requireAuth, userId } from '../auth.js';
+import { randomUUID } from 'node:crypto';
+import { deleteImages, storeImage } from '../media.js';
 import { canMessage, conversationWith, MessageError, sendMessage } from '../messaging.js';
 
 const uuid = z.string().uuid();
 
-/** A message as the app shows it, with the dish or story it points to. */
+/**
+ * A message as the app shows it: its text, the dish / place / post / story it points to,
+ * a photo, the message it replies to, and its reactions ($2 is the viewer).
+ */
 const messageSql = `
   select m.id, m.kind, m.body, m.created_at as "createdAt", (m.sender_id = $2) as mine,
          case when d.id is not null then json_build_object(
            'id', d.id, 'name', d.name, 'restaurantName', r.name, 'priceInr', d.price_inr,
            'thumbUrl', (select p.thumb_path from posts p where p.dish_id = d.id and p.status = 'live'
                         order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1)) end as dish,
+         case when pl.id is not null then json_build_object(
+           'id', pl.id, 'name', pl.name, 'locality', pl.locality, 'cuisine', pl.cuisine,
+           'lat', st_y(pl.geo::geometry), 'lng', st_x(pl.geo::geometry),
+           'thumbUrl', coalesce(
+             (select p.thumb_path from posts p join dishes d2 on d2.id = p.dish_id
+              where d2.restaurant_id = pl.id and p.status = 'live' order by p.created_at desc limit 1),
+             (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = pl.id limit 1))) end as place,
+         case when po.id is not null then json_build_object(
+           'id', po.id, 'dishId', po.dish_id, 'thumbUrl', po.thumb_path, 'caption', po.caption,
+           'dishName', pd.name, 'author', pa.handle) end as post,
+         case when m.image_path is not null then json_build_object('imageUrl', m.image_path, 'thumbUrl', m.thumb_path) end as photo,
          case when m.story_id is not null or m.kind in ('story_reply', 'story_like') then json_build_object(
            'id', s.id, 'thumbUrl', case when s.expires_at > now() then s.thumb_path end,
-           'expired', s.id is null or s.expires_at <= now()) end as story
+           'expired', s.id is null or s.expires_at <= now()) end as story,
+         case when rt.id is not null then json_build_object(
+           'id', rt.id, 'kind', rt.kind, 'body', left(rt.body, 120), 'mine', rt.sender_id = $2) end as "replyTo",
+         (select coalesce(json_agg(json_build_object('emoji', x.emoji, 'mine', x.user_id = $2) order by x.created_at), '[]'::json)
+          from message_reactions x where x.message_id = m.id) as reactions
   from messages m
   left join dishes d on d.id = m.dish_id and d.status = 'live'
   left join restaurants r on r.id = d.restaurant_id
-  left join stories s on s.id = m.story_id`;
+  left join restaurants pl on pl.id = m.restaurant_id and pl.status = 'active'
+  left join posts po on po.id = m.post_id and po.status = 'live'
+  left join dishes pd on pd.id = po.dish_id
+  left join profiles pa on pa.id = po.author_id
+  left join stories s on s.id = m.story_id
+  left join messages rt on rt.id = m.reply_to`;
 
 /**
  * Direct messages, one to one. People you don't follow land in Requests until you reply or
@@ -27,7 +52,7 @@ const messageSql = `
  * only. The app polls an open chat every few seconds, which is plenty for this scale.
  */
 export async function messageRoutes(app: FastifyInstance) {
-  const { db } = app;
+  const { db, config } = app;
 
   async function membership(conversationId: string, me: string) {
     const { rows } = await db.query<{ folder: string; cleared_at: Date; other_id: string; their_read: Date }>(
@@ -102,6 +127,65 @@ export async function messageRoutes(app: FastifyInstance) {
     return rows[0];
   });
 
+  /**
+   * What's new since [since] for phone notifications: unread messages, reactions to my
+   * messages, and unread Activity. The app keeps the returned `now` as its next cursor
+   * (server time, so phone clocks don't matter). Without `since` it only returns `now`.
+   */
+  app.get('/updates', { preHandler: requireAuth }, async (req, reply) => {
+    const q = parse(z.object({ since: z.string().datetime({ offset: true }).optional() }), req.query, reply);
+    if (!q) return;
+    const me = userId(req)!;
+    const { rows: t } = await db.query<{ now: Date }>('select now() as now');
+    const now = t[0]!.now;
+    if (!q.since) return { now, messages: [], reactions: [], activity: [] };
+    const notBlocked = (col: string) =>
+      `not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = ${col}) or (b.blocker_id = ${col} and b.blocked_id = $1))`;
+    const person = (a: string) =>
+      `json_build_object('handle', ${a}.handle, 'displayName', ${a}.display_name, 'avatarUrl', ${a}.avatar_path)`;
+    const [messages, reactions, activity] = await Promise.all([
+      db.query(
+        `select m.id, m.conversation_id as "conversationId", m.kind, left(m.body, 200) as body,
+                m.created_at as "createdAt", mine.folder, ${person('p')} as "from"
+         from messages m
+         join conversation_members mine on mine.conversation_id = m.conversation_id and mine.user_id = $1
+         join profiles p on p.id = m.sender_id
+         where m.sender_id <> $1 and m.created_at > $2 and m.created_at <= $3
+           and m.created_at > greatest(mine.last_read_at, mine.cleared_at) and ${notBlocked('m.sender_id')}
+         order by m.created_at limit 30`,
+        [me, q.since, now],
+      ),
+      db.query(
+        `select x.message_id as "messageId", m.conversation_id as "conversationId", x.emoji,
+                x.created_at as "createdAt", left(m.body, 80) as body, m.kind, ${person('p')} as "from"
+         from message_reactions x
+         join messages m on m.id = x.message_id and m.sender_id = $1
+         join profiles p on p.id = x.user_id
+         where x.user_id <> $1 and x.created_at > $2 and x.created_at <= $3 and ${notBlocked('x.user_id')}
+         order by x.created_at limit 30`,
+        [me, q.since, now],
+      ),
+      db.query(
+        `select n.id, n.kind, n.created_at as "createdAt", ${person('a')} as actor,
+                d.name as "dishName", d.id as "dishId", left(c.body, 120) as "commentBody"
+         from notifications n
+         join profiles a on a.id = n.actor_id
+         left join dishes d on d.id = coalesce(n.dish_id, (select po.dish_id from posts po where po.id = n.post_id))
+         left join comments c on c.id = n.comment_id and c.status = 'live'
+         where n.user_id = $1 and n.read_at is null and n.created_at > $2 and n.created_at <= $3
+           and ${notBlocked('n.actor_id')}
+         order by n.id limit 30`,
+        [me, q.since, now],
+      ),
+    ]);
+    return {
+      now,
+      messages: messages.rows,
+      reactions: reactions.rows,
+      activity: activity.rows.map((r) => ({ ...r, id: Number(r.id) })),
+    };
+  });
+
   // Opens (or creates) the chat with someone, e.g. from the Message button on a profile.
   app.post('/conversations', { preHandler: requireAuth }, async (req, reply) => {
     const body = parse(z.object({ handle: z.string().trim().toLowerCase().max(20) }), req.body, reply);
@@ -147,8 +231,13 @@ export async function messageRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const p = parse(z.object({ id: uuid }), req.params, reply);
       const body = parse(
-        z.object({ body: z.string().trim().min(1).max(1000).optional(), dishId: uuid.optional() })
-          .refine((b) => b.body || b.dishId, 'write something'),
+        z.object({
+          body: z.string().trim().min(1).max(1000).optional(),
+          dishId: uuid.optional(),
+          restaurantId: uuid.optional(),
+          postId: uuid.optional(),
+          replyTo: uuid.optional(),
+        }).refine((b) => b.body || b.dishId || b.restaurantId || b.postId, 'write something'),
         req.body,
         reply,
       );
@@ -157,7 +246,10 @@ export async function messageRoutes(app: FastifyInstance) {
       const m = await membership(p.id, me);
       if (!m) return reply.code(404).send({ error: 'not_found', message: 'Chat not found.' });
       try {
-        const sent = await sendMessage(db, me, m.other_id, { kind: body.dishId ? 'dish' : 'text', body: body.body, dishId: body.dishId });
+        const kind = body.postId ? 'post' : body.dishId ? 'dish' : body.restaurantId ? 'place' : 'text';
+        const sent = await sendMessage(db, me, m.other_id, {
+          kind, body: body.body, dishId: body.dishId, restaurantId: body.restaurantId, postId: body.postId, replyTo: body.replyTo,
+        });
         const { rows } = await db.query(`${messageSql} where m.id = $1`, [sent.messageId, me]);
         return reply.code(201).send(rows[0]);
       } catch (err) {
@@ -173,7 +265,9 @@ export async function messageRoutes(app: FastifyInstance) {
         handles: z.array(z.string().trim().toLowerCase().max(20)).min(1).max(15),
         body: z.string().trim().min(1).max(1000).optional(),
         dishId: uuid.optional(),
-      }).refine((b) => b.body || b.dishId, 'write something'),
+        restaurantId: uuid.optional(),
+        postId: uuid.optional(),
+      }).refine((b) => b.body || b.dishId || b.restaurantId || b.postId, 'write something'),
       req.body,
       reply,
     );
@@ -184,7 +278,9 @@ export async function messageRoutes(app: FastifyInstance) {
     const failed: string[] = [];
     for (const r of rows) {
       try {
-        if (body.dishId) await sendMessage(db, me, r.id, { kind: 'dish', dishId: body.dishId });
+        if (body.postId) await sendMessage(db, me, r.id, { kind: 'post', postId: body.postId });
+        else if (body.dishId) await sendMessage(db, me, r.id, { kind: 'dish', dishId: body.dishId });
+        else if (body.restaurantId) await sendMessage(db, me, r.id, { kind: 'place', restaurantId: body.restaurantId });
         if (body.body) await sendMessage(db, me, r.id, { kind: 'text', body: body.body });
         sent.push(r.handle);
       } catch (err) {
@@ -193,6 +289,67 @@ export async function messageRoutes(app: FastifyInstance) {
       }
     }
     return { sent: sent.sort(), failed: failed.sort() };
+  });
+
+  // A photo in a chat (re-encoded like every photo: WebP, location data dropped).
+  app.post(
+    '/conversations/:id/photo',
+    { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const p = parse(z.object({ id: uuid }), req.params, reply);
+      if (!p) return;
+      const me = userId(req)!;
+      const m = await membership(p.id, me);
+      if (!m) return reply.code(404).send({ error: 'not_found', message: 'Chat not found.' });
+      let image: Buffer | undefined;
+      let caption: string | undefined;
+      for await (const part of req.parts()) {
+        if (part.type === 'file' && part.fieldname === 'image') image = await part.toBuffer();
+        else if (part.type === 'file') part.file.resume();
+        else if (part.fieldname === 'body') caption = String(part.value).trim().slice(0, 1000) || undefined;
+      }
+      if (!image) return reply.code(400).send({ error: 'invalid_input', message: 'Choose a photo.' });
+      const fileId = randomUUID();
+      let stored;
+      try {
+        stored = await storeImage(config.mediaDir, 'messages', fileId, image);
+      } catch {
+        return reply.code(400).send({ error: 'bad_image', message: 'That file is not a photo we can read.' });
+      }
+      try {
+        const sent = await sendMessage(db, me, m.other_id, { kind: 'photo', body: caption, imagePath: stored.imagePath, thumbPath: stored.thumbPath });
+        const { rows } = await db.query(`${messageSql} where m.id = $1`, [sent.messageId, me]);
+        return reply.code(201).send(rows[0]);
+      } catch (err) {
+        await deleteImages(config.mediaDir, 'messages', fileId);
+        return fail(reply, err);
+      }
+    },
+  );
+
+  // React to a message (one reaction per person, like Instagram; double-tap sends a heart).
+  app.put('/messages/:id/reaction', { preHandler: requireAuth }, async (req, reply) => {
+    const p = parse(z.object({ id: uuid }), req.params, reply);
+    const b = parse(z.object({ emoji: z.string().min(1).max(16) }), req.body, reply);
+    if (!p || !b) return;
+    const me = userId(req)!;
+    const { rowCount } = await db.query(
+      `insert into message_reactions (message_id, user_id, emoji)
+       select m.id, $2, $3 from messages m
+       join conversation_members cm on cm.conversation_id = m.conversation_id and cm.user_id = $2
+       where m.id = $1
+       on conflict (message_id, user_id) do update set emoji = excluded.emoji, created_at = now()`,
+      [p.id, me, b.emoji],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Message not found.' });
+    return { ok: true };
+  });
+
+  app.delete('/messages/:id/reaction', { preHandler: requireAuth }, async (req, reply) => {
+    const p = parse(z.object({ id: uuid }), req.params, reply);
+    if (!p) return;
+    await db.query('delete from message_reactions where message_id = $1 and user_id = $2', [p.id, userId(req)]);
+    return { ok: true };
   });
 
   app.post('/conversations/:id/read', { preHandler: requireAuth }, async (req, reply) => {
@@ -228,8 +385,13 @@ export async function messageRoutes(app: FastifyInstance) {
   app.delete('/messages/:id', { preHandler: requireAuth }, async (req, reply) => {
     const p = parse(z.object({ id: uuid }), req.params, reply);
     if (!p) return;
-    const { rowCount } = await db.query('delete from messages where id = $1 and sender_id = $2', [p.id, userId(req)]);
-    if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Message not found.' });
+    const { rows } = await db.query<{ image_path: string | null }>(
+      'delete from messages where id = $1 and sender_id = $2 returning image_path',
+      [p.id, userId(req)],
+    );
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'Message not found.' });
+    const img = rows[0].image_path?.match(/^\/media\/messages\/([0-9a-f-]+)\//)?.[1];
+    if (img) await deleteImages(config.mediaDir, 'messages', img);
     return reply.code(204).send();
   });
 }

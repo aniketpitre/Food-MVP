@@ -483,6 +483,68 @@ describe('safety', () => {
   });
 });
 
+describe('rich messages and notifications', () => {
+  it('shares places and posts, sends photos, replies, reacts, and reports it all as updates', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const start = (await app.inject({ url: '/updates', headers: b.auth })).json();
+    expect(start).toMatchObject({ messages: [], reactions: [], activity: [] });
+    const since = encodeURIComponent(start.now);
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
+
+    const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
+    const dish = await dishId('Misal Pav');
+    const place = (await db.query('select restaurant_id from dishes where id = $1', [dish])).rows[0].restaurant_id;
+    const postId = (await app.inject(`/dishes/${dish}`)).json().cover.postId;
+    const send = (payload: object) =>
+      app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload });
+
+    const placeMsg = (await send({ restaurantId: place })).json();
+    expect(placeMsg).toMatchObject({ kind: 'place', place: { id: place } });
+    expect(typeof placeMsg.place.lat).toBe('number');
+    const postMsg = (await send({ postId, body: 'look at this' })).json();
+    expect(postMsg).toMatchObject({ kind: 'post', body: 'look at this', post: { id: postId, dishId: dish, dishName: 'Misal Pav' } });
+
+    const up = multipart(a.auth, { body: 'my plate' }, await photo(true));
+    const photoRes = await app.inject({ method: 'POST', url: `/conversations/${conv.id}/photo`, ...up });
+    expect(photoRes.statusCode).toBe(201);
+    expect(photoRes.json()).toMatchObject({ kind: 'photo', body: 'my plate', photo: { imageUrl: expect.stringContaining('messages/') } });
+
+    // b's phone sees a's three messages.
+    const forB = (await app.inject({ url: `/updates?since=${since}`, headers: b.auth })).json();
+    expect(forB.messages.map((m: { kind: string }) => m.kind)).toEqual(['place', 'post', 'photo']);
+    expect(forB.messages[0]).toMatchObject({ conversationId: conv.id, from: { handle: a.handle } });
+
+    // b replies to the photo (which marks the chat read) and double-taps the place with a heart.
+    const replyRes = await app.inject({
+      method: 'POST', url: `/conversations/${conv.id}/messages`, headers: b.auth,
+      payload: { body: 'Yum!', replyTo: photoRes.json().id },
+    });
+    expect(replyRes.json()).toMatchObject({ replyTo: { id: photoRes.json().id, kind: 'photo', mine: false } });
+    expect((await app.inject({ method: 'PUT', url: `/messages/${placeMsg.id}/reaction`, headers: b.auth, payload: { emoji: '❤️' } })).statusCode).toBe(200);
+    const outsider = await signUp();
+    expect((await app.inject({ method: 'PUT', url: `/messages/${placeMsg.id}/reaction`, headers: outsider.auth, payload: { emoji: '❤️' } })).statusCode).toBe(404);
+    const thread = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json();
+    expect(thread.messages.find((m: { id: string }) => m.id === placeMsg.id).reactions).toEqual([{ emoji: '❤️', mine: false }]);
+
+    // a's sees the reaction, the reply, and the follow.
+    const forA = (await app.inject({ url: `/updates?since=${since}`, headers: a.auth })).json();
+    expect(forA.reactions).toMatchObject([{ messageId: placeMsg.id, emoji: '❤️', from: { handle: b.handle } }]);
+    expect(forA.messages).toMatchObject([{ body: 'Yum!' }]);
+    expect(forA.activity).toMatchObject([{ kind: 'follow', actor: { handle: b.handle } }]);
+    // Nothing new after the cursor moves on; reading a chat silences it.
+    expect((await app.inject({ url: `/updates?since=${encodeURIComponent(forA.now)}`, headers: a.auth })).json().messages).toEqual([]);
+    expect((await app.inject({ url: `/updates?since=${since}`, headers: b.auth })).json().messages).toEqual([]);
+
+    // Removing the reaction and unsending the photo.
+    await app.inject({ method: 'DELETE', url: `/messages/${placeMsg.id}/reaction`, headers: b.auth });
+    expect((await app.inject({ method: 'DELETE', url: `/messages/${photoRes.json().id}`, headers: a.auth })).statusCode).toBe(204);
+    const after = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().messages;
+    expect(after.find((m: { id: string }) => m.id === placeMsg.id).reactions).toEqual([]);
+    expect(after.some((m: { kind: string }) => m.kind === 'photo')).toBe(false);
+  });
+});
+
 describe('comments', () => {
   async function coverPost(): Promise<{ postId: string; dish: string }> {
     const dish = await dishId('Misal Pav');

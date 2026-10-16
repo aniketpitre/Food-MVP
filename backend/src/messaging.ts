@@ -1,6 +1,6 @@
 import type { Db } from './db.js';
 
-export type MessageKind = 'text' | 'dish' | 'story_reply' | 'story_like';
+export type MessageKind = 'text' | 'dish' | 'story_reply' | 'story_like' | 'place' | 'post' | 'photo';
 
 export class MessageError extends Error {
   constructor(
@@ -71,16 +71,29 @@ export async function sendMessage(
   db: Pick<Db, 'query'>,
   me: string,
   other: string,
-  m: { kind: MessageKind; body?: string | null; dishId?: string | null; storyId?: string | null },
+  m: {
+    kind: MessageKind;
+    body?: string | null;
+    dishId?: string | null;
+    storyId?: string | null;
+    restaurantId?: string | null;
+    postId?: string | null;
+    imagePath?: string | null;
+    thumbPath?: string | null;
+    replyTo?: string | null;
+  },
 ): Promise<{ conversationId: string; messageId: string }> {
   if (!(await canMessage(db, me, other))) {
     throw new MessageError(403, 'cannot_message', "You can't message this person.");
   }
   const conversationId = await conversationWith(db, me, other);
   const { rows } = await db.query<{ id: string }>(
-    `insert into messages (conversation_id, sender_id, kind, body, dish_id, story_id)
-     values ($1, $2, $3, $4, $5, $6) returning id`,
-    [conversationId, me, m.kind, m.body ?? null, m.dishId ?? null, m.storyId ?? null],
+    `insert into messages (conversation_id, sender_id, kind, body, dish_id, story_id, restaurant_id, post_id,
+                           image_path, thumb_path, reply_to)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+             (select id from messages where id = $11 and conversation_id = $1)) returning id`,
+    [conversationId, me, m.kind, m.body ?? null, m.dishId ?? null, m.storyId ?? null, m.restaurantId ?? null,
+      m.postId ?? null, m.imagePath ?? null, m.thumbPath ?? null, m.replyTo ?? null],
   );
   await db.query('update conversations set last_message_at = now() where id = $1', [conversationId]);
   // Writing in a request accepts it; your own message counts as read.
