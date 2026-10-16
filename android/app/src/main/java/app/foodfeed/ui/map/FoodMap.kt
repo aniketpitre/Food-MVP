@@ -110,6 +110,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -202,7 +203,9 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
 
     val mapView = remember {
         MapLibre.getInstance(context)
-        MapView(context).apply {
+        // TextureView mode: the map draws inside the normal view tree, so it clips to our
+        // rounded corners, fades with Compose animations and works on every GPU.
+        MapView(context, MapLibreMapOptions.createFromAttributes(context, null).textureMode(true)).apply {
             onCreate(Bundle())
             getMapAsync { m ->
                 m.uiSettings.isRotateGesturesEnabled = false

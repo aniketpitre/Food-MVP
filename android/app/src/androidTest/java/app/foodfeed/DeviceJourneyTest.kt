@@ -114,8 +114,8 @@ class DeviceJourneyTest {
     private fun journey() {
         // Home with the stories row and the craving search.
         compose.waitUntilAtLeastOneExists(hasText("What are you\ncraving?"), 30_000)
-        compose.waitUntilAtLeastOneExists(hasTestTag("stories_row"), 10_000)
-        Thread.sleep(1500)
+        compose.waitUntilAtLeastOneExists(hasTestTag("story_bubble"), 20_000)
+        Thread.sleep(2500) // photos and sections settle
         shot("01_home")
 
         // A demo story, full screen. The test clock would otherwise fast-forward the 5-second
@@ -146,7 +146,8 @@ class DeviceJourneyTest {
         compose.onNodeWithContentDescription("Explore").performClick()
         compose.waitUntilAtLeastOneExists(hasText("Nearby"), 15_000)
         compose.onAllNodesWithText("Nearby").onFirst().performClick()
-        waitUntil("the map and its places", 45_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() }
+        compose.waitUntilAtLeastOneExists(hasTestTag("food_map"), 15_000)
+        waitUntil("the map style and its places", 60_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() }
         Thread.sleep(4000) // tiles and camera settle
         shot("04_map_logos")
 
