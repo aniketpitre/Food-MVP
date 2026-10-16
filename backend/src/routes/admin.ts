@@ -29,16 +29,19 @@ export async function adminRoutes(app: FastifyInstance) {
               count(*)::int as reports,
               array_agg(distinct rp.reason) as reasons,
               max(rp.created_at) as "lastReportAt",
-              coalesce(p.status, d.status) as status,
-              coalesce(pd.name, d.name, u.handle) as label,
-              p.thumb_path as "thumbUrl", coalesce(p.dish_id, d.id) as "dishId"
+              coalesce(p.status, d.status, c.status) as status,
+              coalesce(pd.name, d.name, u.handle, '"' || left(c.body, 80) || '"') as label,
+              coalesce(p.thumb_path, cp.thumb_path) as "thumbUrl", coalesce(p.dish_id, d.id, cp.dish_id) as "dishId"
        from reports rp
        left join posts p    on rp.target_type = 'post' and p.id = rp.target_id
        left join dishes pd  on pd.id = p.dish_id
        left join dishes d   on rp.target_type = 'dish' and d.id = rp.target_id
        left join profiles u on rp.target_type = 'user' and u.id = rp.target_id
+       left join comments c on rp.target_type = 'comment' and c.id = rp.target_id
+       left join posts cp   on cp.id = c.post_id
        where rp.status = 'open'
-       group by rp.target_type, rp.target_id, p.status, d.status, pd.name, d.name, u.handle, p.thumb_path, p.dish_id, d.id
+       group by rp.target_type, rp.target_id, p.status, d.status, c.status, pd.name, d.name, u.handle, c.body,
+                p.thumb_path, cp.thumb_path, p.dish_id, cp.dish_id, d.id
        order by count(*) desc, max(rp.created_at) desc`,
     );
     return { pendingPlaces, reported };
@@ -53,10 +56,10 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true, status };
   });
 
-  // Hide or restore a reported post/dish. Either way its open reports are resolved.
+  // Hide or restore a reported post, dish or comment. Either way its open reports are resolved.
   app.post('/admin/:type/:id/:action', { preHandler: requireAdmin }, async (req, reply) => {
     const p = parse(
-      z.object({ type: z.enum(['posts', 'dishes']), id: z.string().uuid(), action: z.enum(['hide', 'restore', 'dismiss']) }),
+      z.object({ type: z.enum(['posts', 'dishes', 'comments']), id: z.string().uuid(), action: z.enum(['hide', 'restore', 'dismiss']) }),
       req.params,
       reply,
     );
@@ -67,7 +70,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
     }
     await db.query("update reports set status = 'resolved' where target_type = $1 and target_id = $2", [
-      p.type === 'posts' ? 'post' : 'dish',
+      ({ posts: 'post', dishes: 'dish', comments: 'comment' } as const)[p.type],
       p.id,
     ]);
     if (p.type === 'dishes') await db.query('select refresh_dish_stats($1)', [p.id]);

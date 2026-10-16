@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.foodfeed.data.DeviceLocation
+import app.foodfeed.data.LocationResult
 import app.foodfeed.data.PlaceOption
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.AppIcons
@@ -115,9 +116,12 @@ fun AddDishScreen(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) vm.setPhoto(cameraUri)
     }
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) scope.launch {
-            app.location.value = DeviceLocation.current(context)
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.any { it }) scope.launch {
+            val found = DeviceLocation.locate(context)
+            app.location.value = (found as? LocationResult.Found)?.coords
+            DeviceLocation.explain(found)?.let(showMessage)
+            if (found == LocationResult.Off) DeviceLocation.openSettings(context)
             vm.loadPlaces()
         }
     }
@@ -143,7 +147,7 @@ fun AddDishScreen(
         onCancelNewPlace = vm::cancelNewPlace,
         onNewPlaceName = vm::setNewPlaceName,
         onNewPlaceLocality = vm::setNewPlaceLocality,
-        onUseLocation = { locationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+        onUseLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
         onPrice = vm::setPrice,
         onVeg = vm::setVeg,
         onCaption = vm::setCaption,

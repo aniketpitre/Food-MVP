@@ -39,6 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.foodfeed.data.DeviceLocation
+import androidx.compose.runtime.saveable.rememberSaveable
+import app.foodfeed.ui.comments.CommentsSheet
+import app.foodfeed.data.LocationResult
 import app.foodfeed.data.DishCard
 import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
@@ -65,6 +68,7 @@ fun FeedScreen(
     onAddDish: () -> Unit,
     onNeedSignIn: () -> Unit,
     showMessage: (String) -> Unit,
+    onOpenUser: (String) -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -72,14 +76,20 @@ fun FeedScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val overrides by app.overrides.collectAsState()
     val actions = rememberDishActions(onNeedSignIn, showMessage)
+    val commentCounts by app.commentCounts.collectAsState()
+    var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.any { it }) {
             scope.launch {
-                app.location.value = DeviceLocation.current(context)
-                if (app.location.value == null) showMessage("Couldn't get your location. Is location turned on?")
+                val found = DeviceLocation.locate(context)
+                app.location.value = (found as? LocationResult.Found)?.coords
+                DeviceLocation.explain(found)?.let(showMessage)
+                if (found == LocationResult.Off) DeviceLocation.openSettings(context)
                 vm.locationChanged()
             }
+        } else {
+            showMessage("No problem. Allow location any time to sort dishes by distance.")
         }
     }
 
@@ -99,7 +109,12 @@ fun FeedScreen(
         onChangeCity = onChangeCity,
         onSearch = onSearch,
         onAddDish = onAddDish,
-        onAskLocation = { locationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+        onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
+        commentCountOf = { card -> card.cover?.let { commentCounts[it.postId] ?: it.commentCount } ?: 0 },
+        onComments = { card ->
+            val post = card.cover?.postId
+            if (post == null) showMessage("This dish has no photo to comment on yet.") else commentsFor = post
+        },
         onSettled = { card, next ->
             app.recordImpression(card.id)
             // Prefetch the next few photos so the next swipe is instant.
@@ -109,6 +124,10 @@ fun FeedScreen(
             }
         },
     )
+
+    commentsFor?.let { post ->
+        CommentsSheet(post, onDismiss = { commentsFor = null }, onNeedSignIn = onNeedSignIn, onOpenUser = onOpenUser, showMessage = showMessage)
+    }
 }
 
 private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards }
@@ -133,6 +152,8 @@ fun FeedContent(
     onAddDish: () -> Unit,
     onAskLocation: () -> Unit,
     onSettled: (DishCard, List<DishCard>) -> Unit = { _, _ -> },
+    commentCountOf: (DishCard) -> Int = { it.cover?.commentCount ?: 0 },
+    onComments: (DishCard) -> Unit = {},
 ) {
     var showFilter by remember { mutableStateOf(false) }
     val selectedCategory = state.categories.firstOrNull { it.id == state.selectedCategory }
@@ -178,7 +199,10 @@ fun FeedContent(
                 )
                 FeedBody.Empty -> EmptyFeed(state, onAddDish)
                 FeedBody.Cards -> PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
-                    DishPager(state, engagementOf, imageUrlOf, onLoadMore, onOpenDish, onOpenRestaurant, onToggle, onShare, onSettled)
+                    DishPager(
+                        state, engagementOf, imageUrlOf, onLoadMore, onOpenDish, onOpenRestaurant, onToggle, onShare, onSettled,
+                        commentCountOf, onComments,
+                    )
                 }
             }
         }
@@ -240,6 +264,8 @@ private fun DishPager(
     onToggle: (DishCard, Engagement) -> Unit,
     onShare: (DishCard) -> Unit,
     onSettled: (DishCard, List<DishCard>) -> Unit,
+    commentCountOf: (DishCard) -> Int,
+    onComments: (DishCard) -> Unit,
 ) {
     val items = state.items
     val pager = rememberPagerState { items.size }
@@ -274,6 +300,8 @@ private fun DishPager(
             pageOffset = { (pager.currentPage - page) + pager.currentPageOffsetFraction },
             // Start the landing choreography as soon as the swipe commits to this card.
             active = pager.targetPage == page,
+            commentCount = commentCountOf(card),
+            onComments = { onComments(card) },
         )
     }
 }

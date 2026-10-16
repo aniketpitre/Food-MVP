@@ -1,5 +1,10 @@
 package app.foodfeed.ui.onboarding
 
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import app.foodfeed.data.LocationResult
+import app.foodfeed.ui.components.QuietButton
+import kotlinx.coroutines.Job
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -91,6 +96,9 @@ data class OnboardingUiState(
     val loadingCities: Boolean = false,
     val detecting: Boolean = false,
     val message: String? = null,
+    /** Location is switched off on the phone: offer a button to the settings. */
+    val locationOff: Boolean = false,
+    val cityQuery: String = "",
     val done: Boolean = false,
 )
 
@@ -130,11 +138,15 @@ class OnboardingViewModel(private val app: AppContainer, startAt: OnboardingStep
         }
     }
 
-    fun loadCities() {
-        _state.update { it.copy(loadingCities = true, message = null) }
-        viewModelScope.launch {
+    private var search: Job? = null
+
+    fun loadCities(query: String = _state.value.cityQuery) {
+        _state.update { it.copy(loadingCities = true) }
+        search?.cancel()
+        search = viewModelScope.launch {
+            if (query.isNotBlank()) delay(250) // wait for the typing to pause
             try {
-                val list = apiCall { app.api.cities() }
+                val list = apiCall { app.api.cities(query.ifBlank { null }, if (query.isBlank()) 12 else 30) }
                 _state.update { it.copy(cities = list, loadingCities = false) }
             } catch (e: ApiException) {
                 _state.update { it.copy(loadingCities = false, message = e.message) }
@@ -142,26 +154,40 @@ class OnboardingViewModel(private val app: AppContainer, startAt: OnboardingStep
         }
     }
 
+    fun setCityQuery(q: String) {
+        _state.update { it.copy(cityQuery = q) }
+        loadCities(q)
+    }
+
+    fun permissionDenied() = _state.update {
+        it.copy(message = "No problem. Pick your city below, or allow location later in Android settings.", locationOff = false)
+    }
+
     fun detect(context: Context) {
-        _state.update { it.copy(detecting = true, message = null) }
+        _state.update { it.copy(detecting = true, message = null, locationOff = false) }
         viewModelScope.launch {
-            val loc = DeviceLocation.current(context)
+            val found = DeviceLocation.locate(context)
+            val loc = (found as? LocationResult.Found)?.coords
             app.location.value = loc
             if (loc == null) {
-                _state.update { it.copy(detecting = false, message = "Couldn't get your location. Pick your city below.") }
+                _state.update {
+                    it.copy(
+                        detecting = false,
+                        locationOff = found == LocationResult.Off,
+                        message = (DeviceLocation.explain(found) ?: "Couldn't get your location.") + " Or pick your city below.",
+                    )
+                }
                 return@launch
             }
             try {
                 val near = apiCall { app.api.nearestCity(loc.lat, loc.lng) }
                 val city = near.city
-                if (city != null && near.inRange) {
+                if (city != null) {
+                    // Outside the city proper (a village nearby) still means this city.
                     choose(SelectedCity(city.id, city.name))
                 } else {
                     _state.update {
-                        it.copy(
-                            detecting = false,
-                            message = "FoodFeed is live in ${city?.name ?: "a few cities"} only for now. You can still browse it below.",
-                        )
+                        it.copy(detecting = false, message = "FoodFeed covers cities in India for now. Pick one below to browse.")
                     }
                 }
             } catch (e: ApiException) {
@@ -184,8 +210,8 @@ class OnboardingViewModel(private val app: AppContainer, startAt: OnboardingStep
 fun OnboardingScreen(vm: OnboardingViewModel, onDone: () -> Unit) {
     val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle()
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) vm.detect(context)
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.any { it }) vm.detect(context) else vm.permissionDenied()
     }
     LaunchedEffect(state.done) { if (state.done) onDone() }
     OnboardingContent(
@@ -194,10 +220,12 @@ fun OnboardingScreen(vm: OnboardingViewModel, onDone: () -> Unit) {
         onConnect = vm::connect,
         onDetect = {
             if (DeviceLocation.hasPermission(context)) vm.detect(context)
-            else permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            else permission.launch(DeviceLocation.PERMISSIONS)
         },
         onChoose = { vm.choose(SelectedCity(it.id, it.name)) },
         onChangeServer = vm::backToServer,
+        onCityQuery = vm::setCityQuery,
+        onOpenLocationSettings = { DeviceLocation.openSettings(context) },
     )
 }
 
@@ -209,6 +237,8 @@ fun OnboardingContent(
     onDetect: () -> Unit,
     onChoose: (City) -> Unit,
     onChangeServer: () -> Unit,
+    onCityQuery: (String) -> Unit = {},
+    onOpenLocationSettings: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
         WelcomeHero()
@@ -252,9 +282,30 @@ fun OnboardingContent(
                     enabled = !state.detecting, leading = Icons.Filled.LocationOn,
                 )
                 state.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                if (state.locationOff) {
+                    QuietButton("Turn on location", onOpenLocationSettings, Modifier.fillMaxWidth(), leading = Icons.Filled.LocationOn)
+                }
                 KickerText("Or choose a city", Modifier.padding(top = 10.dp))
+                OutlinedTextField(
+                    value = state.cityQuery,
+                    onValueChange = onCityQuery,
+                    placeholder = { Text("Search any city in India", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(50),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     state.cities.forEachIndexed { i, c -> CityCard(c, i) { onChoose(c) } }
+                    if (state.cities.isEmpty() && state.cityQuery.isNotBlank() && !state.loadingCities) {
+                        Text("No city called \"${state.cityQuery}\" yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 // Builds with a server baked in behave like a normal app: no server choice at all.
                 if (BuildConfig.DEFAULT_SERVER_URL.isBlank()) {
@@ -331,7 +382,7 @@ private fun WelcomeHero() {
     }
 }
 
-/** A city as a rounded card; live cities press down and show a mint "Live" chip. */
+/** A city as a rounded card that presses down; a mint chip counts its dishes. */
 @Composable
 private fun CityCard(c: City, index: Int, onClick: () -> Unit) {
     val appear = remember { Animatable(0f) }
@@ -347,7 +398,7 @@ private fun CityCard(c: City, index: Int, onClick: () -> Unit) {
             .pressScale(interaction, 0.97f)
             .clip(RoundedCornerShape(22.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-            .then(if (c.isActive) Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick) else Modifier)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -355,12 +406,17 @@ private fun CityCard(c: City, index: Int, onClick: () -> Unit) {
             Text(c.name, style = MaterialTheme.typography.titleLarge)
             c.state?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
+        val busy = c.dishCount > 0
         Text(
-            if (c.isActive) "Live" else "Soon",
+            when {
+                c.dishCount == 1 -> "1 dish"
+                busy -> "${c.dishCount} dishes"
+                else -> "Be the first"
+            },
             style = MaterialTheme.typography.labelMedium,
-            color = if (c.isActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (busy) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
-                .background(if (c.isActive) Mint else MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(50))
+                .background(if (busy) Mint else MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(50))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }

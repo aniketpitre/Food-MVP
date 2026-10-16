@@ -143,6 +143,7 @@ fun EngageAction(
     onClick: () -> Unit,
     look: ActionLook = ActionLook.Tile,
     iconSize: Dp = 24.dp,
+    icon: ImageVector? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val fill = fillFor(kind)
@@ -178,7 +179,7 @@ fun EngageAction(
         previous = active
     }
 
-    val icon = when (kind) {
+    val glyph = icon ?: when (kind) {
         Engagement.Recommend -> if (active) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder
         Engagement.Save -> if (active) AppIcons.Bookmark else AppIcons.BookmarkBorder
         Engagement.Tried -> if (active) Icons.Filled.Check else Icons.Outlined.CheckCircle
@@ -210,7 +211,7 @@ fun EngageAction(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                icon, description, tint = fg,
+                glyph, description, tint = fg,
                 modifier = Modifier.size(iconSize).graphicsLayer {
                     rotationZ = wiggle.value
                     val s = 1f + (1f - pop.value) * 0.6f

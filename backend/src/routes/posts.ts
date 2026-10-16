@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { nearestCity } from '../geo.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
@@ -90,16 +91,11 @@ export async function postRoutes(app: FastifyInstance) {
         if (!rows[0]) throw Object.assign(new Error('That place is not available.'), { statusCode: 404, code: 'not_found' });
         cityId = rows[0].city_id;
       } else {
-        const { rows: city } = await client.query<{ id: number }>(
-          `select id from cities
-           where st_dwithin(center, st_setsrid(st_makepoint($2, $1), 4326)::geography, radius_km * 1000)
-           order by center <-> st_setsrid(st_makepoint($2, $1), 4326)::geography limit 1`,
-          [f.newPlaceLat, f.newPlaceLng],
-        );
-        if (!city[0]) {
+        const city = await nearestCity(client, f.newPlaceLat!, f.newPlaceLng!);
+        if (!city) {
           throw Object.assign(new Error('That location is outside the cities we cover.'), { statusCode: 400, code: 'outside_city' });
         }
-        cityId = city[0].id;
+        cityId = city.id;
         const { rows } = await client.query<{ id: string }>(
           `insert into restaurants (city_id, name, name_norm, locality, geo, status, created_by)
            values ($1, $2, norm_name($2), $3, st_setsrid(st_makepoint($5, $4), 4326)::geography, 'pending', $6)

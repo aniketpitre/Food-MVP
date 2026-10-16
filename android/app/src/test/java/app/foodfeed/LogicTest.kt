@@ -99,4 +99,27 @@ class LogicTest {
         assertNull(card.distanceM)
         assertEquals(20, page.nextOffset)
     }
+
+    @Test
+    fun timeAgoReadsLikeInstagram() {
+        val now = java.time.Instant.parse("2026-10-16T12:00:00Z").toEpochMilli()
+        assertEquals("now", Format.timeAgo("2026-10-16T11:59:30Z", now))
+        assertEquals("5m", Format.timeAgo("2026-10-16T11:55:00Z", now))
+        assertEquals("3h", Format.timeAgo("2026-10-16T09:00:00Z", now))
+        assertEquals("2d", Format.timeAgo("2026-10-14T12:00:00Z", now))
+        assertEquals("3w", Format.timeAgo("2026-09-25T12:00:00Z", now))
+        assertEquals("", Format.timeAgo("not a date", now))
+    }
+
+    @Test
+    fun parsesCommentsWithReplies() {
+        val json = """{"count":2,"comments":[{"id":"a","parentId":null,"body":"Hi","createdAt":"2026-10-16T06:00:00.000Z",
+            "author":{"handle":"x","displayName":null},"likes":1,"likedByMe":true,"canDelete":false,
+            "replies":[{"id":"b","parentId":"a","body":"@x yo","createdAt":"2026-10-16T06:01:00.000Z",
+            "author":{"handle":"y","displayName":"Y"},"likes":0,"likedByMe":false,"canDelete":true,"replies":[]}]}]}"""
+        val list = AppJson.decodeFromString(app.foodfeed.data.CommentList.serializer(), json)
+        assertEquals(2, list.count)
+        assertEquals("b", list.comments[0].replies[0].id)
+        assertTrue(list.comments[0].likedByMe)
+    }
 }

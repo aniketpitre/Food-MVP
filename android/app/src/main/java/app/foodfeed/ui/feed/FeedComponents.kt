@@ -355,6 +355,8 @@ fun DishPage(
     modifier: Modifier = Modifier,
     pageOffset: () -> Float = { 0f },
     active: Boolean = true,
+    commentCount: Int = 0,
+    onComments: () -> Unit = {},
 ) {
     var burst by remember { mutableIntStateOf(0) }
     var burstAt by remember { mutableStateOf(Offset.Unspecified) }
@@ -542,7 +544,7 @@ fun DishPage(
                     alpha = fadeOutOnLeave()
                     translationY = pageOffset().coerceIn(0f, 1f) * 120f
                 },
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             val rail: @Composable (Int, @Composable () -> Unit) -> Unit = { i, content ->
@@ -564,17 +566,23 @@ fun DishPage(
             }
             rail(1) {
                 EngageAction(
+                    null, false, "Comment", commentCount, "Comments", onComments,
+                    look = ActionLook.Glass, icon = AppIcons.Comment,
+                )
+            }
+            rail(2) {
+                EngageAction(
                     Engagement.Save, engagement.me.saved, if (engagement.me.saved) "Saved" else "Save", null,
                     if (engagement.me.saved) "Remove from saved" else "Save", { onToggle(Engagement.Save) }, look = ActionLook.Glass,
                 )
             }
-            rail(2) {
+            rail(3) {
                 EngageAction(
                     Engagement.Tried, engagement.me.tried, "Tried", null,
                     if (engagement.me.tried) "Unmark tried" else "I tried this", { onToggle(Engagement.Tried) }, look = ActionLook.Glass,
                 )
             }
-            rail(3) { EngageAction(null, false, "Share", null, "Share", onShare, look = ActionLook.Glass) }
+            rail(4) { EngageAction(null, false, "Share", null, "Share", onShare, look = ActionLook.Glass) }
         }
 
         HeartBurst(burst, burstAt, Modifier.fillMaxSize())

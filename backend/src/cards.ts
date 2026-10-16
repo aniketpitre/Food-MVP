@@ -23,6 +23,7 @@ export interface DishCard {
     isSponsored: boolean;
     width: number | null;
     height: number | null;
+    commentCount: number;
   } | null;
   stats: { recommenders: number; saves: number; tried: number; endorsers: number };
   me: { recommended: boolean; saved: boolean; tried: boolean };
@@ -51,6 +52,7 @@ interface CardRow {
   is_sponsored: boolean | null;
   width: number | null;
   height: number | null;
+  comment_count: number | null;
   recommenders: number;
   saves: number;
   tried: number;
@@ -79,6 +81,7 @@ export async function loadDishCards(
             st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
             cov.id as post_id, cov.image_path, cov.thumb_path, cov.placeholder_color, cov.is_sponsored,
             cov.width, cov.height,
+            (select count(*)::int from comments cm where cm.post_id = cov.id and cm.status = 'live') as comment_count,
             coalesce(s.recommenders, 0) as recommenders, coalesce(s.saves, 0) as saves,
             coalesce(s.tried, 0) as tried, coalesce(s.endorsers, 0) as endorsers,
             (select array_agg(e.kind) from engagements e where e.user_id = $2 and e.dish_id = d.id) as my_kinds,
@@ -133,6 +136,7 @@ function toCard(r: CardRow): DishCard {
           isSponsored: r.is_sponsored ?? false,
           width: r.width,
           height: r.height,
+          commentCount: Number(r.comment_count ?? 0),
         }
       : null,
     stats: {

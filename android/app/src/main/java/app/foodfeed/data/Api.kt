@@ -15,7 +15,7 @@ import retrofit2.http.Query
 interface FoodFeedApi {
     @GET("health") suspend fun health(): OkResult
 
-    @GET("cities") suspend fun cities(): List<City>
+    @GET("cities") suspend fun cities(@Query("q") q: String? = null, @Query("limit") limit: Int? = null): List<City>
 
     @GET("cities/nearest")
     suspend fun nearestCity(@Query("lat") lat: Double, @Query("lng") lng: Double): NearestCity
@@ -88,6 +88,17 @@ interface FoodFeedApi {
     @Multipart
     @POST("posts")
     suspend fun createPost(@Part parts: List<MultipartBody.Part>): CreatedPost
+
+    @GET("posts/{id}/comments") suspend fun comments(@Path("id") postId: String): CommentList
+
+    @POST("posts/{id}/comments")
+    suspend fun addComment(@Path("id") postId: String, @Body body: NewComment): Comment
+
+    @DELETE("comments/{id}") suspend fun deleteComment(@Path("id") id: String): OkResult
+
+    @PUT("comments/{id}/like") suspend fun likeComment(@Path("id") id: String): CommentLike
+
+    @DELETE("comments/{id}/like") suspend fun unlikeComment(@Path("id") id: String): CommentLike
 
     @GET("admin/queue") suspend fun adminQueue(): AdminQueue
 

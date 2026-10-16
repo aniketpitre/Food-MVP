@@ -265,6 +265,7 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
                                 onNeedSignIn = signIn,
                                 showMessage = showMessage,
+                                onOpenUser = openUser,
                             )
                         }
                     }

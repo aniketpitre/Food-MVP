@@ -78,6 +78,9 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     private val _overrides = MutableStateFlow<Map<String, EngagementState>>(emptyMap())
     val overrides: StateFlow<Map<String, EngagementState>> = _overrides.asStateFlow()
 
+    /** Latest known comment count per post id, so a card updates as soon as you comment. */
+    val commentCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+
     /** Bumped when content changes (a new post, a sign-in) so lists reload. */
     val contentVersion = MutableStateFlow(0)
 

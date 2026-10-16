@@ -24,8 +24,8 @@ Rendered by the app's screenshot tests with the illustrated demo data (refresh w
 | Feed | Hidden gems (dark) | Dish | Place |
 |---|---|---|---|
 | ![Feed](docs/screenshots/01_feed_top.jpg) | ![Hidden gem](docs/screenshots/02_feed_hidden_gem_dark.jpg) | ![Dish](docs/screenshots/05_dish_detail.jpg) | ![Place](docs/screenshots/06_restaurant.jpg) |
-| **Search** | **Saved** | **Welcome** | **Profile** |
-| ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Welcome](docs/screenshots/12_onboarding_city.jpg) | ![Profile](docs/screenshots/10_profile.jpg) |
+| **Search** | **Saved** | **Welcome** | **Comments** |
+| ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Welcome](docs/screenshots/12_onboarding_city.jpg) | ![Comments](docs/screenshots/16_comments.jpg) |
 
 ## Motion
 
@@ -61,13 +61,14 @@ The motion rules (all in `ui/theme/Motion.kt`):
 ## Features in this MVP
 
 - Guest browsing (no sign-up wall); sign-in is asked for only on the first recommend, save or post, and the action completes right after sign-in.
-- City auto-detect from approximate location (never stored), or pick a city.
+- Works in every Indian city: location (precise or approximate, never stored) picks your city from ~900 cities with 50,000+ people, or search for one. New places are filed under the right city automatically.
 - Dish feed with **Top**, **Trending** (last 7 days), **Hidden gems** and **Nearby** tabs, plus category filters.
 - Ranking per the plan: recommend 1, save 1.5, tried 2, share 2.5; one person capped at 3 points per dish; 45-day half-life; new accounts count half for their first 24 hours; at least 3 people to enter Top; every 5th card is a new dish so fresh posts get seen. All weights live in the `ranking_config` table.
 - "Recommended by N people" counts people who recommended or tried the dish (saves are shown separately). Zero shows "New", never "Recommended by 0".
 - Dish page (photos, place, recommenders, Open in Maps, More at this place), place page ranked by recommendations, typo-tolerant search with local spellings ("wada pav" finds Vada Pav), saved list, profiles.
 - Post a dish in under 30 seconds: camera or gallery photo, resized on the phone with location data removed, dish-name suggestions, nearby places or a new place (held for review), price, veg, caption, a sponsored/free-food label.
-- Safety: report posts/dishes/people, block people, auto-hide after 3 reports from established accounts, an admin moderation screen, rate limits, account deletion in the app and on the web.
+- Comments on posts, Instagram style: replies in threads, likes, @mentions, quick emoji; long-press to delete or report. Authors, the post's owner and admins can delete.
+- Safety: report posts/dishes/comments/people, block people, auto-hide after 3 reports from established accounts, an admin moderation screen, rate limits, account deletion in the app and on the web.
 - Share links with a web preview page (`/d/<dish>`), plus draft Privacy, Terms and Delete-account pages.
 
 ## Run the server (Docker)

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
+import { inCity, nearestCity } from '../geo.js';
 
 const coords = {
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -13,29 +14,38 @@ const uuid = z.string().uuid();
 export async function browseRoutes(app: FastifyInstance) {
   const { db } = app;
 
-  app.get('/cities', async () => {
+  // Cities with dishes first (most dishes first), then the biggest. With q, a name search.
+  app.get('/cities', async (req, reply) => {
+    const q = parse(
+      z.object({ q: z.string().trim().max(60).optional(), limit: z.coerce.number().int().min(1).max(1000).default(40) }),
+      req.query,
+      reply,
+    );
+    if (!q) return;
     const { rows } = await db.query(
-      `select id, slug, name, state, is_active as "isActive", radius_km as "radiusKm",
-              st_y(center::geometry) as lat, st_x(center::geometry) as lng
-       from cities order by is_active desc, name`,
+      `select c.id, c.slug, c.name, c.state, c.is_active as "isActive", c.radius_km as "radiusKm",
+              st_y(c.center::geometry) as lat, st_x(c.center::geometry) as lng,
+              coalesce(n.dishes, 0) as "dishCount"
+       from cities c
+       left join (select city_id, count(*)::int as dishes from dishes where status = 'live' group by city_id) n
+         on n.city_id = c.id
+       where $1::text is null or c.name ilike '%' || $1 || '%' or c.state ilike $1 || '%'
+       order by ($1::text is not null and lower(c.name) = lower($1)) desc,
+                ($1::text is not null and c.name ilike $1 || '%') desc,
+                coalesce(n.dishes, 0) desc, c.population desc nulls last, c.name
+       limit $2`,
+      [q.q || null, q.limit],
     );
     return rows;
   });
 
-  // Nearest active city to a coarse location; the location is not stored.
+  // The city for a coarse location; the location is not stored.
   app.get('/cities/nearest', async (req, reply) => {
     const q = parse(z.object({ lat: coords.lat.unwrap(), lng: coords.lng.unwrap() }), req.query, reply);
     if (!q) return;
-    const { rows } = await db.query(
-      `select id, slug, name, state, radius_km as "radiusKm",
-              round(st_distance(center, st_setsrid(st_makepoint($2, $1), 4326)::geography) / 1000)::int as "distanceKm"
-       from cities where is_active
-       order by center <-> st_setsrid(st_makepoint($2, $1), 4326)::geography limit 1`,
-      [q.lat, q.lng],
-    );
-    const city = rows[0];
+    const city = await nearestCity(db, q.lat, q.lng);
     if (!city) return { city: null, inRange: false };
-    return { city, inRange: Number(city.distanceKm) <= Number(city.radiusKm) };
+    return { city, inRange: inCity(city) };
   });
 
   app.get('/categories', async () => {
@@ -91,7 +101,8 @@ export async function browseRoutes(app: FastifyInstance) {
               p.placeholder_color as "placeholderColor", p.width, p.height, p.source,
               p.photo_credit as "photoCredit", p.is_sponsored as "isSponsored", p.sponsor_note as "sponsorNote",
               p.instagram_url as "instagramUrl", p.created_at as "createdAt",
-              pr.handle as "authorHandle", pr.display_name as "authorName"
+              pr.handle as "authorHandle", pr.display_name as "authorName",
+              (select count(*)::int from comments cm where cm.post_id = p.id and cm.status = 'live') as "commentCount"
        from posts p left join profiles pr on pr.id = p.author_id
        where p.dish_id = $1 and p.status = 'live'
          and ($2::uuid is null or not exists

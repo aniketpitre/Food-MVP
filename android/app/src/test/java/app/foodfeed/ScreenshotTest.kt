@@ -48,6 +48,9 @@ import app.foodfeed.ui.search.SearchContent
 import app.foodfeed.ui.search.SearchUiState
 import app.foodfeed.data.SearchResult
 import app.foodfeed.ui.theme.FoodFeedTheme
+import app.foodfeed.data.Comment
+import app.foodfeed.ui.comments.CommentsContent
+import app.foodfeed.ui.comments.CommentsUiState
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
@@ -285,6 +288,33 @@ class ScreenshotTest {
                 ),
             ),
             onServerInput = {}, onConnect = {}, onDetect = {}, onChoose = {}, onChangeServer = {},
+        )
+    }
+
+    @Test
+    fun comments() = shoot("16_comments") {
+        val now = java.time.Instant.now()
+        fun ago(minutes: Long) = now.minusSeconds(minutes * 60).toString()
+        val reply = Comment("c2", "c1", "@diya_k agreed, best tarri in Panchavati", ago(50), UserRef("arjun", "Arjun"), likes = 3)
+        CommentsContent(
+            state = CommentsUiState(
+                loading = false,
+                count = 4,
+                comments = listOf(
+                    Comment(
+                        "c1", null, "Fiery tarri. Ask for extra farsan and a second pav!", ago(180),
+                        UserRef("diya_k", "Diya K"), likes = 12, likedByMe = true, replies = listOf(reply),
+                    ),
+                    Comment("c3", null, "Is it too spicy for kids?", ago(60 * 26), UserRef("myra_s", "Myra S"), likes = 1),
+                    Comment("c4", null, "Went on Sunday, 20 min queue but worth it", ago(60 * 24 * 9), UserRef("kabir"), canDelete = true),
+                ),
+                draft = "@diya_k thanks",
+                replyTo = Comment("c1", null, "", "", UserRef("diya_k")),
+                fresh = setOf("c2"),
+            ),
+            me = "aniket",
+            onDraft = {}, onSend = {}, onReply = {}, onCancelReply = {}, onLike = {}, onDelete = {}, onReport = {},
+            onRetry = {}, onOpenUser = {},
         )
     }
 }

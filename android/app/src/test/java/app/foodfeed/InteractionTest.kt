@@ -39,6 +39,10 @@ import app.foodfeed.ui.feed.DishPage
 import app.foodfeed.ui.feed.FeedTab
 import app.foodfeed.ui.feed.FeedTabs
 import app.foodfeed.ui.theme.FoodFeedTheme
+import app.foodfeed.data.Comment
+import app.foodfeed.data.UserRef as Person
+import app.foodfeed.ui.comments.CommentsContent
+import app.foodfeed.ui.comments.CommentsUiState
 import app.foodfeed.ui.theme.RollingNumber
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
@@ -183,5 +187,38 @@ class InteractionTest {
         }
         compose.mainClock.autoAdvance = true
         compose.waitForIdle()
+    }
+
+    @Test
+    fun commentsLikeReplyAndSend() {
+        val liked = mutableListOf<String>()
+        val replied = mutableListOf<String>()
+        var sent = 0
+        var state by mutableStateOf(
+            CommentsUiState(
+                loading = false, count = 1,
+                comments = listOf(Comment("c1", null, "Go early", "2026-10-16T06:00:00Z", Person("diya_k"), likes = 2)),
+            ),
+        )
+        setContent {
+            Box(Modifier.width(393.dp).height(700.dp)) {
+                CommentsContent(
+                    state = state, me = "me",
+                    onDraft = { state = state.copy(draft = it) }, onSend = { sent++ },
+                    onReply = { replied += it.id }, onCancelReply = {}, onLike = { liked += it.id }, onDelete = {},
+                    onReport = {}, onRetry = {}, onOpenUser = {},
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Like comment").performClick()
+        compose.onNodeWithText("Reply").performClick()
+        compose.onNodeWithContentDescription("Post comment").performClick() // nothing to send yet
+        state = state.copy(draft = "Thanks!")
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Post comment").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf("c1"), liked)
+        assertEquals(listOf("c1"), replied)
+        assertEquals(1, sent)
     }
 }

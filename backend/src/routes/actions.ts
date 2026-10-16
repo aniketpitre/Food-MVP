@@ -86,7 +86,7 @@ export async function actionRoutes(app: FastifyInstance) {
   app.post('/reports', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
     const body = parse(
       z.object({
-        targetType: z.enum(['post', 'dish', 'user']),
+        targetType: z.enum(['post', 'dish', 'user', 'comment']),
         targetId: uuid.optional(),
         targetHandle: z.string().max(20).optional(),
         reason: z.enum(['wrong_place', 'not_food', 'inappropriate', 'spam', 'other']),
@@ -102,7 +102,7 @@ export async function actionRoutes(app: FastifyInstance) {
       targetId = rows[0]?.id;
     }
     if (!targetId) return reply.code(400).send({ error: 'invalid_input', message: 'Missing report target.' });
-    const table = { post: 'posts', dish: 'dishes', user: 'profiles' }[body.targetType];
+    const table = { post: 'posts', dish: 'dishes', user: 'profiles', comment: 'comments' }[body.targetType];
     const { rowCount } = await db.query(`select 1 from ${table} where id = $1`, [targetId]);
     if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Nothing to report.' });
 

@@ -77,6 +77,9 @@ import app.foodfeed.data.DishCard
 import app.foodfeed.data.DishDetail
 import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
+import app.foodfeed.data.Post
+import androidx.compose.runtime.saveable.rememberSaveable
+import app.foodfeed.ui.comments.CommentsSheet
 import app.foodfeed.data.apiCall
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.AppIcons
@@ -144,6 +147,8 @@ fun DishScreen(
     val session by app.session.collectAsState()
     val actions = rememberDishActions(onNeedSignIn, showMessage)
     var reportTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
+    val commentCounts by app.commentCounts.collectAsState()
     val scope = rememberCoroutineScope()
 
     when {
@@ -166,6 +171,8 @@ fun DishScreen(
                 onOpenDish = onOpenDish,
                 onOpenUser = onOpenUser,
                 onReport = { type, id -> if (session == null) onNeedSignIn() else reportTarget = type to id },
+                commentCountOf = { post -> commentCounts[post.id] ?: post.commentCount },
+                onComments = { commentsFor = it },
                 onBlock = { handle ->
                     if (session == null) onNeedSignIn()
                     else scope.launch {
@@ -178,6 +185,9 @@ fun DishScreen(
         }
     }
 
+    commentsFor?.let { post ->
+        CommentsSheet(post, onDismiss = { commentsFor = null }, onNeedSignIn = onNeedSignIn, onOpenUser = onOpenUser, showMessage = showMessage)
+    }
     reportTarget?.let { (type, id) ->
         ReportSheet(targetType = type, targetId = id, onDismiss = { reportTarget = null }, showMessage = showMessage)
     }
@@ -213,6 +223,8 @@ fun DishContent(
     onOpenUser: (String) -> Unit,
     onReport: (type: String, id: String) -> Unit,
     onBlock: (String) -> Unit,
+    commentCountOf: (Post) -> Int = { it.commentCount },
+    onComments: (postId: String) -> Unit = {},
 ) {
     val photos = dish.posts
     val pager = rememberPagerState { photos.size.coerceAtLeast(1) }
@@ -331,6 +343,12 @@ fun DishContent(
                                 if (engagement.me.recommended) "Remove recommendation" else "Recommend",
                                 { onToggle(Engagement.Recommend) },
                             )
+                            currentPost?.let { post ->
+                                EngageAction(
+                                    null, false, "Comment", commentCountOf(post), "Comments", { onComments(post.id) },
+                                    icon = AppIcons.Comment,
+                                )
+                            }
                             EngageAction(
                                 Engagement.Save, engagement.me.saved, if (engagement.me.saved) "Saved" else "Save", null,
                                 if (engagement.me.saved) "Remove from saved" else "Save", { onToggle(Engagement.Save) },
@@ -376,6 +394,29 @@ fun DishContent(
                                         Text(post.sponsorNote, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
+                            }
+                        }
+                        currentPost?.let { post ->
+                            val n = commentCountOf(post)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { onComments(post.id) }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(AppIcons.Comment, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    when (n) {
+                                        0 -> "Add a comment…"
+                                        1 -> "View 1 comment"
+                                        else -> "View all $n comments"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                         Text(

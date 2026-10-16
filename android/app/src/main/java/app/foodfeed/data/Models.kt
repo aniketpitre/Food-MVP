@@ -12,10 +12,18 @@ data class City(
     val radiusKm: Int = 25,
     val lat: Double = 0.0,
     val lng: Double = 0.0,
+    val dishCount: Int = 0,
 )
 
 @Serializable
-data class NearestCityCity(val id: Int, val slug: String, val name: String, val distanceKm: Int = 0, val radiusKm: Int = 25)
+data class NearestCityCity(
+    val id: Int,
+    val slug: String,
+    val name: String,
+    val state: String? = null,
+    val distanceKm: Int = 0,
+    val radiusKm: Int = 25,
+)
 
 @Serializable
 data class NearestCity(val city: NearestCityCity? = null, val inRange: Boolean = false)
@@ -42,6 +50,7 @@ data class Cover(
     val isSponsored: Boolean = false,
     val width: Int? = null,
     val height: Int? = null,
+    val commentCount: Int = 0,
 )
 
 @Serializable
@@ -90,6 +99,7 @@ data class Post(
     val createdAt: String = "",
     val authorHandle: String? = null,
     val authorName: String? = null,
+    val commentCount: Int = 0,
 )
 
 @Serializable
@@ -263,3 +273,25 @@ data class AdminQueue(val pendingPlaces: List<PendingPlace> = emptyList(), val r
 
 @Serializable
 data class ApiError(val error: String = "error", val message: String = "Something went wrong.")
+
+@Serializable
+data class Comment(
+    val id: String,
+    val parentId: String? = null,
+    val body: String,
+    val createdAt: String = "",
+    val author: UserRef,
+    val likes: Int = 0,
+    val likedByMe: Boolean = false,
+    val canDelete: Boolean = false,
+    val replies: List<Comment> = emptyList(),
+)
+
+@Serializable
+data class CommentList(val count: Int = 0, val comments: List<Comment> = emptyList())
+
+@Serializable
+data class NewComment(val body: String, val parentId: String? = null)
+
+@Serializable
+data class CommentLike(val likes: Int = 0, val likedByMe: Boolean = false)

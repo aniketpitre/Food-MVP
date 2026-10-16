@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { createPool, migrate, type Db } from '../src/db.js';
+import { ensureCities } from '../src/geo.js';
 import { seedCatalog, seedDemoActivity } from '../src/seed.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5433/postgres';
@@ -53,6 +54,7 @@ beforeAll(async () => {
   };
   await migrate(db);
   await seedCatalog(db, mediaDir);
+  await ensureCities(db);
   app = await buildApp(config, db, { logger: false });
   cityId = (await db.query("select id from cities where slug = 'nashik'")).rows[0].id;
 }, 120_000);
@@ -122,8 +124,26 @@ describe('browsing as a guest', () => {
     const near = (await app.inject(`/cities/nearest?lat=20.01&lng=73.78`)).json();
     expect(near).toMatchObject({ city: { slug: 'nashik' }, inRange: true });
     expect(typeof near.city.distanceKm).toBe('number');
-    const far = (await app.inject(`/cities/nearest?lat=28.61&lng=77.2`)).json();
-    expect(far.inRange).toBe(false);
+    const delhi = (await app.inject(`/cities/nearest?lat=28.61&lng=77.2`)).json();
+    expect(delhi).toMatchObject({ city: { slug: 'delhi', state: 'Delhi' }, inRange: true });
+    // A suburb joins its metro: Hinjawadi (west Pune) belongs to Pune or Pimpri, never a small town.
+    const suburb = (await app.inject(`/cities/nearest?lat=18.59&lng=73.74`)).json();
+    expect(['pune', 'pimpri']).toContain(suburb.city.slug);
+    const london = (await app.inject(`/cities/nearest?lat=51.5&lng=-0.12`)).json();
+    expect(london).toEqual({ city: null, inRange: false });
+  });
+
+  it('opens every Indian city and searches them by name', async () => {
+    const { rows } = await db.query<{ n: number }>('select count(*)::int as n from cities where is_active');
+    expect(rows[0]!.n).toBeGreaterThan(800);
+    const found = (await app.inject('/cities?q=bengal')).json();
+    expect(found[0]).toMatchObject({ slug: 'bengaluru', state: 'Karnataka', dishCount: 0 });
+    const top = (await app.inject('/cities')).json();
+    expect(top).toHaveLength(40);
+    expect(top[0].dishCount).toBeGreaterThan(0);
+    // Re-running the loader changes nothing and keeps Nashik's id.
+    await ensureCities(db);
+    expect((await db.query("select id from cities where slug = 'nashik'")).rows[0].id).toBe(cityId);
   });
 
   it('shows the editorial order on launch day when nobody has recommended anything', async () => {
@@ -357,11 +377,24 @@ describe('posting a dish', () => {
     expect(after.items.map((i: { name: string }) => i.name)).toContain('Mango Lassi');
   });
 
+  it('puts a new place anywhere in India into its city', async () => {
+    const u = await signUp({ established: true });
+    const res = await app.inject({
+      method: 'POST', url: '/posts',
+      ...multipart(u.auth, { idempotencyKey: 'key-pune-place', dishName: 'Bun Maska', newPlaceName: 'Goodluck Cafe', newPlaceLat: '18.5167', newPlaceLng: '73.8414' }, await photo()),
+    });
+    expect(res.statusCode).toBe(201);
+    const { rows } = await db.query(
+      "select c.slug from restaurants r join cities c on c.id = r.city_id where r.name = 'Goodluck Cafe'",
+    );
+    expect(rows[0].slug).toBe('pune');
+  });
+
   it('rejects places outside every city, missing photos and non-images', async () => {
     const u = await signUp({ established: true });
     const far = await app.inject({
       method: 'POST', url: '/posts', 
-      ...multipart(u.auth, { idempotencyKey: 'key-far-away', dishName: 'Momos', newPlaceName: 'Far Place', newPlaceLat: '28.6', newPlaceLng: '77.2' }, await photo()),
+      ...multipart(u.auth, { idempotencyKey: 'key-far-away', dishName: 'Momos', newPlaceName: 'Far Place', newPlaceLat: '51.5', newPlaceLng: '-0.12' }, await photo()),
     });
     expect(far.statusCode).toBe(400);
     expect(far.json().error).toBe('outside_city');
@@ -444,5 +477,88 @@ describe('safety', () => {
     const u = await signUp();
     expect((await app.inject({ url: '/admin/ranking-config', headers: u.auth })).statusCode).toBe(403);
     expect((await app.inject({ url: '/admin/ranking-config' })).statusCode).toBe(401);
+  });
+});
+
+describe('comments', () => {
+  async function coverPost(): Promise<{ postId: string; dish: string }> {
+    const dish = await dishId('Misal Pav');
+    const card = (await app.inject(`/dishes/${dish}`)).json();
+    return { postId: card.cover.postId as string, dish };
+  }
+
+  it('lets people comment, reply in one thread, like and see counts', async () => {
+    const { postId, dish } = await coverPost();
+    const a = await signUp();
+    const b = await signUp();
+    expect((await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, payload: { body: 'hi' } })).statusCode).toBe(401);
+
+    const first = await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: a.auth, payload: { body: '  Best misal in town!  ' } });
+    expect(first.statusCode).toBe(201);
+    const c1 = first.json();
+    expect(c1).toMatchObject({ body: 'Best misal in town!', author: { handle: a.handle }, likes: 0, canDelete: true, parentId: null });
+
+    const reply = (await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: b.auth, payload: { body: 'Agreed', parentId: c1.id } })).json();
+    expect(reply.parentId).toBe(c1.id);
+    // A reply to a reply stays in the same thread.
+    const deep = (await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: a.auth, payload: { body: 'Go early', parentId: reply.id } })).json();
+    expect(deep.parentId).toBe(c1.id);
+    expect((await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: a.auth, payload: { body: '   ' } })).statusCode).toBe(400);
+
+    const liked = (await app.inject({ method: 'PUT', url: `/comments/${c1.id}/like`, headers: b.auth })).json();
+    expect(liked).toEqual({ likes: 1, likedByMe: true });
+    expect((await app.inject({ method: 'PUT', url: `/comments/${c1.id}/like`, headers: b.auth })).json().likes).toBe(1);
+
+    const list = (await app.inject({ url: `/posts/${postId}/comments`, headers: b.auth })).json();
+    expect(list.count).toBe(3);
+    expect(list.comments).toHaveLength(1);
+    expect(list.comments[0]).toMatchObject({ id: c1.id, likes: 1, likedByMe: true, canDelete: false });
+    expect(list.comments[0].replies.map((r: { body: string }) => r.body)).toEqual(['Agreed', 'Go early']);
+
+    const card = (await app.inject(`/dishes/${dish}`)).json();
+    expect(card.cover.commentCount).toBe(3);
+    expect(card.posts[0].commentCount).toBe(3);
+
+    expect((await app.inject({ method: 'DELETE', url: `/comments/${c1.id}/like`, headers: b.auth })).json()).toEqual({ likes: 0, likedByMe: false });
+  });
+
+  it('hides blocked people, and only the author, post owner or an admin can delete', async () => {
+    const { postId } = await coverPost();
+    const a = await signUp();
+    const b = await signUp();
+    const c = (await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: a.auth, payload: { body: 'Too spicy for me' } })).json();
+    await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: a.auth, payload: { body: 'reply', parentId: c.id } });
+
+    await app.inject({ method: 'POST', url: '/blocks', headers: b.auth, payload: { handle: a.handle } });
+    const seenByB = (await app.inject({ url: `/posts/${postId}/comments`, headers: b.auth })).json();
+    expect(seenByB.comments.find((x: { id: string }) => x.id === c.id)).toBeUndefined();
+
+    expect((await app.inject({ method: 'DELETE', url: `/comments/${c.id}`, headers: b.auth })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'DELETE', url: `/comments/${c.id}`, headers: a.auth })).statusCode).toBe(200);
+    const after = (await app.inject(`/posts/${postId}/comments`)).json();
+    expect(after.comments.find((x: { id: string }) => x.id === c.id)).toBeUndefined();
+    expect(JSON.stringify(after)).not.toContain('Too spicy');
+    expect(JSON.stringify(after)).not.toContain('"reply"');
+  });
+
+  it('auto-hides a comment after three established reporters and shows it to admins', async () => {
+    const { postId } = await coverPost();
+    const a = await signUp();
+    const c = (await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: a.auth, payload: { body: 'buy followers here' } })).json();
+    for (let i = 0; i < 3; i++) {
+      const r = await signUp({ established: true });
+      const res = await app.inject({ method: 'POST', url: '/reports', headers: r.auth, payload: { targetType: 'comment', targetId: c.id, reason: 'spam' } });
+      expect(res.statusCode).toBe(201);
+    }
+    const list = (await app.inject(`/posts/${postId}/comments`)).json();
+    expect(list.comments.find((x: { id: string }) => x.id === c.id)).toBeUndefined();
+
+    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
+    const admin = { auth: { authorization: `Bearer ${login.json().token}` } };
+    const queue = (await app.inject({ url: '/admin/queue', headers: admin.auth })).json();
+    const item = queue.reported.find((x: { targetId: string }) => x.targetId === c.id);
+    expect(item).toMatchObject({ targetType: 'comment', status: 'hidden', label: '"buy followers here"' });
+    const restore = await app.inject({ method: 'POST', url: `/admin/comments/${c.id}/restore`, headers: admin.auth });
+    expect(restore.statusCode).toBe(200);
   });
 });
