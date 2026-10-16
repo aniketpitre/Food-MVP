@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import app.foodfeed.BuildConfig
+import app.foodfeed.data.Updates
 import app.foodfeed.data.ApiException
 import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.LocalApp
@@ -80,7 +81,23 @@ fun SettingsScreen(
         HorizontalDivider()
         Item(Icons.Filled.Info, "Privacy policy", null) { openUrl(context, "$server/privacy") }
         Item(Icons.Filled.Info, "Terms of use", null) { openUrl(context, "$server/terms") }
-        Item(Icons.Filled.Info, "Version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", null)
+        var checking by remember { mutableStateOf(false) }
+        Item(
+            Icons.Filled.Info,
+            "Version ${BuildConfig.VERSION_NAME}",
+            if (checking) "Checking for updates…" else "Tap to check for updates",
+        ) {
+            if (!Updates.enabled) {
+                showMessage("This build doesn't update itself.")
+            } else if (!checking) {
+                checking = true
+                scope.launch {
+                    val found = app.checkForUpdate()
+                    checking = false
+                    if (found == null) showMessage("You're on the latest version.")
+                }
+            }
+        }
     }
 
     if (confirmDelete) {

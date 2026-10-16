@@ -22,6 +22,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.layout.widthIn
 import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.LocalNavScope
 import app.foodfeed.ui.theme.LocalSharedScope
@@ -101,6 +104,7 @@ import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.LoadingBox
 import app.foodfeed.ui.components.LocalApp
 import app.foodfeed.ui.components.openUrl
+import app.foodfeed.ui.components.UpdateSheet
 import app.foodfeed.ui.dish.DishScreen
 import app.foodfeed.ui.dish.DishViewModel
 import app.foodfeed.ui.feed.FeedScreen
@@ -174,6 +178,15 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
     val needsSetup = server.isBlank() || city == null
     // Decided once: changing the start destination later would reset navigation.
     val startRoute = remember { if (needsSetup) Routes.SETUP else Routes.FEED }
+
+    // Look for a newer version once per launch; offer it in a sheet.
+    val update by app.availableUpdate.collectAsState()
+    var updateDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { app.checkForUpdate() }
+    if (update != null && !updateDismissed) {
+        UpdateSheet(update!!, onDismiss = { updateDismissed = true })
+    }
+    LaunchedEffect(update) { if (update != null) updateDismissed = false }
 
     // Refresh the approximate location quietly when permission was already given.
     LaunchedEffect(Unit) {
@@ -393,15 +406,30 @@ private fun AnimatedContentScope.NavScoped(content: @Composable () -> Unit) {
 @Composable
 internal fun LiquidDock(currentRoute: String?, onSelect: (String) -> Unit) {
     val index = tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
-    val dock = MaterialTheme.colorScheme.inverseSurface
-    val idle = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.62f)
+    // Light theme: an ink dock. Dark theme: a raised dark dock, so it never glares at night.
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val dock = if (dark) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.inverseSurface
+    val idle = (if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.inverseOnSurface).copy(alpha = 0.62f)
     val blob = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(50)
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 10.dp)) {
+    // Sized to the phone: slimmer on short screens, never wider than 440dp (tablets,
+    // landscape, foldables), and always clear of the system navigation bar.
+    val config = LocalConfiguration.current
+    val dockHeight = when {
+        config.screenHeightDp < 640 -> 52.dp
+        config.screenHeightDp < 760 -> 58.dp
+        else -> 62.dp
+    }
+    val iconSize = if (dockHeight < 56.dp) 22.dp else 25.dp
+    Box(
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         BoxWithConstraints(
             Modifier
+                .widthIn(max = 440.dp)
                 .fillMaxWidth()
-                .height(64.dp)
+                .height(dockHeight)
                 .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
                 .background(dock, shape),
         ) {
@@ -456,7 +484,7 @@ internal fun LiquidDock(currentRoute: String?, onSelect: (String) -> Unit) {
                         Icon(
                             if (selected) tab.selectedIcon else tab.icon, tab.label, tint = tint,
                             modifier = Modifier
-                                .size(26.dp)
+                                .size(iconSize)
                                 .pressScale(interaction, 0.8f)
                                 .graphicsLayer {
                                     scaleX = pop.value

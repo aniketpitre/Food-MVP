@@ -10,6 +10,10 @@ on:
         description: "Publish a GitHub release with this version, e.g. 0.1.0 (leave empty to only build)"
         required: false
         default: ""
+      release_notes:
+        description: "What's new, shown in the app's update prompt. Separate points with ; (e.g. Comments on posts; Location everywhere in India)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -47,6 +51,21 @@ jobs:
           else
             echo "name=0.1.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Release notes
+        id: notes
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          {
+            echo "text<<NOTES_EOF"
+            if [[ -n "$NOTES" ]]; then
+              echo "### What's new"
+              echo "$NOTES" | tr ';' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sed 's/^/- /'
+              echo
+            fi
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Unit tests and screenshot tests
         run: ./gradlew --no-daemon testDebugUnitTest recordRoborazziDebug
@@ -124,6 +143,7 @@ jobs:
           files: android/dist/*.apk
           generate_release_notes: true
           body: |
+            ${{ steps.notes.outputs.text }}
             **FoodFeed pilot build ${{ steps.version.outputs.name }}** (Android 8.0+)
 
             1. Download `FoodFeed-${{ steps.version.outputs.name }}.apk` below on your phone.
@@ -132,3 +152,4 @@ jobs:
 
             Signed with the FoodFeed release key (SHA-256 `BE:1C:81:BE:…:FF:54:9E:FD`, full value in `android/keystore/RELEASE_KEY_FINGERPRINT.txt`).
             Coming from 0.2.0 or older? Uninstall the old app once first: earlier builds used a different key.
+            From 0.5.0 on, the app offers new versions itself (Profile → Settings → Version also checks).

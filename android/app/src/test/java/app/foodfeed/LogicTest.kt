@@ -122,4 +122,22 @@ class LogicTest {
         assertEquals("b", list.comments[0].replies[0].id)
         assertTrue(list.comments[0].likedByMe)
     }
+
+    @Test
+    fun comparesVersionsForUpdates() {
+        val u = app.foodfeed.data.Updates
+        assertTrue(u.isNewer("v0.5.0", "0.4.0"))
+        assertTrue(u.isNewer("v0.10.0", "0.9.3"))
+        assertTrue(u.isNewer("1.0.0", "0.99.99"))
+        assertFalse(u.isNewer("v0.4.0", "0.4.0"))
+        assertFalse(u.isNewer("v0.3.9", "0.4.0"))
+        assertFalse(u.isNewer("v0.4.0", "0.4.0-debug"))
+    }
+
+    @Test
+    fun readsWhatsNewFromReleaseNotes() {
+        val body = "### What's new\n- Comments on posts\n- Location everywhere in India\n\n**FoodFeed pilot build 0.5.0**\n1. Download"
+        assertEquals(listOf("Comments on posts", "Location everywhere in India"), app.foodfeed.data.Updates.whatsNew(body))
+        assertEquals(emptyList<String>(), app.foodfeed.data.Updates.whatsNew("**FoodFeed pilot build**"))
+    }
 }

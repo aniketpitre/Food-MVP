@@ -78,6 +78,12 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     private val _overrides = MutableStateFlow<Map<String, EngagementState>>(emptyMap())
     val overrides: StateFlow<Map<String, EngagementState>> = _overrides.asStateFlow()
 
+    /** A newer app version found on GitHub Releases, waiting to be offered. */
+    val availableUpdate = MutableStateFlow<AppUpdate?>(null)
+
+    /** Checks for a newer version; returns it (and offers it) or null when up to date. */
+    suspend fun checkForUpdate(): AppUpdate? = Updates.check().also { availableUpdate.value = it }
+
     /** Latest known comment count per post id, so a card updates as soon as you comment. */
     val commentCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
 

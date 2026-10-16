@@ -16,6 +16,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -367,7 +371,7 @@ fun DishPage(
     val t = { intro.value }
     val sticker = stickerFor(card, engagement.stats.recommenders)
 
-    Box(
+    BoxWithConstraints(
         modifier
             .fillMaxSize()
             .graphicsLayer {
@@ -401,17 +405,31 @@ fun DishPage(
                 )
             },
     ) {
+        // Photos are 4:5 but phones are much taller. When the card is noticeably taller than the
+        // photo, show the whole photo across the top (nothing cropped) over a blurred, dimmed copy
+        // of itself that fills the rest; otherwise crop to fill as before.
+        val photoAspect = card.cover?.let { c -> if ((c.width ?: 0) > 0 && (c.height ?: 0) > 0) c.width!!.toFloat() / c.height!! else null } ?: 0.8f
+        val cardAspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else photoAspect
+        val fitWidth = cardAspect < photoAspect * 0.9f
         Box(Modifier.fillMaxSize().dishHero(card.id, 32.dp)) {
+            if (fitWidth) {
+                DishImage(
+                    imageUrl, card.cover?.placeholderColor, null,
+                    Modifier.fillMaxSize().blur(36.dp).graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.9f },
+                )
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)))
+            }
             DishImage(
                 imageUrl, card.cover?.placeholderColor, card.name,
-                Modifier.fillMaxSize().graphicsLayer {
-                    val o = pageOffset()
-                    translationY = if (o < 0f) o * size.height * 0.25f else 0f
-                    val settle = Motion.window(t(), 0f, 0.7f)
-                    val s = Motion.lerp(1.25f, 1.1f, settle)
-                    scaleX = s
-                    scaleY = s
-                },
+                (if (fitWidth) Modifier.fillMaxWidth().aspectRatio(photoAspect).align(Alignment.TopCenter) else Modifier.fillMaxSize())
+                    .graphicsLayer {
+                        val o = pageOffset()
+                        translationY = if (o < 0f) o * size.height * 0.25f else 0f
+                        val settle = Motion.window(t(), 0f, 0.7f)
+                        val s = if (fitWidth) Motion.lerp(1.12f, 1f, settle) else Motion.lerp(1.2f, 1.04f, settle)
+                        scaleX = s
+                        scaleY = s
+                    },
             )
         }
         Box(
@@ -426,6 +444,8 @@ fun DishPage(
             ),
         )
 
+        // Small phones (or split screen) get a slightly smaller title and action rail.
+        val compact = maxHeight < 560.dp || maxWidth < 340.dp
         val fadeOutOnLeave: () -> Float = { (1f - pageOffset().coerceIn(0f, 1f) * 1.8f).coerceIn(0f, 1f) }
 
         if (sticker != null) {
@@ -484,7 +504,8 @@ fun DishPage(
             // Title rises out of a mask.
             Box(Modifier.clipToBounds()) {
                 Text(
-                    card.name, color = Color.White, style = CardTitle, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    card.name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = if (compact) CardTitle.copy(fontSize = 29.sp, lineHeight = 30.sp) else CardTitle,
                     modifier = Modifier.graphicsLayer {
                         val p = Motion.window(t(), 0.15f, 0.35f)
                         translationY = (1f - p) * size.height
@@ -543,6 +564,11 @@ fun DishPage(
                 .graphicsLayer {
                     alpha = fadeOutOnLeave()
                     translationY = pageOffset().coerceIn(0f, 1f) * 120f
+                    if (compact) {
+                        scaleX = 0.86f
+                        scaleY = 0.86f
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 1f)
+                    }
                 },
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

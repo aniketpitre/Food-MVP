@@ -25,6 +25,8 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
+        // Where the app looks for newer versions (GitHub's "latest release" API). Empty turns it off.
+        buildConfigField("String", "UPDATES_URL", "\"${(findProperty("updatesUrl") as String?) ?: ""}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
