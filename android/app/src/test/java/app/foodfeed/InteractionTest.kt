@@ -120,7 +120,7 @@ class InteractionTest {
         }
         compose.onNodeWithContentDescription("Save").performClick()
         compose.onNodeWithContentDescription("I tried this").performClick()
-        compose.onNodeWithContentDescription("Share").performClick()
+        compose.onNodeWithContentDescription("Send to friends").performClick()
         compose.waitForIdle()
         assertEquals(listOf(Engagement.Save, Engagement.Tried), toggles)
         assertEquals(1, shared)
