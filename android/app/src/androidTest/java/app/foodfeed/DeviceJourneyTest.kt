@@ -148,7 +148,18 @@ class DeviceJourneyTest {
         compose.waitUntilAtLeastOneExists(hasText("Nearby"), 15_000)
         compose.onAllNodesWithText("Nearby").onFirst().performClick()
         compose.waitUntilAtLeastOneExists(hasTestTag("food_map"), 15_000)
-        waitUntil("the map style and its places", 60_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() }
+        val ok = runCatching { waitUntil("the map style and its places", 60_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() } }
+        if (ok.isFailure) {
+            instrumentation.runOnMainSync {
+                val m = FoodMapProbe.map
+                android.util.Log.d(
+                    "JOURNEY",
+                    "map state: map=${m != null} styleReady=${FoodMapProbe.styleReady} styleLoaded=${m?.style?.isFullyLoaded} " +
+                        "probePlaces=${FoodMapProbe.places.size} view=${FoodMapProbe.view != null}",
+                )
+            }
+            throw ok.exceptionOrNull()!!
+        }
         Thread.sleep(4000) // tiles and camera settle
         shot("04_map_logos")
 

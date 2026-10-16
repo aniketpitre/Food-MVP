@@ -235,6 +235,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                         runCatching { addLayers(style) }.onFailure { android.util.Log.e("FoodMap", "map layers failed", it) }
                         styleReady = true
                         FoodMapProbe.styleReady = true
+                        android.util.Log.d("FoodMap", "style ready (event)")
                     }
                 }
                 addOnDidFinishLoadingStyleListener { m.style?.let(ready) }
@@ -247,6 +248,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 }
                 map = m
                 FoodMapProbe.map = m
+                android.util.Log.d("FoodMap", "map object ready")
             }
         }
     }
@@ -281,6 +283,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
         if (!styleReady) return@LaunchedEffect
         val style = m.style ?: return@LaunchedEffect
         FoodMapProbe.places = places
+        android.util.Log.d("FoodMap", "pins set: ${places.size} places")
         // One bitmap per food logo (a dozen or so), drawn once and kept by the map.
         places.map { it.emoji }.distinct().forEach { emoji ->
             if (style.getImage(logoId(emoji, false)) == null) {
