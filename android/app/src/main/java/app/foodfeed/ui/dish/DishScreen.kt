@@ -313,31 +313,33 @@ fun DishContent(
                 }
 
                 Reveal(70) {
-                    // The People's Pick verdict and whose top pick this is.
-                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RatingPill(engagement.rating)
-                        dish.champion?.let { ChampionLine(it, onOpenUser) }
-                    }
-                    Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (dish.recommenders.isNotEmpty() && engagement.stats.recommenders > 0) {
-                            AvatarStack(dish.recommenders, ringColor = MaterialTheme.colorScheme.background, size = 22.dp)
-                            Spacer(Modifier.width((10 + 15 * dish.recommenders.size.coerceAtMost(3)).dp))
+                    Column {
+                        // The People's Pick verdict and whose top pick this is.
+                        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RatingPill(engagement.rating)
+                            dish.champion?.let { ChampionLine(it, onOpenUser) }
                         }
-                        Text(
-                            buildAnnotatedString {
-                                val n = engagement.stats.recommenders
-                                if (n > 0) {
-                                    append("Recommended by ")
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = accent())) {
-                                        append(if (n == 1) "1 person" else "${Format.compact(n)} people")
+                        Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (dish.recommenders.isNotEmpty() && engagement.stats.recommenders > 0) {
+                                AvatarStack(dish.recommenders, ringColor = MaterialTheme.colorScheme.background, size = 22.dp)
+                                Spacer(Modifier.width((10 + 15 * dish.recommenders.size.coerceAtMost(3)).dp))
+                            }
+                            Text(
+                                buildAnnotatedString {
+                                    val n = engagement.stats.recommenders
+                                    if (n > 0) {
+                                        append("Recommended by ")
+                                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = accent())) {
+                                            append(if (n == 1) "1 person" else "${Format.compact(n)} people")
+                                        }
+                                    } else {
+                                        append(Format.recommended(0))
                                     }
-                                } else {
-                                    append(Format.recommended(0))
-                                }
-                                if (engagement.stats.tried > 0) append("  ·  tried by ${engagement.stats.tried}")
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                                    if (engagement.stats.tried > 0) append("  ·  tried by ${engagement.stats.tried}")
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
 

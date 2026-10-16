@@ -26,6 +26,8 @@ Rendered by the app's screenshot tests with the illustrated demo data (refresh w
 | ![Feed](docs/screenshots/01_feed_top.jpg) | ![Hidden gem](docs/screenshots/02_feed_hidden_gem_dark.jpg) | ![Dish](docs/screenshots/05_dish_detail.jpg) | ![Place](docs/screenshots/06_restaurant.jpg) |
 | **Search** | **Saved** | **Welcome** | **Comments** |
 | ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Welcome](docs/screenshots/12_onboarding_city.jpg) | ![Comments](docs/screenshots/16_comments.jpg) |
+| **Home: what are you craving?** | **People's Pick for pav bhaji** | **Profile** | **Activity** |
+| ![Home](docs/screenshots/17_home.jpg) | ![Craving](docs/screenshots/18_craving_pav_bhaji.jpg) | ![Profile](docs/screenshots/10_profile.jpg) | ![Activity](docs/screenshots/19_activity.jpg) |
 
 ## Motion
 
@@ -60,6 +62,12 @@ The motion rules (all in `ui/theme/Motion.kt`):
 
 ## Features in this MVP
 
+- **Home asks "What are you craving?"** Type pav bhaji (or tap a chip) and get the best pav bhaji in your city ranked by **People's Pick**: votes from people who ate it, weighted by how often a taster's picks are later agreed with. Each result shows its rating, "loved by N", and whose top pick it is. The algorithm is explained in [`docs/PEOPLES_PICK.md`](docs/PEOPLES_PICK.md).
+- **Loved it / Not for me** votes on every dish, so a rating means something.
+- **Explore** keeps the dish deck (Top, Trending, Hidden gems); **Nearby** is now an in-app map (MapLibre with free OpenFreeMap tiles, recoloured to the app's theme) that shows only places in FoodFeed, with a swipeable card strip.
+- **Real places from OpenStreetMap:** `docker compose exec api node dist/cli.js import-places <city-slug> [km]` imports cafes and restaurants (name, cuisine, hours, location). Photos come from people who post there.
+- **Instagram-style social:** profiles with photo, bio and username; followers/following; follow from anywhere; people search; an Activity tab (follows, comments, replies, likes, mentions, recommends, agreements); comment controls (everyone, people you follow, off); blocked accounts; change password; theme (light/dark/system).
+- **Lite mode** (automatic on low-RAM phones, or switch it in Settings) turns off blur, confetti and card choreography. Release builds are shrunk with R8 and ship only ARM and x86_64 code.
 - Guest browsing (no sign-up wall); sign-in is asked for only on the first recommend, save or post, and the action completes right after sign-in.
 - Works in every Indian city: location (precise or approximate, never stored) picks your city from ~900 cities with 50,000+ people, or search for one. New places are filed under the right city automatically.
 - Dish feed with **Top**, **Trending** (last 7 days), **Hidden gems** and **Nearby** tabs, plus category filters.
@@ -97,6 +105,7 @@ with your own (see the plan, section 7.1), and fill in the bracketed parts of th
 | Nightly backups of the database and photos into `./backups` | `docker compose --profile backup up -d` |
 | HTTPS with automatic certificates (set `DOMAIN` in `.env`, open ports 80/443) | `docker compose --profile https up -d` |
 | Recompute rankings now | `docker compose exec api node dist/cli.js refresh` |
+| Import real cafes and restaurants from OpenStreetMap | `docker compose exec api node dist/cli.js import-places nashik 12` |
 | Restore a backup | `docker compose exec -T db pg_restore -U foodfeed -d foodfeed --clean < backups/db-<date>.dump` |
 | Become admin | put your email in `ADMIN_EMAILS`, restart the api, sign up or sign in |
 
