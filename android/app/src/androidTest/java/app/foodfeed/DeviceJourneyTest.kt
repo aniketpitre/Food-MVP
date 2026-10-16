@@ -32,7 +32,8 @@ import app.foodfeed.data.SelectedCity
 import app.foodfeed.ui.map.FoodMapProbe
 import kotlinx.coroutines.runBlocking
 import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.containsString
+import org.hamcrest.Description
+import org.hamcrest.TypeSafeMatcher
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -142,12 +143,20 @@ class DeviceJourneyTest {
         // Take me there → Google Maps directions to this place (stubbed so nothing opens).
         intending(anyIntent()).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, null))
         compose.onNodeWithText("Take me there").performClick()
-        intended(allOf(hasAction(Intent.ACTION_VIEW), hasData(containsString("google.com/maps/dir/"))))
-        intended(hasData(containsString("destination=${place.lat},${place.lng}")))
+        intended(allOf(hasAction(Intent.ACTION_VIEW), hasData(uriContaining("google.com/maps/dir/"))))
+        intended(hasData(uriContaining("destination=${place.lat},${place.lng}")))
 
         // Close the card; the strip of places comes back and opens the card too.
         compose.onNodeWithContentDescription("Close").performClick()
         compose.waitUntilAtLeastOneExists(hasTestTag("map_card_${FoodMapProbe.places.first { it.dishCount > 0 }.id}"), 10_000)
         shot("06_map_strip")
+    }
+
+    private fun uriContaining(part: String) = object : TypeSafeMatcher<android.net.Uri>() {
+        override fun describeTo(description: Description) {
+            description.appendText("a uri containing ").appendValue(part)
+        }
+
+        override fun matchesSafely(item: android.net.Uri) = item.toString().contains(part)
     }
 }

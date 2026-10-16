@@ -1,5 +1,26 @@
 package app.foodfeed
 
+import app.foodfeed.data.StoryReel
+import app.foodfeed.data.Story
+import app.foodfeed.data.MapPlace
+import app.foodfeed.data.MapTopDish
+import app.foodfeed.data.ChatSummary
+import app.foodfeed.data.LastMessage
+import app.foodfeed.data.Message
+import app.foodfeed.data.MessageDish
+import app.foodfeed.data.Conversation
+import app.foodfeed.ui.map.MapPopup
+import app.foodfeed.ui.messages.InboxList
+import app.foodfeed.ui.messages.InboxUiState
+import app.foodfeed.ui.messages.ChatContent
+import app.foodfeed.ui.messages.ChatUiState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import android.app.Application
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.layout.fillMaxSize
@@ -322,6 +343,70 @@ class ScreenshotTest {
             ),
             imageUrl = { it }, onCraving = {}, onOpenDish = {}, onOpenUser = {}, onChangeCity = {}, onExplore = {}, onAddDish = {},
             onRefresh = {}, onRetry = {}, greeting = "Lunch o'clock in", cyclePlaceholder = false,
+            stories = listOf(
+                StoryReel(UserRef("diya_k", "Diya K"), stories = listOf(Story("s1", "/media/godavari_kolhapuri_misal", "/media/godavari_kolhapuri_misal"))),
+                StoryReel(UserRef("arjun", "Arjun"), stories = listOf(Story("s2", "/media/pbp_pav_bhaji", "/media/pbp_pav_bhaji"))),
+                StoryReel(UserRef("myra_s", "Myra S"), allSeen = true, stories = listOf(Story("s3", "/media/katta_vada_pav", "/media/katta_vada_pav", seen = true))),
+                StoryReel(UserRef("kabir", "Kabir"), allSeen = true, stories = listOf(Story("s4", "/media/ananda_cold_coffee", "/media/ananda_cold_coffee", seen = true))),
+            ),
+            me = UserRef("you", "You"),
+            unreadMessages = 2,
+        )
+    }
+
+    @Test
+    fun mapPopup() = shoot("20_map_place_card") {
+        // The card as it sits over the map (the map itself is native and not drawn here).
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFFF3EADB))) {
+            Column(Modifier.align(Alignment.BottomCenter)) {
+                MapPopup(
+                    MapPlace(
+                        id = "p1", name = "Godavari Misal House", locality = "Panchavati", cuisine = "maharashtrian",
+                        openingHours = "Mo-Su 07:00-22:30", lat = 20.0, lng = 73.79, dishCount = 4, lovers = 41, emoji = "🌶️",
+                        topDish = MapTopDish("d1", "Kolhapuri Misal", loves = 36, percent = 95, priceInr = 90, isVeg = true, emoji = "🌶️"),
+                    ),
+                    distanceM = 1200,
+                    photoUrl = "/media/godavari_kolhapuri_misal",
+                    onDismiss = {}, onTakeMeThere = {}, onOpenDish = {}, onOpenPlace = {},
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    @Test
+    fun inbox() = shoot("21_messages") {
+        val now = java.time.Instant.now()
+        fun ago(m: Long) = now.minusSeconds(m * 60).toString()
+        InboxList(
+            state = InboxUiState(
+                loading = false,
+                requests = 1,
+                items = listOf(
+                    ChatSummary("c1", with = UserRef("diya_k", "Diya K"), lastMessage = LastMessage("text", "Misal at 8? I'll book a table", false, ago(3)), unread = true),
+                    ChatSummary("c2", with = UserRef("arjun", "Arjun"), lastMessage = LastMessage("dish", null, true, ago(45))),
+                    ChatSummary("c3", with = UserRef("myra_s", "Myra S"), lastMessage = LastMessage("story_like", null, false, ago(60 * 5))),
+                    ChatSummary("c4", with = UserRef("kabir", "Kabir"), lastMessage = LastMessage("text", "That pav bhaji was unreal", true, ago(60 * 30))),
+                ),
+            ),
+            imageUrl = { it }, onOpen = {}, onLongPress = {},
+        )
+    }
+
+    @Test
+    fun chat() = shoot("22_chat") {
+        val now = java.time.Instant.now()
+        fun ago(m: Long) = now.minusSeconds(m * 60).toString()
+        val msgs = listOf(
+            Message("m1", "text", "Where should we eat tonight?", ago(30), mine = false),
+            Message("m2", "dish", null, ago(28), mine = true, dish = MessageDish("d1", "Kolhapuri Misal", "Godavari Misal House", 90, "/media/godavari_kolhapuri_misal")),
+            Message("m3", "text", "This one. 95% loved it 🔥", ago(28), mine = true),
+            Message("m4", "text", "Misal at 8? I'll book a table", ago(3), mine = false),
+        )
+        ChatContent(
+            state = ChatUiState(loading = false, chat = Conversation("c1", with = UserRef("diya_k", "Diya K"), theirLastReadAt = now.toString()), messages = msgs),
+            imageUrl = { it }, onBack = {}, onOpenUser = {}, onOpenDish = {}, onSend = {}, onUnsend = {}, onAccept = {},
+            onDelete = {}, onBlock = {}, onReport = {},
         )
     }
 
