@@ -63,6 +63,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -421,7 +423,22 @@ fun DishPage(
             }
             DishImage(
                 imageUrl, card.cover?.placeholderColor, card.name,
-                (if (fitWidth) Modifier.fillMaxWidth().aspectRatio(photoAspect).align(Alignment.TopCenter) else Modifier.fillMaxSize())
+                (
+                    if (fitWidth) {
+                        Modifier.fillMaxWidth().aspectRatio(photoAspect).align(Alignment.TopCenter)
+                            // Melt the photo's bottom edge into the blurred backdrop: no hard seam.
+                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .drawWithContent {
+                                drawContent()
+                                drawRect(
+                                    Brush.verticalGradient(0.72f to Color.Black, 1f to Color.Transparent),
+                                    blendMode = BlendMode.DstIn,
+                                )
+                            }
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                    )
                     .graphicsLayer {
                         val o = pageOffset()
                         translationY = if (o < 0f) o * size.height * 0.25f else 0f
