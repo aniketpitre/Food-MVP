@@ -144,7 +144,7 @@ export async function browseRoutes(app: FastifyInstance) {
     const viewer = userId(req);
     const { rows } = await db.query(
       `select id, name, locality, address, maps_url as "mapsUrl", instagram_handle as "instagramHandle",
-              price_band as "priceBand", status, created_by as "createdBy", cuisine, opening_hours as "openingHours",
+              price_band as "priceBand", status, created_by as "createdBy", source, cuisine, opening_hours as "openingHours",
               coalesce(osm_tags->>'phone', osm_tags->>'contact:phone') as phone,
               coalesce(osm_tags->>'website', osm_tags->>'contact:website') as website,
               st_y(geo::geometry) as lat, st_x(geo::geometry) as lng,
@@ -165,6 +165,9 @@ export async function browseRoutes(app: FastifyInstance) {
       [p.id],
     );
     delete r.createdBy;
+    // Invented demo places must never borrow a real business's Google photos.
+    const isReal = r.source !== 'seed';
+    delete r.source;
     // Photos of the place itself, openly licensed (see photos.ts), with their credits.
     const { rows: photos } = await db.query(
       `select image_path as "imageUrl", thumb_path as "thumbUrl", placeholder_color as "placeholderColor",
@@ -175,7 +178,7 @@ export async function browseRoutes(app: FastifyInstance) {
     return {
       ...r,
       photos,
-      googlePhotos: !!config.googlePlacesApiKey,
+      googlePhotos: !!config.googlePlacesApiKey && isReal,
       dishes: await loadDishCards(db, dishIds.map((d) => d.id), viewer, q.lat, q.lng),
     };
   });
@@ -188,10 +191,10 @@ export async function browseRoutes(app: FastifyInstance) {
     const { rows } = await db.query(
       `select r.id, r.name, r.locality, c.name as city, st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
               r.google_place_id as "googlePlaceId"
-       from restaurants r join cities c on c.id = r.city_id where r.id = $1 and r.status = 'active'`,
+       from restaurants r join cities c on c.id = r.city_id where r.id = $1 and r.status = 'active' and r.source <> 'seed'`,
       [p.id],
     );
-    if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'This place is not available.' });
+    if (!rows[0]) return { photos: [] };
     try {
       return {
         photos: await googlePlacePhotos(db, rows[0], { apiKey: config.googlePlacesApiKey, dailyLimit: config.googlePhotosDailyLimit }),
