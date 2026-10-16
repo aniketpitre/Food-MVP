@@ -7,6 +7,9 @@ import app.foodfeed.data.MapTopDish
 import app.foodfeed.data.ChatSummary
 import app.foodfeed.data.LastMessage
 import app.foodfeed.data.Message
+import app.foodfeed.data.MessageReplyRef
+import app.foodfeed.data.MessagePlace
+import app.foodfeed.data.Reaction
 import app.foodfeed.data.MessageDish
 import app.foodfeed.data.Conversation
 import app.foodfeed.ui.map.MapPopup
@@ -400,12 +403,19 @@ class ScreenshotTest {
         val msgs = listOf(
             Message("m1", "text", "Where should we eat tonight?", ago(30), mine = false),
             Message("m2", "dish", null, ago(28), mine = true, dish = MessageDish("d1", "Kolhapuri Misal", "Godavari Misal House", 90, "/media/godavari_kolhapuri_misal")),
-            Message("m3", "text", "This one. 95% loved it 🔥", ago(28), mine = true),
-            Message("m4", "text", "Misal at 8? I'll book a table", ago(3), mine = false),
+            Message("m3", "text", "This one. 95% loved it 🔥", ago(28), mine = true, reactions = listOf(Reaction("❤️"))),
+            Message(
+                "m4", "place", null, ago(20), mine = false,
+                place = MessagePlace("r1", "Godavari Misal House", "Panchavati", "maharashtrian", thumbUrl = "/media/godavari_misal_pav"),
+            ),
+            Message(
+                "m5", "text", "Misal at 8? I'll book a table", ago(3), mine = false,
+                replyTo = MessageReplyRef("m3", "text", "This one. 95% loved it 🔥", mine = true),
+            ),
         )
         ChatContent(
             state = ChatUiState(loading = false, chat = Conversation("c1", with = UserRef("diya_k", "Diya K"), theirLastReadAt = now.toString()), messages = msgs),
-            imageUrl = { it }, onBack = {}, onOpenUser = {}, onOpenDish = {}, onSend = {}, onUnsend = {}, onAccept = {},
+            imageUrl = { it }, onBack = {}, onOpenUser = {}, onOpenDish = {}, onSend = { _, _ -> }, onUnsend = {}, onAccept = {},
             onDelete = {}, onBlock = {}, onReport = {},
         )
     }

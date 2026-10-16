@@ -57,6 +57,7 @@ import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.SkeletonBlock
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
+import app.foodfeed.ui.messages.SendToSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -82,6 +83,7 @@ fun FeedScreen(
     val actions = rememberDishActions(onNeedSignIn, showMessage)
     val commentCounts by app.commentCounts.collectAsState()
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var sendingCard by remember { mutableStateOf<DishCard?>(null) }
 
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.any { it }) {
@@ -109,7 +111,7 @@ fun FeedScreen(
         onOpenDish = onOpenDish,
         onOpenRestaurant = onOpenRestaurant,
         onToggle = actions::toggle,
-        onShare = actions::share,
+        onShare = { sendingCard = it },
         onChangeCity = onChangeCity,
         onSearch = onSearch,
         onAddDish = onAddDish,
@@ -136,6 +138,17 @@ fun FeedScreen(
 
     commentsFor?.let { post ->
         CommentsSheet(post, onDismiss = { commentsFor = null }, onNeedSignIn = onNeedSignIn, onOpenUser = onOpenUser, showMessage = showMessage)
+    }
+    // The paper-plane on a card: send this post to friends in FoodFeed, or share it elsewhere.
+    sendingCard?.let { c ->
+        SendToSheet(
+            dishId = if (c.cover == null) c.id else null,
+            postId = c.cover?.postId,
+            onDismiss = { sendingCard = null },
+            onShareElsewhere = { actions.share(c) },
+            onNeedSignIn = onNeedSignIn,
+            showMessage = showMessage,
+        )
     }
 }
 

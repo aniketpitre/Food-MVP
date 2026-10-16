@@ -159,6 +159,16 @@ interface FoodFeedApi {
 
     @POST("messages") suspend fun shareMessage(@Body body: ShareMessage): ShareResult2
 
+    @Multipart
+    @POST("conversations/{id}/photo")
+    suspend fun sendPhoto(@Path("id") id: String, @Part parts: List<MultipartBody.Part>): Message
+
+    @PUT("messages/{id}/reaction") suspend fun react(@Path("id") id: String, @Body body: ReactionBody): OkResult
+
+    @DELETE("messages/{id}/reaction") suspend fun unreact(@Path("id") id: String): OkResult
+
+    @GET("updates") suspend fun updates(@Query("since") since: String?): UpdatesPage
+
     @POST("conversations/{id}/read") suspend fun readChat(@Path("id") id: String): OkResult
 
     @POST("conversations/{id}/accept") suspend fun acceptChat(@Path("id") id: String): OkResult

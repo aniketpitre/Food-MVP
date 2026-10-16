@@ -179,6 +179,7 @@ export async function browseRoutes(app: FastifyInstance) {
       ...r,
       photos,
       googlePhotos: !!config.googlePlacesApiKey && isReal,
+      isDemo: !isReal,
       dishes: await loadDishCards(db, dishIds.map((d) => d.id), viewer, q.lat, q.lng),
     };
   });

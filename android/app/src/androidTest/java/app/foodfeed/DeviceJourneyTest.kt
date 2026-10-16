@@ -115,7 +115,7 @@ class DeviceJourneyTest {
 
     private fun journey() {
         // Home with the stories row and the craving search.
-        compose.waitUntilAtLeastOneExists(hasText("What are you\ncraving?"), 30_000)
+        compose.waitUntilAtLeastOneExists(hasTestTag("home_headline"), 30_000)
         compose.waitUntilAtLeastOneExists(hasTestTag("story_bubble"), 20_000)
         Thread.sleep(2500) // photos and sections settle
         shot("01_home")
@@ -199,6 +199,12 @@ class DeviceJourneyTest {
         // Take me there → Google Maps directions to this place (stubbed so nothing opens).
         intending(anyIntent()).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, null))
         compose.onNodeWithText("Take me there").performClick()
+        if (shown.demo) {
+            // Demo places aren't real businesses: the app says so before opening Maps.
+            compose.waitUntilAtLeastOneExists(hasText("This is a demo place"), 5_000)
+            shot("05b_demo_notice")
+            compose.onNodeWithText("Open the map anyway").performClick()
+        }
         Thread.sleep(3000) // it asks our server for the Google listing first (2.5 s at most)
         intended(allOf(hasAction(Intent.ACTION_VIEW), hasData(uriContaining("google.com/maps/dir/"))))
         intended(hasData(uriContaining("destination=")))

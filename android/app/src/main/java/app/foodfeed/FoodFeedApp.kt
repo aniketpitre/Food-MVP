@@ -23,6 +23,7 @@ class FoodFeedApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this, appScope)
+        Notifications.setUp(this)
         appScope.launch { container.init() }
     }
 

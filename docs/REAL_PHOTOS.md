@@ -58,7 +58,22 @@ you inside the free 1,000 a month.
 
 Never paste the key in chat or commit it; it only goes in `.env` on the server.
 
-## 3. Owners and users
+## 3. The demo dishes
+
+The invented demo places (marked **DEMO** in the app) come with drawn pictures. To give
+each demo dish a real photo of that dish (a burger looks like a burger), run on the server:
+
+```
+docker compose exec api node dist/cli.js seed-demo
+```
+
+It puts the demo places, dishes and demo accounts back if you removed them, then takes the
+lead photo of each dish's Wikipedia article, only when it lives on Wikimedia Commons (free
+licence), and shows its author and licence under the photo. `demo-photos` does only the
+photo step; add `--force` to fetch them again. Remove everything demo with
+`remove-demo --all`. Take me there on a demo place explains that it isn't a real business.
+
+## 4. Owners and users
 
 The best photos are still the ones people post. Each post shows on the dish and in the
 feed, and a place's best dish photo becomes its picture on the map.

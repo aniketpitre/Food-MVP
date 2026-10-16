@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import app.foodfeed.Notifications
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -70,7 +73,21 @@ fun MyActions.has(kind: Engagement) = when (kind) {
 
 /** App-wide state and the single entry point to the server. */
 class AppContainer(context: Context, private val scope: CoroutineScope) {
-    private val prefs = Prefs(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val prefs = Prefs(appContext)
+
+    fun notificationsAllowed() = Notifications.allowed(appContext)
+
+    /** Marks [chatId] as on screen (null when it closes) and clears its notification. */
+    fun chatOnScreen(chatId: String?) {
+        openChatId.value = chatId
+        if (chatId != null) Notifications.clearChat(appContext, chatId)
+    }
+
+    /** The chat on screen right now; its new messages need no notification. */
+    val openChatId = MutableStateFlow<String?>(null)
+
+    private val updatesLock = Mutex()
 
     /** True on phones with little memory, where Lite mode turns itself on by default. */
     val isLowEndDevice: Boolean = Device.isLowEnd(context.applicationContext)
@@ -212,10 +229,33 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     }
 
     private suspend fun activityLoop() {
+        var tick = 0
         while (true) {
-            refreshUnread()
-            delay(60_000)
+            checkUpdates()
+            if (tick++ % 2 == 0) refreshUnread()
+            delay(30_000)
         }
+    }
+
+    /**
+     * Asks the server what's new since the last check and shows phone notifications for it.
+     * Called every 30 seconds while the app runs and by [app.foodfeed.UpdatesWorker] in the
+     * background. The first check after signing in only sets the starting point.
+     */
+    suspend fun checkUpdates(): Unit = updatesLock.withLock {
+        if (_session.value == null || _serverUrl.value.isBlank()) return@withLock
+        val since = prefs.updatesSince()
+        val page = try {
+            apiCall { api.updates(since) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withLock // offline or server down: try again next time
+        }
+        prefs.saveUpdatesSince(page.now)
+        if (since == null) return@withLock
+        Notifications.show(appContext, page.messages, page.reactions, page.activity, openChatId.value)
+        if (page.activity.isNotEmpty() || page.messages.isNotEmpty()) refreshUnread()
     }
 
     /** Applies a profile change from the server to the signed-in session. */
@@ -239,6 +279,8 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     suspend fun signedIn(result: AuthResult) {
         _session.value = Session(result.token, result.user)
         prefs.saveSession(result.token, result.user)
+        prefs.saveUpdatesSince(null)
+        scope.launch { checkUpdates() }
         _overrides.value = emptyMap()
         contentVersion.update { it + 1 }
         val action = pendingAction
@@ -251,6 +293,8 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         unreadActivity.value = 0
         unreadMessages.value = 0
         prefs.saveSession(null, null)
+        prefs.saveUpdatesSince(null)
+        Notifications.clearAll(appContext)
         _overrides.value = emptyMap()
         pendingAction = null
         contentVersion.update { it + 1 }

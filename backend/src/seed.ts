@@ -41,7 +41,13 @@ export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => 
     }
   }
 
-  const nashik = cityIds.get('nashik')!;
+  await insertDemoPlaces(db, mediaDir, cityIds.get('nashik')!, catIds, log);
+  log(`seed: catalog inserted (${data.restaurants.length} places)`);
+  return true;
+}
+
+/** The invented demo places in Nashik, with their dishes and the illustrated demo photos. */
+async function insertDemoPlaces(db: Db, mediaDir: string, nashik: number, catIds: Map<string, number>, log: (m: string) => void) {
   for (const r of data.restaurants) {
     const rr = await db.query<{ id: string }>(
       `insert into restaurants (city_id, name, name_norm, locality, geo, price_band, status, source)
@@ -73,7 +79,20 @@ export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => 
       await db.query('update dishes set cover_post_id = $2 where id = $1', [dishId, postId]);
     }
   }
-  log(`seed: catalog inserted (${data.restaurants.length} places)`);
+}
+
+/**
+ * Puts the demo places, dishes and photos back (after `remove-demo --all`), if none are
+ * there. Returns false when they already exist.
+ */
+export async function restoreDemoPlaces(db: Db, mediaDir: string, log: (m: string) => void = () => {}): Promise<boolean> {
+  const { rows } = await db.query<{ n: number }>("select count(*)::int as n from restaurants where source = 'seed'");
+  if (rows[0]!.n > 0) return false;
+  const { rows: city } = await db.query<{ id: number }>("select id from cities where slug = 'nashik'");
+  if (!city[0]) return false;
+  const { rows: cats } = await db.query<{ id: number; slug: string }>('select id, slug from dish_categories');
+  await insertDemoPlaces(db, mediaDir, city[0].id, new Map(cats.map((c) => [c.slug, c.id])), log);
+  log(`seed: demo places restored (${data.restaurants.length} places)`);
   return true;
 }
 

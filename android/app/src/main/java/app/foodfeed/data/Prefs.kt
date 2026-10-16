@@ -34,6 +34,14 @@ class Prefs(private val context: Context) {
         val deviceId = stringPreferencesKey("device_id")
         val themeMode = stringPreferencesKey("theme_mode")
         val liteMode = stringPreferencesKey("lite_mode")
+        val updatesSince = stringPreferencesKey("updates_since")
+    }
+
+    /** Server time of the last check for notifications (null: start from now). */
+    suspend fun updatesSince(): String? = context.dataStore.data.first()[Keys.updatesSince]
+
+    suspend fun saveUpdatesSince(value: String?) = context.dataStore.edit {
+        if (value == null) it.remove(Keys.updatesSince) else it[Keys.updatesSince] = value
     }
 
     suspend fun load(defaultServerUrl: String): StoredState {

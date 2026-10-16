@@ -39,6 +39,8 @@ data class RestaurantRef(
     val status: String = "active",
     val lat: Double = 0.0,
     val lng: Double = 0.0,
+    /** One of the invented demo places, not a real business. */
+    val isDemo: Boolean = false,
 )
 
 @Serializable
@@ -180,6 +182,8 @@ data class RestaurantDetail(
     val photos: List<PlacePhoto> = emptyList(),
     /** Whether the server can show Google Maps photos of this place (fetched separately). */
     val googlePhotos: Boolean = false,
+    /** One of the invented demo places, not a real business. */
+    val isDemo: Boolean = false,
     val dishes: List<DishCard> = emptyList(),
 )
 
@@ -526,6 +530,36 @@ data class MessageDish(val id: String, val name: String, val restaurantName: Str
 data class MessageStory(val id: String? = null, val thumbUrl: String? = null, val expired: Boolean = true)
 
 @Serializable
+data class MessagePlace(
+    val id: String,
+    val name: String,
+    val locality: String? = null,
+    val cuisine: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val thumbUrl: String? = null,
+)
+
+@Serializable
+data class MessagePost(
+    val id: String,
+    val dishId: String? = null,
+    val thumbUrl: String? = null,
+    val caption: String? = null,
+    val dishName: String? = null,
+    val author: String? = null,
+)
+
+@Serializable
+data class MessagePhoto(val imageUrl: String, val thumbUrl: String? = null)
+
+@Serializable
+data class MessageReplyRef(val id: String, val kind: String = "text", val body: String? = null, val mine: Boolean = false)
+
+@Serializable
+data class Reaction(val emoji: String, val mine: Boolean = false)
+
+@Serializable
 data class Message(
     val id: String,
     val kind: String = "text",
@@ -533,7 +567,12 @@ data class Message(
     val createdAt: String,
     val mine: Boolean = false,
     val dish: MessageDish? = null,
+    val place: MessagePlace? = null,
+    val post: MessagePost? = null,
+    val photo: MessagePhoto? = null,
     val story: MessageStory? = null,
+    val replyTo: MessageReplyRef? = null,
+    val reactions: List<Reaction> = emptyList(),
 )
 
 @Serializable
@@ -550,10 +589,68 @@ data class Conversation(
 data class ConversationId(val id: String)
 
 @Serializable
-data class NewMessage(val body: String? = null, val dishId: String? = null)
+data class NewMessage(
+    val body: String? = null,
+    val dishId: String? = null,
+    val restaurantId: String? = null,
+    val postId: String? = null,
+    val replyTo: String? = null,
+)
 
 @Serializable
-data class ShareMessage(val handles: List<String>, val body: String? = null, val dishId: String? = null)
+data class ShareMessage(
+    val handles: List<String>,
+    val body: String? = null,
+    val dishId: String? = null,
+    val restaurantId: String? = null,
+    val postId: String? = null,
+)
+
+@Serializable
+data class ReactionBody(val emoji: String)
+
+// ---------- Phone notifications (GET /updates) ----------
+
+@Serializable
+data class UpdateMessage(
+    val id: String,
+    val conversationId: String,
+    val kind: String = "text",
+    val body: String? = null,
+    val createdAt: String = "",
+    val folder: String = "inbox",
+    val from: UserRef,
+)
+
+@Serializable
+data class UpdateReaction(
+    val messageId: String,
+    val conversationId: String,
+    val emoji: String,
+    val createdAt: String = "",
+    val body: String? = null,
+    val kind: String = "text",
+    val from: UserRef,
+)
+
+@Serializable
+data class UpdateActivity(
+    val id: Long,
+    val kind: String,
+    val createdAt: String = "",
+    val actor: UserRef,
+    val dishName: String? = null,
+    val dishId: String? = null,
+    val commentBody: String? = null,
+)
+
+@Serializable
+data class UpdatesPage(
+    val now: String,
+    val messages: List<UpdateMessage> = emptyList(),
+    val reactions: List<UpdateReaction> = emptyList(),
+    val activity: List<UpdateActivity> = emptyList(),
+)
 
 @Serializable
 data class ShareResult2(val sent: List<String> = emptyList(), val failed: List<String> = emptyList())

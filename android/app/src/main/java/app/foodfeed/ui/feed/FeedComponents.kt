@@ -634,7 +634,7 @@ fun DishPage(
                     if (engagement.me.tried) "Unmark tried" else "I tried this", { onToggle(Engagement.Tried) }, look = ActionLook.Glass,
                 )
             }
-            rail(4) { EngageAction(null, false, "Share", null, "Share", onShare, look = ActionLook.Glass) }
+            rail(4) { EngageAction(null, false, "Send", null, "Send to friends", onShare, look = ActionLook.Glass, icon = AppIcons.Send) }
         }
 
         HeartBurst(burst, burstAt, Modifier.fillMaxSize())

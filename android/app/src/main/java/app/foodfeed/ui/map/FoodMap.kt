@@ -98,7 +98,6 @@ import app.foodfeed.ui.components.PrimaryButton
 import app.foodfeed.ui.components.QuietButton
 import app.foodfeed.ui.components.RatingPill
 import app.foodfeed.ui.components.VegMark
-import app.foodfeed.ui.components.directionsTo
 import app.foodfeed.ui.theme.LocalLiteMode
 import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -412,6 +411,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
     }
 
     val current = places.firstOrNull { it.id == selected }
+    val takeMeThere = app.foodfeed.ui.components.rememberTakeMeThere()
     Box(modifier.fillMaxSize()) {
         AndroidView({ mapView }, Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).testTag("food_map"))
 
@@ -452,7 +452,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
             distanceM = current?.let { p -> location?.let { metres(it.lat, it.lng, p.lat, p.lng) } },
             photoUrl = current?.let { app.mediaUrl(it.topDish?.thumbUrl ?: it.photoUrl) },
             onDismiss = { selected = null },
-            onTakeMeThere = { p -> directionsTo(scope, app.api, context, p.id, p.lat, p.lng, p.name) },
+            onTakeMeThere = { p -> takeMeThere.go(p.id, p.lat, p.lng, p.name, p.demo) },
             onOpenDish = onOpenDish,
             onOpenPlace = onOpenPlace,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -596,6 +596,7 @@ fun MapPopup(
                     // The name opens the place page: its photos, hours and every dish.
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onOpenPlace(p.id) },
                 )
+                if (p.demo) app.foodfeed.ui.components.DemoTag()
                 val line = listOfNotNull(p.cuisine?.replaceFirstChar { it.uppercase() }, p.locality, Format.distance(distanceM)).joinToString(" · ")
                 if (line.isNotEmpty()) {
                     Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -720,7 +721,10 @@ private fun PlaceCard(p: MapPlace, thumb: String?, onClick: () -> Unit) {
             Text(p.emoji, fontSize = 16.sp, modifier = Modifier.align(Alignment.TopStart).offset((-4).dp, (-4).dp))
         }
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(p.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(p.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (p.demo) app.foodfeed.ui.components.DemoTag()
+            }
             p.topDish?.let { t ->
                 Text("Best here: ${t.name}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

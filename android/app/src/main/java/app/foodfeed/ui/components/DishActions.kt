@@ -4,7 +4,22 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -112,4 +127,51 @@ fun rememberDishActions(onNeedSignIn: () -> Unit, showMessage: (String) -> Unit)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     return remember(app, scope, context) { DishActions(app, scope, context, onNeedSignIn, showMessage) }
+}
+
+/**
+ * Take me there that knows about demo places: the invented demo places aren't real
+ * businesses, so instead of silently opening Maps on an empty spot it says so first.
+ */
+class TakeMeThere(private val app: AppContainer, private val scope: CoroutineScope, private val context: Context) {
+    internal var pendingDemo by mutableStateOf<(() -> Unit)?>(null)
+
+    fun go(restaurantId: String, lat: Double, lng: Double, name: String, demo: Boolean) {
+        val run = { directionsTo(scope, app.api, context, restaurantId, lat, lng, name) }
+        if (demo) pendingDemo = run else run()
+    }
+}
+
+@Composable
+fun rememberTakeMeThere(): TakeMeThere {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val t = remember(app, scope, context) { TakeMeThere(app, scope, context) }
+    t.pendingDemo?.let { run ->
+        AlertDialog(
+            onDismissRequest = { t.pendingDemo = null },
+            title = { Text("This is a demo place") },
+            text = { Text("It was made up to show how FoodFeed works, so it isn't a real business and there is nothing at this spot on the map.") },
+            confirmButton = { TextButton(onClick = { t.pendingDemo = null }) { Text("OK") } },
+            dismissButton = { TextButton(onClick = { t.pendingDemo = null; run() }) { Text("Open the map anyway") } },
+        )
+    }
+    return t
+}
+
+/** A small "Demo" tag for the invented demo places. */
+@Composable
+fun DemoTag(modifier: Modifier = Modifier) {
+    Text(
+        "DEMO",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onTertiaryContainer,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.tertiaryContainer)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .testTag("demo_tag"),
+    )
 }

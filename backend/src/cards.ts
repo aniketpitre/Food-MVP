@@ -14,6 +14,8 @@ export interface DishCard {
     status: string;
     lat: number;
     lng: number;
+    /** One of the invented demo places, not a real business. */
+    isDemo: boolean;
   };
   cover: {
     postId: string;
@@ -47,6 +49,7 @@ interface CardRow {
   restaurant_name: string;
   locality: string | null;
   restaurant_status: string;
+  restaurant_demo: boolean | null;
   lat: number;
   lng: number;
   post_id: string | null;
@@ -91,6 +94,7 @@ export async function loadDishCards(
   const { rows } = await db.query<CardRow>(
     `select d.id, d.name, d.price_inr, d.is_veg, d.category_id, d.created_at,
             r.id as restaurant_id, r.name as restaurant_name, r.locality, r.status as restaurant_status,
+            (r.source = 'seed') as restaurant_demo,
             st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
             cov.id as post_id, cov.image_path, cov.thumb_path, cov.placeholder_color, cov.is_sponsored,
             cov.width, cov.height,
@@ -146,6 +150,7 @@ function toCard(r: CardRow): DishCard {
       status: r.restaurant_status,
       lat: r.lat,
       lng: r.lng,
+      isDemo: !!r.restaurant_demo,
     },
     cover: r.post_id
       ? {

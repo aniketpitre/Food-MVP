@@ -14,6 +14,8 @@ import app.foodfeed.data.apiCall
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.EnterTransition
@@ -200,7 +202,7 @@ inline fun <reified VM : ViewModel> appViewModel(key: String? = null, crossinlin
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
+fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
     val app = LocalApp.current
     val ready by app.ready.collectAsState()
     val city by app.city.collectAsState()
@@ -231,9 +233,20 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
     LaunchedEffect(Unit) {
         if (DeviceLocation.hasPermission(context)) app.location.value = DeviceLocation.current(context, precise = DeviceLocation.hasPrecise(context))
     }
-    LaunchedEffect(deepLinkDishId, needsSetup) {
-        if (deepLinkDishId != null && !needsSetup) {
-            nav.navigate(Routes.dish(deepLinkDishId))
+    // Notifications for messages and Activity: Android 13+ asks once, after signing in.
+    val session by app.session.collectAsState()
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(session != null) {
+        if (session == null || android.os.Build.VERSION.SDK_INT < 33) return@LaunchedEffect
+        val flags = context.getSharedPreferences("foodfeed_flags", android.content.Context.MODE_PRIVATE)
+        if (!flags.getBoolean("asked_notifications", false) && !app.notificationsAllowed()) {
+            flags.edit().putBoolean("asked_notifications", true).apply()
+            askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    LaunchedEffect(deepLink, needsSetup) {
+        if (deepLink != null && !needsSetup) {
+            if (deepLink == Routes.ACTIVITY) nav.navigateToTab(Routes.ACTIVITY) else nav.navigate(deepLink)
             onDeepLinkHandled()
         }
     }
@@ -313,7 +326,7 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                 composable(Routes.CHAT, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
                     val vm = appViewModel(key = "chat-$id") { ChatViewModel(it, id) }
-                    ChatScreen(vm, { nav.popBackStack() }, openUser, openDish, showMessage)
+                    ChatScreen(vm, id, { nav.popBackStack() }, openUser, openDish, openRestaurant, showMessage)
                 }
                 composable(Routes.STORIES, arguments = listOf(navArgument("start") { type = NavType.IntType })) { entry ->
                     val start = entry.arguments?.getInt("start") ?: 0

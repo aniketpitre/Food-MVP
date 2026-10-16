@@ -20,12 +20,12 @@ import app.foodfeed.ui.components.LocalMediaUrl
 import app.foodfeed.ui.theme.FoodFeedTheme
 
 class MainActivity : ComponentActivity() {
-    private var deepLinkDishId by mutableStateOf<String?>(null)
+    private var deepLink by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        deepLinkDishId = dishIdFrom(intent)
+        deepLink = routeFrom(intent)
         val container = (application as FoodFeedApp).container
         setContent {
             val mode by container.themeMode.collectAsState()
@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
                     LocalLiteMode provides (lite == "on" || (lite == "auto" && container.isLowEndDevice)),
                 ) {
                     Surface(color = MaterialTheme.colorScheme.background) {
-                        FoodFeedRoot(deepLinkDishId) { deepLinkDishId = null }
+                        FoodFeedRoot(deepLink) { deepLink = null }
                     }
                 }
             }
@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        dishIdFrom(intent)?.let { deepLinkDishId = it }
+        routeFrom(intent)?.let { deepLink = it }
     }
 
     override fun onStop() {
@@ -59,10 +59,21 @@ class MainActivity : ComponentActivity() {
         (application as FoodFeedApp).container.flushImpressions()
     }
 
-    /** foodfeed://dish/<uuid> from a share link. */
-    private fun dishIdFrom(intent: Intent?): String? {
+    /**
+     * The screen a link opens: foodfeed://dish/<uuid> from a share link, and from
+     * notifications foodfeed://chat/<uuid>, foodfeed://user/<handle> or foodfeed://activity.
+     */
+    private fun routeFrom(intent: Intent?): String? {
         val uri = intent?.data ?: return null
-        if (uri.scheme != "foodfeed" || uri.host != "dish") return null
-        return uri.lastPathSegment?.takeIf { Regex("^[0-9a-fA-F-]{36}$").matches(it) }
+        if (uri.scheme != "foodfeed") return null
+        val id = uri.lastPathSegment
+        val uuid = Regex("^[0-9a-fA-F-]{36}$")
+        return when (uri.host) {
+            "dish" -> id?.takeIf { uuid.matches(it) }?.let { "dish/$it" }
+            "chat" -> id?.takeIf { uuid.matches(it) }?.let { "chat/$it" }
+            "user" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user/$it" }
+            "activity" -> "activity"
+            else -> null
+        }
     }
 }

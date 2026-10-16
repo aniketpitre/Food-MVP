@@ -1080,4 +1080,51 @@ describe('removing demo content', () => {
     await expect(fs.stat(path.join(mediaDir, 'posts', anyPost[0]!.id))).rejects.toThrow();
     expect((await app.inject(`/feed?city=${cityId}&tab=top&limit=5&offset=0&seed=x`)).statusCode).toBe(200);
   });
+
+  it('brings the demo back with real, credited dish photos and marks demo places', async () => {
+    const { restoreDemoPlaces, seedDemoActivity: again } = await import('../src/seed.js');
+    const { fetchDemoDishPhotos } = await import('../src/demo-photos.js');
+    expect(await restoreDemoPlaces(db, mediaDir)).toBe(true);
+    expect(await restoreDemoPlaces(db, mediaDir)).toBe(false);
+    expect(await again(db)).toBe(true);
+
+    const jpeg = await sharp({ create: { width: 900, height: 700, channels: 3, background: { r: 140, g: 80, b: 20 } } }).jpeg().toBuffer();
+    const asked: string[] = [];
+    const fake = (async (input: string | URL) => {
+      const url = new URL(String(input));
+      asked.push(url.host);
+      if (url.host === 'en.wikipedia.org') {
+        const title = url.searchParams.get('titles')!;
+        // One article has no photo, to show the dish keeps its illustration.
+        const page = title === 'Rabri' ? {} : { pageimage: `${title.replace(/ /g, '_')}.jpg` };
+        return new Response(JSON.stringify({ query: { pages: [page] } }));
+      }
+      if (url.host === 'commons.wikimedia.org') {
+        const t = url.searchParams.get('titles')!;
+        return new Response(JSON.stringify({ query: { pages: [{
+          title: t,
+          imageinfo: [{ thumburl: `https://upload.wikimedia.org/${encodeURIComponent(t)}`, descriptionurl: 'https://commons.wikimedia.org/wiki/x', mime: 'image/jpeg',
+            extmetadata: { Artist: { value: '<a href="#">Asha Cook</a>' }, LicenseShortName: { value: 'CC BY-SA 4.0' } } }],
+        }] } }));
+      }
+      return new Response(jpeg);
+    }) as typeof fetch;
+    const r = await fetchDemoDishPhotos(db, mediaDir, () => {}, { f: fake });
+    expect(r.updated).toBe(29);
+    expect(r.missing).toEqual(['Rabdi']);
+    expect(asked).not.toContain('www.google.com');
+
+    const { rows } = await db.query<{ id: string }>(
+      "select d.id from dishes d join restaurants r on r.id = d.restaurant_id where r.source = 'seed' and d.name = 'Veg Burger'",
+    );
+    const dish = (await app.inject(`/dishes/${rows[0]!.id}`)).json();
+    expect(dish.restaurant.isDemo).toBe(true);
+    expect(dish.posts[0].photoCredit).toBe('Photo: Asha Cook, CC BY-SA 4.0, via Wikimedia Commons');
+    expect(dish.cover.imageUrl).toMatch(/main\.webp\?v=/);
+    expect((await app.inject(dish.cover.imageUrl)).statusCode).toBe(200);
+    const place = (await app.inject(`/restaurants/${dish.restaurant.id}`)).json();
+    expect(place.isDemo).toBe(true);
+    // A second run leaves the real photos alone.
+    expect((await fetchDemoDishPhotos(db, mediaDir, () => {}, { f: fake })).updated).toBe(0);
+  });
 });

@@ -84,6 +84,15 @@ fun SettingsScreen(
                 Group("Account")
                 Item(Icons.Filled.Person, "Edit profile", "Photo, name, username, bio", onClick = onEditProfile)
                 Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
+                Item(
+                    AppIcons.Bell, "Notifications",
+                    if (app.notificationsAllowed()) "On for messages, reactions and activity" else "Off. Tap to turn on in Android settings",
+                ) {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { context.startActivity(intent) }
+                }
                 Group("Privacy and safety")
                 Item(
                     AppIcons.Shield, "Comments on your posts",

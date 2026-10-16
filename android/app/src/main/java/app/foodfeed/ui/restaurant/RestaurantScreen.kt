@@ -5,7 +5,6 @@ import app.foodfeed.data.PlacePhoto
 import app.foodfeed.data.apiCall
 import app.foodfeed.ui.components.DishImage
 import app.foodfeed.ui.components.openUrl
-import app.foodfeed.ui.components.directionsTo
 import app.foodfeed.ui.map.friendlyHours
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +65,9 @@ import app.foodfeed.ui.components.CenteredMessage
 import app.foodfeed.ui.components.DishRow
 import app.foodfeed.ui.components.LoadingBox
 import app.foodfeed.ui.components.QuietButton
+import app.foodfeed.ui.messages.SendToSheet
+import app.foodfeed.ui.components.rememberTakeMeThere
+import app.foodfeed.ui.components.DemoTag
 import app.foodfeed.ui.components.Reveal
 import app.foodfeed.ui.components.Tag
 import app.foodfeed.ui.components.LocalApp
@@ -111,6 +113,8 @@ fun RestaurantScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Google Maps photos are fetched live by the server (never stored), only if it has a key.
+    var sending by remember { mutableStateOf<RestaurantDetail?>(null) }
+    val takeMeThere = rememberTakeMeThere()
     var googlePhotos by remember { mutableStateOf<List<GooglePhoto>>(emptyList()) }
     LaunchedEffect(state.place?.id, state.place?.googlePhotos) {
         val p = state.place
@@ -130,10 +134,27 @@ fun RestaurantScreen(
             onBack = onBack,
             onOpenDish = onOpenDish,
             onSave = { actions.toggle(it, Engagement.Save) },
-            onMaps = { p -> directionsTo(scope, app.api, context, p.id, p.lat, p.lng, p.name) },
+            onMaps = { p -> takeMeThere.go(p.id, p.lat, p.lng, p.name, p.isDemo) },
             mediaUrl = { app.mediaUrl(it) },
             googlePhotos = googlePhotos,
             onOpenLink = { openUrl(context, it) },
+            onSend = { sending = it },
+        )
+    }
+    sending?.let { p ->
+        SendToSheet(
+            restaurantId = p.id,
+            onDismiss = { sending = null },
+            onShareElsewhere = {
+                val text = "${p.name}${p.locality?.let { ", $it" } ?: ""}\nhttps://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}"
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_TEXT, text)
+                }
+                context.startActivity(android.content.Intent.createChooser(send, "Share this place").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            },
+            onNeedSignIn = onNeedSignIn,
+            showMessage = showMessage,
         )
     }
 }
@@ -150,13 +171,20 @@ fun RestaurantContent(
     mediaUrl: (String?) -> String? = { it },
     googlePhotos: List<GooglePhoto> = emptyList(),
     onOpenLink: (String) -> Unit = {},
+    onSend: (RestaurantDetail) -> Unit = {},
 ) {
     val totalRecs = place.dishes.sumOf { engagementOf(it).stats.recommenders }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
         item(key = "header") {
             Column(Modifier.padding(bottom = 8.dp)) {
-                IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { onSend(place) }, modifier = Modifier.padding(end = 4.dp)) {
+                        Icon(AppIcons.Send, "Send this place to friends")
+                    }
                 }
                 Reveal(0) {
                     // The place as a big restaurant token: name on top, perforation, then the numbers.
@@ -187,6 +215,7 @@ fun RestaurantContent(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
                             if (place.status == "pending") Tag("Waiting for review")
+                            if (place.isDemo) DemoTag()
                         }
                         DashedLine(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.25f), Modifier.padding(horizontal = 20.dp))
                         Row(

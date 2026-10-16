@@ -1,7 +1,6 @@
 package app.foodfeed.ui.dish
 
 import app.foodfeed.data.DishCard
-import app.foodfeed.ui.components.directionsTo
 import app.foodfeed.ui.messages.SendToSheet
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -154,6 +153,8 @@ fun DishScreen(
     var reportTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var sendingCard by remember { mutableStateOf<DishCard?>(null) }
+    var sendingPost by remember { mutableStateOf<String?>(null) }
+    val takeMeThere = app.foodfeed.ui.components.rememberTakeMeThere()
     val commentCounts by app.commentCounts.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -171,8 +172,8 @@ fun DishScreen(
                 imageUrl = { app.mediaUrl(it) },
                 onBack = onBack,
                 onToggle = { actions.toggle(card, it) },
-                onShare = { sendingCard = card },
-                onMaps = { directionsTo(scope, app.api, context, dish.restaurant.id, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name) },
+                onShare = { postId -> sendingPost = postId; sendingCard = card },
+                onMaps = { takeMeThere.go(dish.restaurant.id, dish.restaurant.lat, dish.restaurant.lng, dish.restaurant.name, dish.restaurant.isDemo) },
                 onOpenRestaurant = { onOpenRestaurant(dish.restaurant.id) },
                 onOpenDish = onOpenDish,
                 onOpenUser = onOpenUser,
@@ -199,7 +200,8 @@ fun DishScreen(
     }
     sendingCard?.let { c ->
         SendToSheet(
-            dishId = c.id,
+            dishId = if (sendingPost == null) c.id else null,
+            postId = sendingPost,
             onDismiss = { sendingCard = null },
             onShareElsewhere = { actions.share(c) },
             onNeedSignIn = onNeedSignIn,
@@ -231,7 +233,7 @@ fun DishContent(
     imageUrl: (String?) -> String?,
     onBack: () -> Unit,
     onToggle: (Engagement) -> Unit,
-    onShare: () -> Unit,
+    onShare: (postId: String?) -> Unit,
     onMaps: () -> Unit,
     onOpenRestaurant: () -> Unit,
     onOpenDish: (String) -> Unit,
@@ -308,6 +310,10 @@ fun DishContent(
                         ) {
                             VegMark(dish.isVeg)
                             if (dish.isVeg != null) Spacer(Modifier.width(8.dp))
+                            if (dish.restaurant.isDemo) {
+                                app.foodfeed.ui.components.DemoTag()
+                                Spacer(Modifier.width(8.dp))
+                            }
                             Text(
                                 listOfNotNull(dish.restaurant.name, dish.restaurant.locality, Format.distance(dish.distanceM))
                                     .joinToString("  ·  "),
@@ -379,7 +385,7 @@ fun DishContent(
                                 Engagement.Save, engagement.me.saved, if (engagement.me.saved) "Saved" else "Save", null,
                                 if (engagement.me.saved) "Remove from saved" else "Save", { onToggle(Engagement.Save) },
                             )
-                            EngageAction(null, false, "Share", null, "Share", onShare)
+                            EngageAction(null, false, "Send", null, "Send to friends", { onShare(currentPost?.id) }, icon = AppIcons.Send)
                         }
                     }
                 }

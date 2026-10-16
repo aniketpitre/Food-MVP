@@ -163,7 +163,10 @@ fun HomeScreen(
     val stories by app.storyTray.collectAsState()
     val unreadMessages by app.unreadMessages.collectAsState()
     val session by app.session.collectAsState()
+    // A new line each time Home opens, picked for the time of day.
+    val headline = remember { headlineFor(java.time.LocalTime.now().hour, kotlin.random.Random.nextInt(100)) }
     HomeContent(
+        headline = headline,
         stories = stories,
         me = session?.user?.let { UserRef(it.handle, it.displayName, it.avatarUrl) },
         unreadMessages = unreadMessages,
@@ -181,6 +184,18 @@ fun HomeScreen(
         onRefresh = vm::refresh,
         onRetry = vm::load,
     )
+}
+
+/** Home's big question, by time of day; [pick] chooses among the lines for that hour. */
+fun headlineFor(hour: Int, pick: Int): String {
+    val lines = when (hour) {
+        in 5..10 -> listOf("What's for\nbreakfast?", "Poha or\nmisal today?", "Chai and\nsomething?", "Breakfast\ncalling?")
+        in 11..15 -> listOf("What's for\nlunch?", "Thali or\nbiryani?", "Hungry\nalready?", "What are you\ncraving?")
+        in 16..18 -> listOf("Chai-time\ncravings?", "Evening\nsnack?", "Vada pav\no'clock?", "What are you\ncraving?")
+        in 19..22 -> listOf("What's for\ndinner?", "Dinner\ntonight?", "Craving something\ngood?", "What are you\ncraving?")
+        else -> listOf("Midnight\nmunchies?", "Late-night\ncravings?", "Still\nhungry?", "Night owl\nsnack?")
+    }
+    return lines[Math.floorMod(pick, lines.size)]
 }
 
 /** Things people crave, cycled in the search box until you start typing. */
@@ -206,6 +221,7 @@ fun HomeContent(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     greeting: String = greetingFor(java.time.LocalTime.now().hour),
+    headline: String = headlineFor(java.time.LocalTime.now().hour, 0),
     cyclePlaceholder: Boolean = true,
     stories: List<StoryReel> = emptyList(),
     me: UserRef? = null,
@@ -225,7 +241,7 @@ fun HomeContent(
                 StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
             }
             item(key = "hero") {
-                CravingHero(state.city?.name ?: "your city", greeting, onChangeCity, onCraving, cyclePlaceholder)
+                CravingHero(state.city?.name ?: "your city", greeting, headline, onChangeCity, onCraving, cyclePlaceholder)
             }
             if (d.cravings.isNotEmpty()) {
                 item(key = "chips") {
@@ -291,7 +307,7 @@ fun HomeContent(
 
 /** The big question, a city switch and a search box whose example cravings roll by. */
 @Composable
-private fun CravingHero(city: String, greeting: String, onChangeCity: () -> Unit, onCraving: (String) -> Unit, cycle: Boolean) {
+private fun CravingHero(city: String, greeting: String, headline: String, onChangeCity: () -> Unit, onCraving: (String) -> Unit, cycle: Boolean) {
     var text by remember { mutableStateOf("") }
     var idea by remember { mutableIntStateOf(0) }
     if (cycle) {
@@ -325,7 +341,7 @@ private fun CravingHero(city: String, greeting: String, onChangeCity: () -> Unit
             Icon(Icons.Filled.KeyboardArrowDown, "Change city", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(4.dp))
-        Text("What are you\ncraving?", style = MaterialTheme.typography.displayMedium, lineHeight = 52.sp)
+        Text(headline, style = MaterialTheme.typography.displayMedium, lineHeight = 52.sp, modifier = Modifier.testTag("home_headline"))
         Spacer(Modifier.height(16.dp))
         val submit = { if (text.isNotBlank()) onCraving(text.trim()) }
         Row(
