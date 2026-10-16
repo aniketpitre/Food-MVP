@@ -3,8 +3,9 @@
 import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { removeDemoActivity, seedCatalog, seedDemoActivity } from './seed.js';
+import { fetchOsmPlaces, importOsmPlaces } from './osm.js';
 
-const [command] = process.argv.slice(2);
+const [command, ...args] = process.argv.slice(2);
 const config = loadConfig();
 const db = createPool(config.databaseUrl);
 const log = (m: string) => console.log(m);
@@ -26,10 +27,28 @@ try {
       break;
     case 'refresh':
       await db.query('select refresh_dish_stats()');
+      await db.query('select refresh_people_pick()');
       log('ranking refreshed');
       break;
+    case 'import-places': {
+      // Real restaurants, cafes and bakeries from OpenStreetMap, e.g. import-places nashik 12
+      const slug = args[0];
+      if (!slug) throw new Error('usage: import-places <city-slug> [radius-km]');
+      const { rows } = await db.query<{ id: number; name: string; lat: number; lng: number; radius_km: number }>(
+        'select id, name, st_y(center::geometry) as lat, st_x(center::geometry) as lng, radius_km from cities where slug = $1',
+        [slug],
+      );
+      const city = rows[0];
+      if (!city) throw new Error(`no city with slug "${slug}" (see GET /cities?q=...)`);
+      const radius = Number(args[1] ?? city.radius_km);
+      log(`asking OpenStreetMap for food places within ${radius} km of ${city.name}...`);
+      const places = await fetchOsmPlaces(city.lat, city.lng, radius);
+      const r = await importOsmPlaces(db, city.id, places);
+      log(`${city.name}: ${places.length} found, ${r.added} added, ${r.linked} matched to existing places, ${r.skipped} already imported`);
+      break;
+    }
     default:
-      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh>');
+      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-places <city> [km]>');
       process.exitCode = 1;
   }
 } finally {

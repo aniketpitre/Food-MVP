@@ -277,33 +277,4 @@ export async function browseRoutes(app: FastifyInstance) {
     );
     return rows;
   });
-
-  app.get('/users/:handle', { preHandler: optionalAuth }, async (req, reply) => {
-    const p = parse(z.object({ handle: z.string().toLowerCase().max(20) }), req.params, reply);
-    if (!p) return;
-    const viewer = userId(req);
-    const { rows } = await db.query(
-      `select id, handle, display_name as "displayName", role, created_at as "createdAt",
-              (select count(*) from posts where author_id = profiles.id and status = 'live')::int as posts,
-              (select count(*) from engagements where user_id = profiles.id and kind in ('recommend','tried'))::int as recommendations
-       from profiles where handle = $1`,
-      [p.handle],
-    );
-    const u = rows[0];
-    if (!u) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
-    const isMe = viewer === u.id;
-    const { rows: posts } = await db.query(
-      `select p.id, p.dish_id as "dishId", p.thumb_path as "thumbUrl", p.placeholder_color as "placeholderColor",
-              p.status, d.name as "dishName", r.name as "restaurantName", r.status as "restaurantStatus"
-       from posts p join dishes d on d.id = p.dish_id join restaurants r on r.id = d.restaurant_id
-       where p.author_id = $1 and ($2 or (p.status = 'live' and d.status = 'live' and r.status = 'active'))
-       order by p.created_at desc limit 60`,
-      [u.id, isMe],
-    );
-    const blocked = viewer
-      ? (await db.query('select 1 from blocks where blocker_id = $1 and blocked_id = $2', [viewer, u.id])).rowCount! > 0
-      : false;
-    delete u.id;
-    return { ...u, isMe, blockedByMe: blocked, posts };
-  });
 }

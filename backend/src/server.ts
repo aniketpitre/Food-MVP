@@ -16,6 +16,7 @@ if (config.seedOnStart) {
 }
 await ensureCities(db, (m) => app.log.info(m));
 await db.query('select refresh_dish_stats()');
+await db.query('select refresh_people_pick()');
 const stopRefresh = startRankingRefresh(db, config.rankRefreshSeconds, (err) => app.log.error(err));
 
 await app.listen({ port: config.port, host: '0.0.0.0' });

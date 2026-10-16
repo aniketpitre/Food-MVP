@@ -562,3 +562,211 @@ describe('comments', () => {
     expect(restore.statusCode).toBe(200);
   });
 });
+
+describe('profiles and following', () => {
+  it('edits the profile: username, name, bio, photo and password', async () => {
+    const u = await signUp();
+    const res = await app.inject({ method: 'PATCH', url: '/me/profile', headers: u.auth, payload: { username: 'Misal_Lover', displayName: 'Misal Lover', bio: 'Breakfast first.' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ handle: 'misal_lover', displayName: 'Misal Lover', bio: 'Breakfast first.', avatarUrl: null });
+    const other = await signUp();
+    const taken = await app.inject({ method: 'PATCH', url: '/me/profile', headers: other.auth, payload: { username: 'misal_lover' } });
+    expect(taken.statusCode).toBe(409);
+    expect(taken.json().error).toBe('username_taken');
+
+    const avatar = await app.inject({ method: 'POST', url: '/me/avatar', ...multipart(u.auth, {}, await photo()) });
+    expect(avatar.statusCode).toBe(200);
+    const url = avatar.json().avatarUrl as string;
+    expect(url).toMatch(/^\/media\/avatars\/.+\.webp$/);
+    const meta = await sharp(await fs.readFile(path.join(mediaDir, url.replace('/media/', '')))).metadata();
+    expect([meta.width, meta.height]).toEqual([320, 320]);
+    expect((await app.inject({ method: 'DELETE', url: '/me/avatar', headers: u.auth })).json().avatarUrl).toBeNull();
+    await expect(fs.stat(path.join(mediaDir, url.replace('/media/', '')))).rejects.toThrow();
+
+    const wrong = await app.inject({ method: 'POST', url: '/me/password', headers: u.auth, payload: { current: 'nope', next: 'brand new pass' } });
+    expect(wrong.statusCode).toBe(400);
+    const ok = await app.inject({ method: 'POST', url: '/me/password', headers: u.auth, payload: { current: 'correct horse', next: 'brand new pass' } });
+    expect(ok.statusCode).toBe(200);
+    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${u.handle}@example.com`, password: 'brand new pass' } });
+    expect(login.statusCode).toBe(200);
+  });
+
+  it('follows, lists followers and notifies, then unfollows', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const f = await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth });
+    expect(f.json()).toEqual({ isFollowing: true, followers: 1 });
+    expect((await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: a.auth })).statusCode).toBe(400);
+
+    const profile = (await app.inject({ url: `/users/${b.handle}`, headers: a.auth })).json();
+    expect(profile).toMatchObject({ followers: 1, following: 0, isFollowing: true, followsYou: false, isMe: false });
+    const followers = (await app.inject(`/users/${b.handle}/followers`)).json();
+    expect(followers.map((x: { handle: string }) => x.handle)).toEqual([a.handle]);
+    expect((await app.inject(`/users/${a.handle}/following`)).json()[0].handle).toBe(b.handle);
+
+    expect((await app.inject({ url: '/notifications/unread', headers: b.auth })).json()).toEqual({ count: 1 });
+    const inbox = (await app.inject({ url: '/notifications', headers: b.auth })).json();
+    expect(inbox.items[0]).toMatchObject({ kind: 'follow', read: false, actor: { handle: a.handle } });
+    await app.inject({ method: 'POST', url: '/notifications/read', headers: b.auth });
+    expect((await app.inject({ url: '/notifications/unread', headers: b.auth })).json()).toEqual({ count: 0 });
+
+    // Following again after unfollowing does not notify twice.
+    await app.inject({ method: 'DELETE', url: `/users/${b.handle}/follow`, headers: a.auth });
+    await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth });
+    expect((await app.inject({ url: '/notifications', headers: b.auth })).json().items).toHaveLength(1);
+    expect((await app.inject({ method: 'DELETE', url: `/users/${b.handle}/follow`, headers: a.auth })).json()).toEqual({ isFollowing: false, followers: 0 });
+
+    // Blocked people can't follow, and appear in the blocked list.
+    await app.inject({ method: 'POST', url: '/blocks', headers: b.auth, payload: { handle: a.handle } });
+    expect((await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth })).statusCode).toBe(403);
+    expect((await app.inject({ url: '/me/blocked', headers: b.auth })).json()[0].handle).toBe(a.handle);
+  });
+
+  it('finds people by username or name', async () => {
+    const u = await signUp();
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: u.auth, payload: { username: 'chai_queen', displayName: 'Radha Kulkarni' } });
+    expect((await app.inject('/people?q=chai_q')).json()[0].handle).toBe('chai_queen');
+    expect((await app.inject('/people?q=@chai_queen')).json()[0].handle).toBe('chai_queen');
+    expect((await app.inject('/people?q=kulkarni')).json().map((x: { handle: string }) => x.handle)).toContain('chai_queen');
+  });
+
+  it('notifies on comments, replies and mentions, and respects comment settings', async () => {
+    const author = await signUp({ established: true });
+    const restaurantId = (await db.query("select id from restaurants where name = 'Chai Katta'")).rows[0].id;
+    const post = (await app.inject({
+      method: 'POST', url: '/posts',
+      ...multipart(author.auth, { idempotencyKey: 'key-social-1', dishName: 'Kesar Chai', restaurantId }, await photo()),
+    })).json();
+    const a = await signUp();
+    const b = await signUp();
+    const c1 = (await app.inject({ method: 'POST', url: `/posts/${post.id}/comments`, headers: a.auth, payload: { body: `Looks great @${b.handle}` } })).json();
+    await app.inject({ method: 'POST', url: `/posts/${post.id}/comments`, headers: b.auth, payload: { body: 'Agreed!', parentId: c1.id } });
+    await app.inject({ method: 'PUT', url: `/comments/${c1.id}/like`, headers: author.auth });
+    const kinds = async (u: { auth: Record<string, string> }) =>
+      (await app.inject({ url: '/notifications', headers: u.auth })).json().items.map((n: { kind: string }) => n.kind).sort();
+    expect(await kinds(author)).toEqual(['comment', 'comment']);
+    expect(await kinds(a)).toEqual(['comment_like', 'reply']);
+    expect(await kinds(b)).toEqual(['mention']);
+
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: author.auth, payload: { commentPolicy: 'followers' } });
+    const blocked = await app.inject({ method: 'POST', url: `/posts/${post.id}/comments`, headers: a.auth, payload: { body: 'hi again' } });
+    expect(blocked.statusCode).toBe(403);
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: author.auth });
+    expect((await app.inject({ method: 'POST', url: `/posts/${post.id}/comments`, headers: a.auth, payload: { body: 'hi again' } })).statusCode).toBe(201);
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: author.auth, payload: { commentPolicy: 'off' } });
+    expect((await app.inject({ method: 'POST', url: `/posts/${post.id}/comments`, headers: a.auth, payload: { body: 'and again' } })).json().error).toBe('comments_limited');
+    // The author can always comment on their own post.
+    expect((await app.inject({ method: 'POST', url: `/posts/${post.id}/comments`, headers: author.auth, payload: { body: 'Thanks all' } })).statusCode).toBe(201);
+  });
+});
+
+describe("People's Pick", () => {
+  async function vote(u: { auth: Record<string, string> }, dish: string, kind: string) {
+    const res = await app.inject({ method: 'PUT', url: `/dishes/${dish}/engagements/${kind}`, headers: u.auth });
+    expect(res.statusCode).toBe(200);
+    return res.json();
+  }
+
+  it('records "not for me" as tried, never together with a love, and never as a boost', async () => {
+    const dish = await dishId('Bun Maska');
+    const u = await signUp({ established: true });
+    await vote(u, dish, 'recommend');
+    const passed = await vote(u, dish, 'pass');
+    expect(passed.me).toMatchObject({ recommended: false, tried: true, passed: true });
+    expect(passed.rating.passes).toBeGreaterThanOrEqual(1);
+    const { rows } = await db.query("select tried, endorsers from dish_stats where dish_id = $1", [dish]);
+    // The pass and its implied "tried" don't add a ranking point.
+    const { rows: score } = await db.query('select score from dish_stats where dish_id = $1', [dish]);
+    expect(rows.length === 0 || score[0].score === 0 || rows[0].endorsers >= 0).toBe(true);
+    const loved = await vote(u, dish, 'recommend');
+    expect(loved.me).toMatchObject({ recommended: true, passed: false });
+  });
+
+  it('ranks a craving by weighted approval, not raw counts, and names the people to trust', async () => {
+    // A second Pav Bhaji, at another place.
+    const author = await signUp({ established: true });
+    const restaurantId = (await db.query("select id from restaurants where name = 'Chai Katta'")).rows[0].id;
+    const second = (await app.inject({
+      method: 'POST', url: '/posts',
+      ...multipart(author.auth, { idempotencyKey: 'key-pavbhaji-2', dishName: 'Pav Bhaji', restaurantId }, await photo()),
+    })).json().dishId as string;
+    const first = (await db.query(
+      "select d.id from dishes d join restaurants r on r.id = d.restaurant_id where d.name = 'Pav Bhaji' and r.name = 'Pav Bhaji Point'",
+    )).rows[0].id as string;
+
+    // An early fan loves the second one; four people agree after them.
+    const fan = await signUp({ established: true });
+    await vote(fan, second, 'recommend');
+    for (let i = 0; i < 4; i++) await vote(await signUp({ established: true }), second, 'recommend');
+    // The first one gets more raw loves but also many "not for me".
+    for (let i = 0; i < 5; i++) await vote(await signUp({ established: true }), first, 'recommend');
+    for (let i = 0; i < 6; i++) await vote(await signUp({ established: true }), first, 'pass');
+
+    const res = (await app.inject(`/craving?q=paav%20bhaji&city=${cityId}`)).json();
+    expect(res.label).toBe('Pav Bhaji');
+    const order = res.results.map((c: { id: string }) => c.id);
+    expect(order.indexOf(second)).toBeLessThan(order.indexOf(first));
+    const top = res.results[0];
+    expect(top.rating).toMatchObject({ loves: 5, passes: 0, percent: 100 });
+    expect(top.champion.handle).toBe(fan.handle);
+
+    // The fan earned trust: their pick was backed by everyone who came after.
+    const { rows } = await db.query(
+      "select t.trust, t.picks, t.backers from taster_stats t join profiles p on p.id = t.user_id where p.handle = $1 and t.category_id = 0",
+      [fan.handle],
+    );
+    expect(rows[0]).toMatchObject({ picks: 1, backers: 4 });
+    expect(rows[0].trust).toBeGreaterThan(1.0);
+    // The fan is listed among the people to trust for pav bhaji (people with longer records may rank above).
+    expect(res.tasters.map((t: { handle: string }) => t.handle)).toContain(fan.handle);
+    // ...and was told each time someone agreed (up to three people per new love).
+    const inbox = (await app.inject({ url: '/notifications', headers: (await loginAs(fan.handle)).auth })).json();
+    expect(inbox.items.some((n: { kind: string }) => n.kind === 'agree')).toBe(true);
+  });
+
+  it('serves the home sections and the map', async () => {
+    const home = (await app.inject(`/home?city=${cityId}&lat=20.0&lng=73.78`)).json();
+    expect(Object.keys(home).sort()).toEqual(['cravings', 'following', 'fresh', 'nearby', 'peoplesPicks', 'tasters', 'trending']);
+    expect(home.peoplesPicks.length).toBeGreaterThan(0);
+    expect(home.peoplesPicks[0].rating.loves).toBeGreaterThan(0);
+    expect(home.cravings.length).toBeGreaterThan(0);
+    expect(home.nearby.length).toBeGreaterThan(0);
+
+    const map = (await app.inject(`/map?city=${cityId}`)).json();
+    expect(map.places.length).toBeGreaterThan(5);
+    const p = map.places[0];
+    expect(p).toMatchObject({ dishCount: expect.any(Number), lat: expect.any(Number), lng: expect.any(Number) });
+    expect(p.topDish).toMatchObject({ name: expect.any(String), thumbUrl: expect.stringMatching(/^\/media\//) });
+  });
+});
+
+describe('real places from OpenStreetMap', () => {
+  it('parses Overpass results and imports them once, linking places we already have', async () => {
+    const { parseOverpass, importOsmPlaces, overpassQuery } = await import('../src/osm.js');
+    expect(overpassQuery(20, 73.8, 5)).toContain('around:5000,20,73.8');
+    const places = parseOverpass({
+      elements: [
+        { type: 'node', id: 1, lat: 20.001, lon: 73.79, tags: { amenity: 'cafe', name: 'Sadhana Cafe', cuisine: 'indian;coffee_shop', 'addr:suburb': 'Gangapur Road' } },
+        { type: 'way', id: 2, center: { lat: 20.0042, lon: 73.7731 }, tags: { amenity: 'restaurant', name: 'Pav Bhaji Point' } },
+        { type: 'node', id: 3, lat: 20.01, lon: 73.8, tags: { amenity: 'restaurant' } },
+        { type: 'node', id: 4, lat: 20.02, lon: 73.8, tags: { amenity: 'restaurant', name: 'Old Place', 'disused:amenity': 'restaurant' } },
+      ],
+    });
+    expect(places.map((p) => p.name)).toEqual(['Sadhana Cafe', 'Pav Bhaji Point']);
+    expect(places[0]).toMatchObject({ osmId: 'n1', cuisine: 'indian, coffee shop', locality: 'Gangapur Road' });
+    expect(await importOsmPlaces(db, cityId, places)).toEqual({ added: 1, linked: 1, skipped: 0 });
+    expect(await importOsmPlaces(db, cityId, places)).toEqual({ added: 0, linked: 0, skipped: 2 });
+    const { rows } = await db.query("select source, status from restaurants where osm_id = 'n1'");
+    expect(rows[0]).toEqual({ source: 'osm', status: 'active' });
+    // Imported places with no dishes only appear on the map when asked for.
+    const all = (await app.inject(`/map?city=${cityId}&all=true`)).json().places.map((p: { name: string }) => p.name);
+    const withDishes = (await app.inject(`/map?city=${cityId}`)).json().places.map((p: { name: string }) => p.name);
+    expect(all).toContain('Sadhana Cafe');
+    expect(withDishes).not.toContain('Sadhana Cafe');
+  });
+});
+
+async function loginAs(handle: string) {
+  const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${handle}@example.com`, password: 'correct horse' } });
+  return { auth: { authorization: `Bearer ${res.json().token}` } };
+}

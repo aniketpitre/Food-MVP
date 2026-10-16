@@ -44,8 +44,8 @@ export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => 
   const nashik = cityIds.get('nashik')!;
   for (const r of data.restaurants) {
     const rr = await db.query<{ id: string }>(
-      `insert into restaurants (city_id, name, name_norm, locality, geo, price_band, status)
-       values ($1, $2, norm_name($2), $3, st_setsrid(st_makepoint($5, $4), 4326)::geography, $6, 'active') returning id`,
+      `insert into restaurants (city_id, name, name_norm, locality, geo, price_band, status, source)
+       values ($1, $2, norm_name($2), $3, st_setsrid(st_makepoint($5, $4), 4326)::geography, $6, 'active', 'seed') returning id`,
       [nashik, r.name, r.locality, r.lat, r.lng, r.priceBand],
     );
     const restaurantId = rr.rows[0]!.id;
@@ -100,6 +100,8 @@ export async function seedDemoActivity(db: Db, log: (m: string) => void = () => 
   if (rows[0]!.n > 0) return false;
 
   const rand = rng(20261015);
+  // Separate stream for the "not for me" votes, so the loves above stay exactly as before.
+  const passRand = rng(424242);
   const users: string[] = [];
   const names = ['aarav', 'diya', 'kabir', 'isha', 'vihaan', 'anaya', 'reyansh', 'myra', 'arjun', 'saanvi'];
   for (let i = 0; i < 40; i++) {
@@ -127,7 +129,19 @@ export async function seedDemoActivity(db: Db, log: (m: string) => void = () => 
     const dishId = keyToDish.get(key);
     if (!dishId) continue;
     for (const user of users) {
-      if (rand() >= pop) continue;
+      if (rand() >= pop) {
+        // A few people tried it and it wasn't for them, so ratings aren't all 100%.
+        if (passRand() < 0.1) {
+          for (const kind of ['tried', 'pass']) {
+            await db.query(
+              `insert into engagements (user_id, dish_id, kind, created_at)
+               values ($1, $2, $3, now() - make_interval(days => $4)) on conflict do nothing`,
+              [user, dishId, kind, Math.floor(passRand() * 30)],
+            );
+          }
+        }
+        continue;
+      }
       const daysAgo = Math.floor(rand() * 30);
       const kinds = ['recommend'];
       if (rand() < 0.45) kinds.push('save');
@@ -143,6 +157,7 @@ export async function seedDemoActivity(db: Db, log: (m: string) => void = () => 
     }
   }
   await db.query('select refresh_dish_stats()');
+  await db.query('select refresh_people_pick()');
   log('seed: demo activity inserted (40 demo_ accounts)');
   return true;
 }
@@ -150,5 +165,6 @@ export async function seedDemoActivity(db: Db, log: (m: string) => void = () => 
 export async function removeDemoActivity(db: Db): Promise<number> {
   const { rowCount } = await db.query('delete from profiles where is_demo');
   await db.query('select refresh_dish_stats()');
+  await db.query('select refresh_people_pick()');
   return rowCount ?? 0;
 }

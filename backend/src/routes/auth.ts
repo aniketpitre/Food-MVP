@@ -15,7 +15,7 @@ const registerSchema = z.object({
   password: z.string().min(8, 'use at least 8 characters').max(200),
   handle: handleSchema,
   displayName: z.string().trim().max(40).optional(),
-  acceptTerms: z.literal(true, 'you must accept the terms and confirm you are 18 or older'),
+  acceptTerms: z.literal(true, 'you must accept the terms and confirm you are 13 or older'),
 });
 
 const loginSchema = z.object({
@@ -30,6 +30,9 @@ interface ProfileRow {
   display_name: string | null;
   role: string;
   home_city_id: number | null;
+  bio?: string | null;
+  avatar_path?: string | null;
+  comment_policy?: string;
   created_at: Date;
 }
 
@@ -41,6 +44,9 @@ export function profileJson(p: ProfileRow) {
     displayName: p.display_name,
     role: p.role,
     homeCityId: p.home_city_id,
+    bio: p.bio ?? null,
+    avatarUrl: p.avatar_path ?? null,
+    commentPolicy: p.comment_policy ?? 'everyone',
     createdAt: p.created_at.toISOString(),
   };
 }
@@ -66,7 +72,8 @@ export async function authRoutes(app: FastifyInstance) {
       if ((err as { code?: string }).code === '23505') {
         const detail = String((err as { detail?: string }).detail ?? '');
         const field = detail.includes('handle') ? 'handle' : 'email';
-        return reply.code(409).send({ error: `${field}_taken`, message: `That ${field} is already in use.` });
+        const label = field === 'handle' ? 'username' : 'email';
+        return reply.code(409).send({ error: `${field}_taken`, message: `That ${label} is already in use.` });
       }
       throw err;
     }

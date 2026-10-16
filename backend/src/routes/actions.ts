@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, requireAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
+import { notify } from '../notify.js';
 
 const uuid = z.string().uuid();
 const actionLimit = { rateLimit: { max: 60, timeWindow: '1 minute' } };
@@ -17,26 +18,60 @@ export async function actionRoutes(app: FastifyInstance) {
 
   async function counts(dishId: string, viewer: string) {
     await db.query('select refresh_dish_stats($1)', [dishId]);
+    await db.query('select refresh_people_pick()');
     const [card] = await loadDishCards(db, [dishId], viewer);
-    return { stats: card!.stats, me: card!.me };
+    return { stats: card!.stats, me: card!.me, rating: card!.rating };
   }
 
-  // Recommend, save and tried are on/off toggles. PUT turns one on, DELETE turns it off;
-  // both are idempotent, so a retried request never double counts.
+  // Recommend, save, tried and "not for me" (pass) are on/off toggles. PUT turns one on,
+  // DELETE turns it off; both are idempotent, so a retried request never double counts.
+  // Recommend and pass exclude each other; a pass also marks the dish as tried.
+  const kinds = z.enum(['recommend', 'save', 'tried', 'pass']);
   app.put('/dishes/:id/engagements/:kind', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
-    const p = parse(z.object({ id: uuid, kind: z.enum(['recommend', 'save', 'tried']) }), req.params, reply);
+    const p = parse(z.object({ id: uuid, kind: kinds }), req.params, reply);
     if (!p) return;
     if (!(await dishIsLive(p.id))) return reply.code(404).send({ error: 'not_found', message: 'Dish not found.' });
     const me = userId(req)!;
-    await db.query(
+    const { rowCount: added } = await db.query(
       'insert into engagements (user_id, dish_id, kind) values ($1, $2, $3) on conflict do nothing',
       [me, p.id, p.kind],
     );
+    if (p.kind === 'pass') {
+      await db.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, p.id]);
+      await db.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'tried') on conflict do nothing", [me, p.id]);
+    }
+    if (p.kind === 'recommend') {
+      await db.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, p.id]);
+      if (added) await tellPeople(p.id, me);
+    }
     return counts(p.id, me);
   });
 
+  /**
+   * A new love tells the person who posted the dish's photo, and up to three people who
+   * loved it earlier that someone agreed with their pick (that agreement is what builds
+   * their trust in the People's Pick).
+   */
+  async function tellPeople(dishId: string, me: string) {
+    const { rows: cover } = await db.query<{ author_id: string | null; id: string }>(
+      `select p.author_id, p.id from posts p join dishes d on d.id = p.dish_id
+       where p.dish_id = $1 and p.status = 'live' order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1`,
+      [dishId],
+    );
+    if (cover[0]) await notify(db, { userId: cover[0].author_id, actorId: me, kind: 'recommend', dishId, postId: cover[0].id });
+    const { rows: earlier } = await db.query<{ user_id: string }>(
+      `select user_id from engagements where dish_id = $1 and kind = 'recommend' and user_id <> $2
+         and created_at < (select created_at from engagements where dish_id = $1 and user_id = $2 and kind = 'recommend')
+       order by created_at desc limit 3`,
+      [dishId, me],
+    );
+    for (const e of earlier) {
+      if (e.user_id !== cover[0]?.author_id) await notify(db, { userId: e.user_id, actorId: me, kind: 'agree', dishId });
+    }
+  }
+
   app.delete('/dishes/:id/engagements/:kind', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
-    const p = parse(z.object({ id: uuid, kind: z.enum(['recommend', 'save', 'tried']) }), req.params, reply);
+    const p = parse(z.object({ id: uuid, kind: kinds }), req.params, reply);
     if (!p) return;
     const me = userId(req)!;
     await db.query('delete from engagements where user_id = $1 and dish_id = $2 and kind = $3', [me, p.id, p.kind]);

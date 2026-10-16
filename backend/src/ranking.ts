@@ -7,7 +7,7 @@ import type { Db } from './db.js';
 export function startRankingRefresh(db: Db, everySeconds: number, onError: (err: unknown) => void): () => void {
   if (everySeconds <= 0) return () => {};
   const timer = setInterval(() => {
-    db.query('select refresh_dish_stats()').catch(onError);
+    db.query('select refresh_dish_stats(); select refresh_people_pick();').catch(onError);
   }, everySeconds * 1000);
   timer.unref();
   return () => clearInterval(timer);

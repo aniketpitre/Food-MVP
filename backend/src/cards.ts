@@ -26,8 +26,12 @@ export interface DishCard {
     commentCount: number;
   } | null;
   stats: { recommenders: number; saves: number; tried: number; endorsers: number };
-  me: { recommended: boolean; saved: boolean; tried: boolean };
-  recentRecommenders: { handle: string; displayName: string | null }[];
+  me: { recommended: boolean; saved: boolean; tried: boolean; passed: boolean };
+  recentRecommenders: { handle: string; displayName: string | null; avatarUrl: string | null }[];
+  /** People's Pick: weighted loves vs "not for me" votes (see docs/PEOPLES_PICK.md). */
+  rating: { loves: number; passes: number; percent: number | null; score: number };
+  /** The most trusted person who loved this dish. */
+  champion: { handle: string; displayName: string | null; avatarUrl: string | null; isExpert: boolean; backers: number } | null;
   distanceM: number | null;
   lane?: string;
 }
@@ -58,7 +62,16 @@ interface CardRow {
   tried: number;
   endorsers: number;
   my_kinds: string[] | null;
-  recent: { handle: string; display_name: string | null }[];
+  recent: { handle: string; display_name: string | null; avatar_path: string | null }[];
+  loves: number | null;
+  passes: number | null;
+  confidence: number | null;
+  champ_handle: string | null;
+  champ_name: string | null;
+  champ_avatar: string | null;
+  champ_trust: number | null;
+  champ_picks: number | null;
+  champ_backers: number | null;
   distance_m: number | null;
 }
 
@@ -86,17 +99,24 @@ export async function loadDishCards(
             coalesce(s.tried, 0) as tried, coalesce(s.endorsers, 0) as endorsers,
             (select array_agg(e.kind) from engagements e where e.user_id = $2 and e.dish_id = d.id) as my_kinds,
             (select coalesce(json_agg(x), '[]'::json) from (
-               select pr.handle, pr.display_name
+               select pr.handle, pr.display_name, pr.avatar_path
                from engagements e join profiles pr on pr.id = e.user_id
                where e.dish_id = d.id and e.kind in ('recommend', 'tried')
-               group by pr.id, pr.handle, pr.display_name
+                 and not exists (select 1 from engagements x where x.user_id = e.user_id and x.dish_id = d.id and x.kind = 'pass')
+               group by pr.id, pr.handle, pr.display_name, pr.avatar_path
                order by max(e.created_at) desc limit 3) x) as recent,
             case when $3::float8 is not null and $4::float8 is not null
-                 then st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography) end as distance_m
+                 then st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography) end as distance_m,
+            dr.loves, dr.passes, dr.confidence,
+            ch.handle as champ_handle, ch.display_name as champ_name, ch.avatar_path as champ_avatar,
+            ct.trust as champ_trust, ct.picks as champ_picks, ct.backers as champ_backers
      from unnest($1::uuid[]) with ordinality as ids(id, ord)
      join dishes d on d.id = ids.id
      join restaurants r on r.id = d.restaurant_id
      left join dish_stats s on s.dish_id = d.id
+     left join dish_rating dr on dr.dish_id = d.id
+     left join profiles ch on ch.id = dr.champion_id
+     left join taster_stats ct on ct.user_id = dr.champion_id and ct.category_id = coalesce(d.category_id, -1)
      left join lateral (
        select p.* from posts p
        where p.dish_id = d.id and p.status = 'live'
@@ -145,8 +165,29 @@ function toCard(r: CardRow): DishCard {
       tried: Number(r.tried),
       endorsers: Number(r.endorsers),
     },
-    me: { recommended: kinds.has('recommend'), saved: kinds.has('save'), tried: kinds.has('tried') },
-    recentRecommenders: r.recent.map((x) => ({ handle: x.handle, displayName: x.display_name })),
+    me: { recommended: kinds.has('recommend'), saved: kinds.has('save'), tried: kinds.has('tried'), passed: kinds.has('pass') },
+    recentRecommenders: r.recent.map((x) => ({ handle: x.handle, displayName: x.display_name, avatarUrl: x.avatar_path })),
+    rating: ratingJson(r.loves, r.passes, r.confidence),
+    champion: r.champ_handle
+      ? {
+          handle: r.champ_handle,
+          displayName: r.champ_name,
+          avatarUrl: r.champ_avatar,
+          isExpert: isExpert(r.champ_trust, r.champ_picks),
+          backers: Number(r.champ_backers ?? 0),
+        }
+      : null,
     distanceM: r.distance_m === null ? null : Math.round(Number(r.distance_m)),
   };
+}
+
+export function ratingJson(loves: number | null, passes: number | null, confidence: number | null) {
+  const l = Number(loves ?? 0);
+  const p = Number(passes ?? 0);
+  return { loves: l, passes: p, percent: l + p > 0 ? Math.round((100 * l) / (l + p)) : null, score: Number(confidence ?? 0) };
+}
+
+/** Matches expert_min_picks / expert_min_trust in ranking_config (defaults 3 and 1.1). */
+export function isExpert(trust: number | null, picks: number | null): boolean {
+  return Number(picks ?? 0) >= 3 && Number(trust ?? 0) >= 1.1;
 }

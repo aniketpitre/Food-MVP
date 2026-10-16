@@ -13,6 +13,8 @@ import { browseRoutes } from './routes/browse.js';
 import { actionRoutes } from './routes/actions.js';
 import { postRoutes } from './routes/posts.js';
 import { commentRoutes } from './routes/comments.js';
+import { socialRoutes } from './routes/social.js';
+import { discoverRoutes } from './routes/discover.js';
 import { adminRoutes } from './routes/admin.js';
 import { pageRoutes } from './routes/pages.js';
 
@@ -89,6 +91,8 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean 
   await app.register(actionRoutes);
   await app.register(postRoutes);
   await app.register(commentRoutes);
+  await app.register(socialRoutes);
+  await app.register(discoverRoutes);
   await app.register(adminRoutes);
   await app.register(pageRoutes);
 

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, requireAuth, userId } from '../auth.js';
+import { mentionedHandles, notify } from '../notify.js';
 
 const uuid = z.string().uuid();
 
@@ -10,7 +11,7 @@ export interface CommentOut {
   parentId: string | null;
   body: string;
   createdAt: string;
-  author: { handle: string; displayName: string | null };
+  author: { handle: string; displayName: string | null; avatarUrl: string | null };
   likes: number;
   likedByMe: boolean;
   canDelete: boolean;
@@ -25,6 +26,7 @@ interface CommentRow {
   author_id: string;
   handle: string;
   display_name: string | null;
+  avatar_path: string | null;
   likes: number;
   liked: boolean;
 }
@@ -39,13 +41,15 @@ interface CommentRow {
 export async function commentRoutes(app: FastifyInstance) {
   const { db } = app;
 
-  async function livePost(id: string): Promise<{ authorId: string | null } | null> {
-    const { rows } = await db.query<{ author_id: string | null }>(
-      `select p.author_id from posts p join dishes d on d.id = p.dish_id
+  async function livePost(id: string): Promise<{ authorId: string | null; dishId: string; policy: string } | null> {
+    const { rows } = await db.query<{ author_id: string | null; dish_id: string; policy: string | null }>(
+      `select p.author_id, p.dish_id, pr.comment_policy as policy
+       from posts p join dishes d on d.id = p.dish_id left join profiles pr on pr.id = p.author_id
        where p.id = $1 and p.status = 'live' and d.status = 'live'`,
       [id],
     );
-    return rows[0] ? { authorId: rows[0].author_id } : null;
+    const r = rows[0];
+    return r ? { authorId: r.author_id, dishId: r.dish_id, policy: r.policy ?? 'everyone' } : null;
   }
 
   async function isAdmin(me: string | null): Promise<boolean> {
@@ -56,7 +60,7 @@ export async function commentRoutes(app: FastifyInstance) {
 
   async function load(postId: string, viewer: string | null, onlyId?: string): Promise<CommentRow[]> {
     const { rows } = await db.query<CommentRow>(
-      `select c.id, c.parent_id, c.body, c.created_at, c.author_id, pr.handle, pr.display_name,
+      `select c.id, c.parent_id, c.body, c.created_at, c.author_id, pr.handle, pr.display_name, pr.avatar_path,
               (select count(*)::int from comment_likes l where l.comment_id = c.id) as likes,
               ($2::uuid is not null and exists
                  (select 1 from comment_likes l where l.comment_id = c.id and l.user_id = $2)) as liked
@@ -77,7 +81,7 @@ export async function commentRoutes(app: FastifyInstance) {
       parentId: r.parent_id,
       body: r.body,
       createdAt: r.created_at.toISOString(),
-      author: { handle: r.handle, displayName: r.display_name },
+      author: { handle: r.handle, displayName: r.display_name, avatarUrl: r.avatar_path },
       likes: Number(r.likes),
       likedByMe: r.liked,
       canDelete: viewer !== null && (r.author_id === viewer || postAuthor === viewer || admin),
@@ -137,8 +141,29 @@ export async function commentRoutes(app: FastifyInstance) {
       const post = await livePost(p.id);
       if (!post) return reply.code(404).send({ error: 'not_found', message: 'This post is not available.' });
       const me = userId(req)!;
+      // The post's author decides who may comment: everyone, people they follow, or nobody.
+      if (post.authorId && post.authorId !== me && post.policy !== 'everyone') {
+        const { rowCount: follows } = await db.query(
+          'select 1 from follows where follower_id = $1 and followee_id = $2',
+          [post.authorId, me],
+        );
+        if (post.policy === 'off' || !follows) {
+          return reply.code(403).send({
+            error: 'comments_limited',
+            message: post.policy === 'off' ? 'Comments are turned off for this post.' : 'Only people this person follows can comment.',
+          });
+        }
+      }
+      if (post.authorId) {
+        const { rowCount: blocked } = await db.query(
+          'select 1 from blocks where blocker_id = $1 and blocked_id = $2',
+          [post.authorId, me],
+        );
+        if (blocked) return reply.code(403).send({ error: 'forbidden', message: "You can't comment on this post." });
+      }
 
       let parentId: string | null = null;
+      let parentAuthor: string | null = null;
       if (body.parentId) {
         const { rows } = await db.query<{ id: string; parent_id: string | null }>(
           "select id, parent_id from comments where id = $1 and post_id = $2 and status = 'live'",
@@ -146,13 +171,32 @@ export async function commentRoutes(app: FastifyInstance) {
         );
         if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'That comment is gone.' });
         parentId = rows[0].parent_id ?? rows[0].id;
+        const { rows: pa } = await db.query<{ author_id: string }>('select author_id from comments where id = $1', [body.parentId]);
+        parentAuthor = pa[0]?.author_id ?? null;
       }
 
       const { rows } = await db.query<{ id: string }>(
         'insert into comments (post_id, author_id, parent_id, body) values ($1, $2, $3, $4) returning id',
         [p.id, me, parentId, body.body],
       );
-      const [row] = await load(p.id, me, rows[0]!.id);
+      const commentId = rows[0]!.id;
+      const told = new Set<string>();
+      if (parentAuthor) {
+        await notify(db, { userId: parentAuthor, actorId: me, kind: 'reply', postId: p.id, dishId: post.dishId, commentId });
+        told.add(parentAuthor);
+      }
+      if (post.authorId && !told.has(post.authorId)) {
+        await notify(db, { userId: post.authorId, actorId: me, kind: 'comment', postId: p.id, dishId: post.dishId, commentId });
+        told.add(post.authorId);
+      }
+      const handles = mentionedHandles(body.body);
+      if (handles.length) {
+        const { rows: mentioned } = await db.query<{ id: string }>('select id from profiles where handle = any($1)', [handles]);
+        for (const m of mentioned) {
+          if (!told.has(m.id)) await notify(db, { userId: m.id, actorId: me, kind: 'mention', postId: p.id, dishId: post.dishId, commentId });
+        }
+      }
+      const [row] = await load(p.id, me, commentId);
       return reply.code(201).send(shape(row!, me, post.authorId, await isAdmin(me)));
     },
   );
@@ -183,7 +227,14 @@ export async function commentRoutes(app: FastifyInstance) {
     const me = userId(req)!;
     const { rowCount } = await db.query("select 1 from comments where id = $1 and status = 'live'", [p.id]);
     if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'That comment is gone.' });
-    await db.query('insert into comment_likes (comment_id, user_id) values ($1, $2) on conflict do nothing', [p.id, me]);
+    const { rowCount: added } = await db.query(
+      'insert into comment_likes (comment_id, user_id) values ($1, $2) on conflict do nothing',
+      [p.id, me],
+    );
+    if (added) {
+      const { rows } = await db.query<{ author_id: string; post_id: string }>('select author_id, post_id from comments where id = $1', [p.id]);
+      if (rows[0]) await notify(db, { userId: rows[0].author_id, actorId: me, kind: 'comment_like', postId: rows[0].post_id, commentId: p.id });
+    }
     return likeState(p.id, me);
   });
 

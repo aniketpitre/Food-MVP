@@ -54,3 +54,22 @@ export async function storePostImage(mediaDir: string, postId: string, input: Bu
 export async function deletePostImages(mediaDir: string, postId: string): Promise<void> {
   await fs.rm(path.join(mediaDir, 'posts', postId), { recursive: true, force: true });
 }
+
+/** A profile photo: square, centre-cropped, 320 px WebP, metadata dropped. Returns its URL path. */
+export async function storeAvatar(mediaDir: string, userId: string, input: Buffer): Promise<string> {
+  const meta = await sharp(input, { failOn: 'error' }).metadata();
+  if (!meta.width || !meta.height) throw new Error('not_an_image');
+  if (meta.width < 64 || meta.height < 64) throw new Error('image_too_small');
+  const dir = path.join(mediaDir, 'avatars');
+  await fs.mkdir(dir, { recursive: true });
+  // A new name on every change, so phones never show a cached old photo.
+  const name = `${userId}-${Date.now().toString(36)}.webp`;
+  const out = await sharp(input).rotate().resize(320, 320, { fit: 'cover', position: 'attention' }).webp({ quality: 80 }).toBuffer();
+  await fs.writeFile(path.join(dir, name), out);
+  return `/media/avatars/${name}`;
+}
+
+export async function deleteAvatar(mediaDir: string, urlPath: string | null): Promise<void> {
+  if (!urlPath?.startsWith('/media/avatars/')) return;
+  await fs.rm(path.join(mediaDir, 'avatars', path.basename(urlPath)), { force: true });
+}
