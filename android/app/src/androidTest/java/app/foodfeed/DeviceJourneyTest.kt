@@ -86,6 +86,7 @@ class DeviceJourneyTest {
 
     private fun shot(name: String) {
         instrumentation.waitForIdleSync()
+        Thread.sleep(800) // let the window draw what the semantics tree already shows
         val bmp: Bitmap = instrumentation.uiAutomation.takeScreenshot() ?: return
         File(shots, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
