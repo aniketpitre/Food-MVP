@@ -67,14 +67,36 @@ export function parseOverpass(json: { elements?: OverpassElement[] }): OsmPlace[
   return [...out.values()];
 }
 
-export async function fetchOsmPlaces(lat: number, lng: number, radiusKm: number): Promise<OsmPlace[]> {
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'FoodFeed/1.0 (self-hosted food app)' },
-    body: new URLSearchParams({ data: overpassQuery(lat, lng, radiusKm) }),
-  });
-  if (!res.ok) throw new Error(`Overpass answered ${res.status}`);
-  return parseOverpass((await res.json()) as { elements?: OverpassElement[] });
+// The main Overpass server is often busy (502/504/429), so try the public mirrors too.
+const OVERPASS_SERVERS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+
+export async function fetchOsmPlaces(lat: number, lng: number, radiusKm: number, log: (m: string) => void = () => {}): Promise<OsmPlace[]> {
+  const body = new URLSearchParams({ data: overpassQuery(lat, lng, radiusKm) });
+  let last = '';
+  for (let round = 0; round < 2; round++) {
+    for (const url of OVERPASS_SERVERS) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'FoodFeed/1.0 (self-hosted food app)' },
+          body,
+          signal: AbortSignal.timeout(120_000),
+        });
+        if (res.ok) return parseOverpass((await res.json()) as { elements?: OverpassElement[] });
+        last = `${new URL(url).host} answered ${res.status}`;
+      } catch (err) {
+        last = `${new URL(url).host}: ${(err as Error).message}`;
+      }
+      log(`  ${last}, trying another server...`);
+    }
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
+  throw new Error(`OpenStreetMap servers are busy (${last}). Try again in a few minutes, or with a smaller radius.`);
 }
 
 /**

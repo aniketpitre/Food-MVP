@@ -43,7 +43,7 @@ try {
       if (!city) throw new Error(`no city with slug "${slug}" (see GET /cities?q=...)`);
       const radius = Number(args[1] ?? city.radius_km);
       log(`asking OpenStreetMap for food places within ${radius} km of ${city.name}...`);
-      const places = await fetchOsmPlaces(city.lat, city.lng, radius);
+      const places = await fetchOsmPlaces(city.lat, city.lng, radius, log);
       const r = await importOsmPlaces(db, city.id, places);
       log(`${city.name}: ${places.length} found, ${r.added} added, ${r.linked} matched to existing places, ${r.skipped} already imported`);
       break;
