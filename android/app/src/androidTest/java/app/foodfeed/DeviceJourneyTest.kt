@@ -85,6 +85,7 @@ class DeviceJourneyTest {
     }
 
     private fun shot(name: String) {
+        runCatching { compose.waitForIdle() }
         instrumentation.waitForIdleSync()
         Thread.sleep(800) // let the window draw what the semantics tree already shows
         val bmp: Bitmap = instrumentation.uiAutomation.takeScreenshot() ?: return
@@ -148,7 +149,9 @@ class DeviceJourneyTest {
         compose.waitUntilAtLeastOneExists(hasText("Nearby"), 15_000)
         compose.onAllNodesWithText("Nearby").onFirst().performClick()
         compose.waitUntilAtLeastOneExists(hasTestTag("food_map"), 15_000)
-        val ok = runCatching { waitUntil("the map style and its places", 60_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() } }
+        // compose.waitUntil keeps the (test-controlled) clock ticking so the app recomposes
+        // while we wait; a plain sleep would freeze the screen.
+        val ok = runCatching { compose.waitUntil(60_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() } }
         if (ok.isFailure) {
             instrumentation.runOnMainSync {
                 val m = FoodMapProbe.map
