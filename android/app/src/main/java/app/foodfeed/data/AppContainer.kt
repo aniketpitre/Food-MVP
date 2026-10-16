@@ -95,7 +95,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
 
     /** Chats with something new plus waiting message requests: the badge on the messages button. */
     val unreadMessages = MutableStateFlow(0)
-    private val network = NetworkFactory { session.value?.token }
+    private val network = NetworkFactory({ session.value?.token }, { normaliseServerUrl(_serverUrl.value) })
     val okHttp get() = network.okHttp
 
     private val _ready = MutableStateFlow(false)

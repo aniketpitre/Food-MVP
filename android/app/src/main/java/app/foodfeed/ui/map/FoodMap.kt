@@ -488,6 +488,8 @@ fun MapPopup(
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    // The name opens the place page: its photos, hours and every dish.
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onOpenPlace(p.id) },
                 )
                 val line = listOfNotNull(p.cuisine?.replaceFirstChar { it.uppercase() }, p.locality, Format.distance(distanceM)).joinToString(" · ")
                 if (line.isNotEmpty()) {

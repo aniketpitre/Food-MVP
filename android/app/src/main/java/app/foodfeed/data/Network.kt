@@ -3,6 +3,7 @@ package app.foodfeed.data
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -48,16 +49,21 @@ fun normaliseServerUrl(raw: String): String {
     return url
 }
 
-class NetworkFactory(private val tokenProvider: () -> String?) {
+class NetworkFactory(private val tokenProvider: () -> String?, private val serverUrl: () -> String = { "" }) {
     val okHttp: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .addInterceptor(Interceptor { chain ->
+            // The sign-in token and the JSON header go to our own server only, never to
+            // other hosts the image loader fetches from (Google photos, map tiles...).
+            val request = chain.request()
+            val ours = serverUrl().toHttpUrlOrNull()?.host
+            if (ours == null || request.url.host != ours) return@Interceptor chain.proceed(request)
             val token = tokenProvider()
-            val req = chain.request().newBuilder().apply {
+            val req = request.newBuilder().apply {
                 if (token != null) header("Authorization", "Bearer $token")
-                header("Accept", "application/json")
+                if (request.header("Accept") == null) header("Accept", "application/json")
             }.build()
             chain.proceed(req)
         })
