@@ -1,0 +1,153 @@
+package app.foodfeed
+
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.Intent
+import android.graphics.Bitmap
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ActivityScenario
+import androidx.test.espresso.intent.Intents
+import androidx.test.espresso.intent.Intents.intended
+import androidx.test.espresso.intent.Intents.intending
+import androidx.test.espresso.intent.matcher.IntentMatchers.anyIntent
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasData
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
+import app.foodfeed.data.AppContainer
+import app.foodfeed.data.Coords
+import app.foodfeed.data.RegisterBody
+import app.foodfeed.data.SelectedCity
+import app.foodfeed.ui.map.FoodMapProbe
+import kotlinx.coroutines.runBlocking
+import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.containsString
+import org.junit.After
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+
+/**
+ * Runs the real app on an emulator against a real FoodFeed server (CI starts one with
+ * Docker, demo data on): signs a tester up, opens Explore → Nearby, waits for the map and
+ * its food logos, taps a logo, checks the 3D place card, and that Take me there asks
+ * Google Maps for directions. Also visits stories and messages. Screenshots of each step
+ * land in the app's files/device-shots folder for CI to collect.
+ */
+@OptIn(ExperimentalTestApi::class)
+@RunWith(AndroidJUnit4::class)
+class DeviceJourneyTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val device = UiDevice.getInstance(instrumentation)
+    private val app get() = instrumentation.targetContext.applicationContext as FoodFeedApp
+    private val container: AppContainer get() = app.container
+    private val shots by lazy {
+        File(instrumentation.targetContext.getExternalFilesDir(null), "device-shots").apply { deleteRecursively(); mkdirs() }
+    }
+    private lateinit var scenario: ActivityScenario<MainActivity>
+
+    @Before
+    fun setUp() = runBlocking {
+        while (!container.ready.value) kotlinx.coroutines.delay(100)
+        val nashik = container.api.cities("nashik").first { it.slug == "nashik" }
+        container.setCity(SelectedCity(nashik.id, nashik.name))
+        container.location.value = Coords(19.9975, 73.7898)
+        val handle = "device_${System.currentTimeMillis() % 1_000_000}"
+        container.signedIn(container.api.register(RegisterBody("$handle@example.com", "correct horse", handle, "Device Tester", true)))
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        Intents.init()
+    }
+
+    @After
+    fun tearDown() {
+        Intents.release()
+        scenario.close()
+    }
+
+    private fun shot(name: String) {
+        instrumentation.waitForIdleSync()
+        val bmp: Bitmap = instrumentation.uiAutomation.takeScreenshot() ?: return
+        File(shots, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    private fun waitUntil(what: String, timeoutMs: Long = 30_000, check: () -> Boolean) {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            if (runCatching(check).getOrDefault(false)) return
+            Thread.sleep(200)
+        }
+        throw AssertionError("Timed out waiting for $what")
+    }
+
+    @Test
+    fun mapLogosPopupAndDirections_storiesAndMessages() {
+        // Home with the stories row and the craving search.
+        compose.waitUntilAtLeastOneExists(hasText("What are you\ncraving?"), 30_000)
+        compose.waitUntilAtLeastOneExists(hasTestTag("stories_row"), 10_000)
+        Thread.sleep(1500)
+        shot("01_home")
+
+        // A demo story, full screen.
+        compose.waitUntilAtLeastOneExists(hasTestTag("story_bubble"), 15_000)
+        compose.onAllNodes(hasTestTag("story_bubble")).onFirst().performClick()
+        compose.waitUntilAtLeastOneExists(hasTestTag("story_page"), 10_000)
+        Thread.sleep(1200)
+        shot("02_story")
+        device.pressBack()
+
+        // Messages: empty inbox for a new tester.
+        compose.waitUntilAtLeastOneExists(hasTestTag("messages_button"), 10_000)
+        compose.onNodeWithTag("messages_button").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("No messages yet"), 10_000)
+        shot("03_inbox")
+        device.pressBack()
+
+        // Explore → Nearby: the map with food logos.
+        compose.waitUntilAtLeastOneExists(hasContentDescription("Explore"), 10_000)
+        compose.onNodeWithContentDescription("Explore").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("Nearby"), 15_000)
+        compose.onAllNodesWithText("Nearby").onFirst().performClick()
+        waitUntil("the map and its places", 45_000) { FoodMapProbe.styleReady && FoodMapProbe.places.isNotEmpty() }
+        Thread.sleep(4000) // tiles and camera settle
+        shot("04_map_logos")
+
+        // Tap a food logo (the pin's badge sits just above its anchor point).
+        val place = FoodMapProbe.places.first { it.dishCount > 0 }
+        val pin = FoodMapProbe.pinOnScreen(place.id)
+        assertNotNull("pin for ${place.name} is on screen", pin)
+        val badge = (28 * instrumentation.targetContext.resources.displayMetrics.density).toInt()
+        device.click(pin!!.first.toInt(), pin.second.toInt() - badge)
+        compose.waitUntilAtLeastOneExists(hasTestTag("map_popup"), 10_000)
+        Thread.sleep(1200) // let the 3D swing finish
+        shot("05_map_popup")
+        assertTrue(compose.onAllNodesWithText(place.name).fetchSemanticsNodes().isNotEmpty())
+
+        // Take me there → Google Maps directions to this place (stubbed so nothing opens).
+        intending(anyIntent()).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, null))
+        compose.onNodeWithText("Take me there").performClick()
+        intended(allOf(hasAction(Intent.ACTION_VIEW), hasData(containsString("google.com/maps/dir/"))))
+        intended(hasData(containsString("destination=${place.lat},${place.lng}")))
+
+        // Close the card; the strip of places comes back and opens the card too.
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.waitUntilAtLeastOneExists(hasTestTag("map_card_${FoodMapProbe.places.first { it.dishCount > 0 }.id}"), 10_000)
+        shot("06_map_strip")
+    }
+}

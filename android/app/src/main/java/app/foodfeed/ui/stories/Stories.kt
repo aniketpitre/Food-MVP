@@ -183,7 +183,10 @@ private fun StoryBubble(
     plus: Boolean = false,
     onPlus: () -> Unit = {},
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(72.dp).testTag(if (plus) "story_mine" else "story_bubble"),
+    ) {
         Box(
             Modifier
                 .size(70.dp)
