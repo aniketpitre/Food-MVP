@@ -99,12 +99,17 @@ jobs:
       - name: Commit the screenshots
         if: always() && github.event_name != 'pull_request'
         run: |
-          shopt -s nullglob
           mkdir -p docs/device
-          for f in device-shots/*.png; do
-            # Smaller JPEGs for the repo.
-            convert "$f" -resize 540x -quality 82 "docs/device/$(basename "${f%.png}").jpg"
-          done
+          python3 -m pip install --quiet pillow
+          # Smaller JPEGs for the repo.
+          python3 - <<'PY'
+          import glob, os
+          from PIL import Image
+          for f in sorted(glob.glob("device-shots/*.png")):
+              im = Image.open(f).convert("RGB")
+              im.thumbnail((540, 1400))
+              im.save("docs/device/" + os.path.basename(f)[:-4] + ".jpg", quality=82)
+          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/device

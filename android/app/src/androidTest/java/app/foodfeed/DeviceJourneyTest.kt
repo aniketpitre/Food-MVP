@@ -118,13 +118,21 @@ class DeviceJourneyTest {
         Thread.sleep(1500)
         shot("01_home")
 
-        // A demo story, full screen.
+        // A demo story, full screen. The test clock would otherwise fast-forward the 5-second
+        // story timers and the viewer would play every story and close at once, so the clock
+        // is paused while we look.
         compose.waitUntilAtLeastOneExists(hasTestTag("story_bubble"), 15_000)
         compose.onAllNodes(hasTestTag("story_bubble")).onFirst().performClick()
-        compose.waitUntilAtLeastOneExists(hasTestTag("story_page"), 10_000)
-        Thread.sleep(1200)
+        compose.mainClock.autoAdvance = false
+        repeat(12) {
+            compose.mainClock.advanceTimeBy(100)
+            Thread.sleep(150) // real time for the photo to load
+        }
+        assertTrue("story viewer is open", compose.onAllNodes(hasTestTag("story_page")).fetchSemanticsNodes().isNotEmpty())
         shot("02_story")
         device.pressBack()
+        compose.mainClock.advanceTimeBy(1000)
+        compose.mainClock.autoAdvance = true
 
         // Messages: empty inbox for a new tester.
         compose.waitUntilAtLeastOneExists(hasTestTag("messages_button"), 10_000)
