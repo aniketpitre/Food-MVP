@@ -169,7 +169,7 @@ fun AuthContent(
             )
             Row(Modifier.clickable { onAcceptTerms(!state.acceptTerms) }, verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(state.acceptTerms, onAcceptTerms)
-                Text("I'm 13 or older and accept the ", style = MaterialTheme.typography.bodyMedium)
+                Text("I accept the ", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     "Terms", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onOpenTerms),

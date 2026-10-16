@@ -51,6 +51,9 @@ beforeAll(async () => {
     appDownloadUrl: 'https://example.com/app',
     contactEmail: 'help@example.com',
     logLevel: 'silent',
+    mapillaryToken: '',
+    googlePlacesApiKey: '',
+    googlePhotosDailyLimit: 30,
   };
   await migrate(db);
   await seedCatalog(db, mediaDir);
@@ -770,3 +773,227 @@ async function loginAs(handle: string) {
   const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${handle}@example.com`, password: 'correct horse' } });
   return { auth: { authorization: `Bearer ${res.json().token}` } };
 }
+
+describe('direct messages', () => {
+  it('sends, lists, marks read and unsends; strangers land in Requests until accepted', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    // a writes to b, whom b doesn't follow: a request for b.
+    const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
+    const sent = await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload: { body: 'Misal tonight?' } });
+    expect(sent.statusCode).toBe(201);
+    expect(sent.json()).toMatchObject({ kind: 'text', body: 'Misal tonight?', mine: true });
+
+    expect((await app.inject({ url: '/inbox', headers: b.auth })).json()).toMatchObject({ items: [], requests: 1 });
+    const req = (await app.inject({ url: '/inbox?folder=request', headers: b.auth })).json();
+    expect(req.items[0]).toMatchObject({ with: { handle: a.handle }, unread: true, lastMessage: { body: 'Misal tonight?', mine: false } });
+    expect((await app.inject({ url: '/inbox/unread', headers: b.auth })).json()).toEqual({ chats: 0, requests: 1 });
+
+    // Replying accepts the request; a dish can be shared too.
+    const dish = await dishId('Kolhapuri Misal');
+    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: b.auth, payload: { dishId: dish } });
+    expect((await app.inject({ url: '/inbox', headers: b.auth })).json().items).toHaveLength(1);
+    const thread = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json();
+    expect(thread).toMatchObject({ folder: 'inbox', with: { handle: b.handle }, canMessage: true });
+    expect(thread.messages.map((m: { kind: string }) => m.kind)).toEqual(['text', 'dish']);
+    expect(thread.messages[1].dish).toMatchObject({ name: 'Kolhapuri Misal' });
+    expect((await app.inject({ url: '/inbox/unread', headers: a.auth })).json()).toEqual({ chats: 1, requests: 0 });
+    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/read`, headers: a.auth });
+    expect((await app.inject({ url: '/inbox/unread', headers: a.auth })).json()).toEqual({ chats: 0, requests: 0 });
+
+    // Polling with ?after returns only newer messages.
+    const after = thread.messages[1].createdAt;
+    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload: { body: 'See you at 8' } });
+    const newer = (await app.inject({ url: `/conversations/${conv.id}?after=${encodeURIComponent(after)}`, headers: b.auth })).json();
+    expect(newer.messages.map((m: { body: string }) => m.body)).toEqual(['See you at 8']);
+
+    // Unsend removes it for both; only the sender can.
+    const id = newer.messages[0].id;
+    expect((await app.inject({ method: 'DELETE', url: `/messages/${id}`, headers: b.auth })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: `/messages/${id}`, headers: a.auth })).statusCode).toBe(204);
+
+    // Deleting the chat clears it for you only.
+    await app.inject({ method: 'DELETE', url: `/conversations/${conv.id}`, headers: b.auth });
+    expect((await app.inject({ url: '/inbox', headers: b.auth })).json().items).toHaveLength(0);
+    expect((await app.inject({ url: '/inbox', headers: a.auth })).json().items).toHaveLength(1);
+  });
+
+  it('respects message settings and blocks, and shares to several people', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const c = await signUp();
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: b.auth, payload: { dmPolicy: 'following' } });
+    const toB = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
+    const no = await app.inject({ method: 'POST', url: `/conversations/${toB.id}/messages`, headers: a.auth, payload: { body: 'hi' } });
+    expect(no.statusCode).toBe(403);
+    // Once b follows a, a can write, straight into b's inbox.
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
+    const share = await app.inject({
+      method: 'POST', url: '/messages', headers: a.auth,
+      payload: { handles: [b.handle, c.handle], dishId: await dishId('Kolhapuri Misal'), body: 'This one?' },
+    });
+    expect(share.json()).toEqual({ sent: [b.handle, c.handle].sort(), failed: [] });
+    expect((await app.inject({ url: '/inbox/unread', headers: b.auth })).json()).toEqual({ chats: 1, requests: 0 });
+
+    // A block stops messages both ways and hides the chat.
+    await app.inject({ method: 'POST', url: '/blocks', headers: c.auth, payload: { handle: a.handle } });
+    expect((await app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles: [c.handle], body: 'hello?' } })).json())
+      .toEqual({ sent: [], failed: [c.handle] });
+    expect((await app.inject({ url: '/inbox?folder=request', headers: c.auth })).json().items).toHaveLength(0);
+
+    // Messages can be reported; they go to the admin queue.
+    const msg = (await app.inject({ url: `/conversations/${toB.id}`, headers: b.auth })).json().messages[0];
+    const rep = await app.inject({ method: 'POST', url: '/reports', headers: b.auth, payload: { targetType: 'message', targetId: msg.id, reason: 'spam' } });
+    expect(rep.json()).toEqual({ ok: true, hidden: false });
+  });
+});
+
+describe('stories', () => {
+  it('posts a story, shows it in the tray, counts views and likes, and replies by message', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
+    const mp = multipart(a.auth, { caption: 'Best misal in town', dishId: await dishId('Kolhapuri Misal') }, await photo(true));
+    const res = await app.inject({ method: 'POST', url: '/stories', ...mp });
+    expect(res.statusCode).toBe(201);
+    const storyId = res.json().id;
+    const { rows } = await db.query('select city_id, image_path from stories where id = $1', [storyId]);
+    expect(rows[0].city_id).toBe(cityId);
+    // GPS is dropped from story photos too.
+    const meta = await sharp(path.join(mediaDir, rows[0].image_path.replace('/media/', ''))).metadata();
+    expect(meta.exif).toBeUndefined();
+
+    const tray = (await app.inject({ url: `/stories?city=${cityId}`, headers: b.auth })).json();
+    const entry = tray.items.find((i: { user: { handle: string } }) => i.user.handle === a.handle);
+    expect(entry).toMatchObject({ isMe: false, allSeen: false });
+    expect(entry.stories[0]).toMatchObject({ caption: 'Best misal in town', seen: false, dish: { name: 'Kolhapuri Misal' } });
+    // A guest sees the city's stories.
+    expect((await app.inject(`/stories?city=${cityId}`)).json().items.length).toBeGreaterThan(0);
+
+    await app.inject({ method: 'POST', url: `/stories/${storyId}/view`, headers: b.auth });
+    await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: b.auth, payload: { liked: true } });
+    await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: b.auth, payload: { liked: false } });
+    await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: b.auth, payload: { liked: true } });
+    const reply = await app.inject({ method: 'POST', url: `/stories/${storyId}/reply`, headers: b.auth, payload: { body: 'Going tomorrow!' } });
+    expect(reply.statusCode).toBe(201);
+
+    const mine = (await app.inject({ url: `/users/${a.handle}/stories`, headers: a.auth })).json();
+    expect(mine).toMatchObject({ isMe: true, stories: [{ viewCount: 1 }] });
+    const viewers = (await app.inject({ url: `/stories/${storyId}/viewers`, headers: a.auth })).json();
+    expect(viewers.items).toEqual([expect.objectContaining({ handle: b.handle, liked: true })]);
+    expect((await app.inject({ url: `/stories/${storyId}/viewers`, headers: b.auth })).json().items).toEqual([]);
+
+    // One like message (not one per toggle) and the reply, both pointing at the story.
+    const chat = (await app.inject({ url: `/conversations/${reply.json().conversationId}`, headers: a.auth })).json();
+    expect(chat.messages.map((m: { kind: string }) => m.kind)).toEqual(['story_like', 'story_reply']);
+    expect(chat.messages[1].story).toMatchObject({ id: storyId, expired: false });
+
+    // Ended stories leave the tray; deleting removes the photo.
+    await db.query("update stories set expires_at = now() - interval '1 minute' where id = $1", [storyId]);
+    expect((await app.inject({ url: `/users/${a.handle}/stories`, headers: b.auth })).json().stories).toEqual([]);
+    expect((await app.inject({ method: 'DELETE', url: `/stories/${storyId}`, headers: a.auth })).statusCode).toBe(204);
+    await expect(fs.stat(path.join(mediaDir, 'stories', storyId))).rejects.toThrow();
+  });
+
+  it('keeps demo stories going without copying photos', async () => {
+    await seedDemoActivity(db);
+    const { refreshDemoStories, cleanupStories } = await import('../src/routes/stories.js');
+    expect(await refreshDemoStories(db)).toBeGreaterThan(0);
+    expect(await refreshDemoStories(db)).toBe(0);
+    const { rows } = await db.query('select bool_and(not owns_media) as borrowed, bool_and(image_path like \'/media/posts/%\') as posts from stories s join profiles p on p.id = s.user_id where p.is_demo');
+    expect(rows[0]).toEqual({ borrowed: true, posts: true });
+    await db.query("update stories set expires_at = now() - interval '2 days' from profiles p where p.id = stories.user_id and p.is_demo");
+    expect(await cleanupStories(db, mediaDir)).toBeGreaterThan(0);
+  });
+});
+
+describe('photos of places', () => {
+  it('reads Commons links from OSM tags and Wikidata', async () => {
+    const { commonsFileFromTags } = await import('../src/photos.js');
+    expect(await commonsFileFromTags({ image: 'https://commons.wikimedia.org/wiki/File:Cafe_Goa.jpg' })).toBe('File:Cafe Goa.jpg');
+    expect(await commonsFileFromTags({ wikimedia_commons: 'File:Shop.jpg' })).toBe('File:Shop.jpg');
+    const fake = (async () => new Response(JSON.stringify({ entities: { Q42: { claims: { P18: [{ mainsnak: { datavalue: { value: 'Front.jpg' } } }] } } } }))) as unknown as typeof fetch;
+    expect(await commonsFileFromTags({ wikidata: 'Q42' }, fake)).toBe('File:Front.jpg');
+    expect(await commonsFileFromTags({ website: 'https://x.in' })).toBeNull();
+  });
+
+  it('picks the street photo that faces the shop', async () => {
+    const { pickFacing } = await import('../src/photos.js');
+    const lat = 20.0;
+    const lng = 73.78;
+    const south = lat - 0.0002; // ~22 m south of the shop
+    const picked = pickFacing([
+      { id: 'faces', thumb_1024_url: 'u1', compass_angle: 2, computed_geometry: { coordinates: [lng, south] } },
+      { id: 'away', thumb_1024_url: 'u2', compass_angle: 180, computed_geometry: { coordinates: [lng, south] } },
+      { id: 'far', thumb_1024_url: 'u3', compass_angle: 0, computed_geometry: { coordinates: [lng, lat - 0.002] } },
+    ], lat, lng);
+    expect(picked.map((p) => p.id)).toEqual(['faces']);
+  });
+
+  it('stores fetched photos with credits and shows them on the place page and map', async () => {
+    const { fetchPlacePhotos } = await import('../src/photos.js');
+    const { rows } = await db.query<{ id: string }>(
+      `insert into restaurants (city_id, name, name_norm, geo, status, source, osm_tags, cuisine)
+       values ($1, 'Commons Cafe', norm_name('Commons Cafe'), st_setsrid(st_makepoint(73.79, 20.0), 4326)::geography, 'active', 'osm',
+               '{"wikimedia_commons":"File:Commons Cafe.jpg"}', 'coffee_shop') returning id`,
+      [cityId],
+    );
+    const img = await photo();
+    const fake = (async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes('commons.wikimedia.org/w/api.php')) {
+        return new Response(JSON.stringify({ query: { pages: [{ title: 'File:Commons Cafe.jpg', imageinfo: [{
+          thumburl: 'https://upload.example/cafe.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:Commons_Cafe.jpg', mime: 'image/jpeg',
+          extmetadata: { Artist: { value: '<a href="x">Asha R</a>' }, LicenseShortName: { value: 'CC BY-SA 4.0' } } }] }] } }));
+      }
+      if (u === 'https://upload.example/cafe.jpg') return new Response(img);
+      return new Response('nope', { status: 404 });
+    }) as unknown as typeof fetch;
+    const r = await fetchPlacePhotos(db, mediaDir, cityId, { fetchImpl: fake });
+    expect(r.added).toBe(1);
+    // A second run doesn't look again for 30 days.
+    expect((await fetchPlacePhotos(db, mediaDir, cityId, { fetchImpl: fake })).checked).toBe(0);
+
+    const place = (await app.inject(`/restaurants/${rows[0]!.id}`)).json();
+    expect(place.photos[0]).toMatchObject({ source: 'wikimedia', attribution: 'Photo: Asha R, CC BY-SA 4.0, via Wikimedia Commons' });
+    expect(place.googlePhotos).toBe(false);
+    expect((await app.inject(`/restaurants/${rows[0]!.id}/google-photos`)).json()).toEqual({ photos: [] });
+
+    const map = (await app.inject(`/map?city=${cityId}&all=true`)).json();
+    const pin = map.places.find((p: { id: string }) => p.id === rows[0]!.id);
+    expect(pin).toMatchObject({ emoji: '☕', photoUrl: expect.stringContaining('/media/places/') });
+    const withDish = map.places.find((p: { dishCount: number; topDish: { emoji: string | null } }) => p.dishCount > 0 && p.topDish.emoji);
+    expect(withDish.emoji).toBe(withDish.topDish.emoji);
+  });
+
+  it('fetches Google photos live, keeps only the place id, and stays under the daily cap', async () => {
+    const { googlePlacePhotos, resetGoogleState } = await import('../src/photos.js');
+    resetGoogleState();
+    const { rows } = await db.query<{ id: string }>("select id from restaurants where name = 'Commons Cafe'");
+    let mediaCalls = 0;
+    const fake = (async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/media?')) {
+        mediaCalls++;
+        return new Response(JSON.stringify({ photoUri: `https://lh3.googleusercontent.com/p${mediaCalls}` }));
+      }
+      if (u.endsWith('places:searchText')) return new Response(JSON.stringify({ places: [{ id: 'gp1' }] }));
+      if (u.includes('/places/gp1')) {
+        return new Response(JSON.stringify({ photos: [1, 2, 3, 4].map((i) => ({ name: `places/gp1/photos/p${i}`, authorAttributions: [{ displayName: `Author ${i}`, uri: 'https://maps.google.com/u' }] })) }));
+      }
+      if (u.includes('/media?')) {
+        mediaCalls++;
+        return new Response(JSON.stringify({ photoUri: `https://lh3.googleusercontent.com/p${mediaCalls}` }));
+      }
+      return new Response('', { status: 404 });
+    }) as unknown as typeof fetch;
+    const place = { id: rows[0]!.id, name: 'Commons Cafe', locality: null, city: 'Nashik', lat: 20, lng: 73.79, googlePlaceId: null };
+    const photos = await googlePlacePhotos(db, place, { apiKey: 'k', dailyLimit: 2, fetchImpl: fake });
+    expect(photos).toHaveLength(2);
+    expect(photos[0]).toEqual({ url: 'https://lh3.googleusercontent.com/p1', authors: [{ name: 'Author 1', uri: 'https://maps.google.com/u' }] });
+    expect((await db.query('select google_place_id from restaurants where id = $1', [place.id])).rows[0].google_place_id).toBe('gp1');
+    // Cached for an hour: no new paid calls.
+    await googlePlacePhotos(db, place, { apiKey: 'k', dailyLimit: 2, fetchImpl: fake });
+    expect(mediaCalls).toBe(2);
+  });
+});

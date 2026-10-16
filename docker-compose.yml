@@ -40,6 +40,9 @@ services:
       RANK_REFRESH_SECONDS: ${RANK_REFRESH_SECONDS:-300}
       APP_DOWNLOAD_URL: ${APP_DOWNLOAD_URL:-https://github.com/aniketpitre/Food-MVP/releases/latest}
       CONTACT_EMAIL: ${CONTACT_EMAIL:-contact@example.com}
+      MAPILLARY_TOKEN: ${MAPILLARY_TOKEN:-}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      GOOGLE_PHOTOS_DAILY_LIMIT: ${GOOGLE_PHOTOS_DAILY_LIMIT:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - media:/data/media

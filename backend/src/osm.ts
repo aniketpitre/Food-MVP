@@ -10,7 +10,12 @@ export interface OsmPlace {
   cuisine: string | null;
   locality: string | null;
   openingHours: string | null;
+  address: string | null;
+  /** The tags that point to photos or contact details (image, wikimedia_commons, wikidata, website, phone). */
+  tags: Record<string, string>;
 }
+
+const KEPT_TAGS = ['image', 'wikimedia_commons', 'wikidata', 'website', 'contact:website', 'phone', 'contact:phone', 'brand:wikidata'];
 
 interface OverpassElement {
   type: string;
@@ -55,6 +60,8 @@ export function parseOverpass(json: { elements?: OverpassElement[] }): OsmPlace[
       cuisine: t.cuisine ? t.cuisine.split(';').map((c) => c.trim().replace(/_/g, ' ')).join(', ').slice(0, 80) : null,
       locality: (t['addr:suburb'] || t['addr:neighbourhood'] || t['addr:street'] || t['addr:city'] || '').slice(0, 60) || null,
       openingHours: t.opening_hours?.slice(0, 120) ?? null,
+      address: [t['addr:housenumber'], t['addr:street'], t['addr:suburb']].filter(Boolean).join(', ').slice(0, 160) || null,
+      tags: Object.fromEntries(KEPT_TAGS.filter((k) => t[k]).map((k) => [k, t[k]!.slice(0, 300)])),
     });
   }
   return [...out.values()];
@@ -80,7 +87,10 @@ export async function importOsmPlaces(db: Db, cityId: number, places: OsmPlace[]
   let linked = 0;
   let skipped = 0;
   for (const p of places) {
-    const { rowCount: known } = await db.query('select 1 from restaurants where osm_id = $1', [p.osmId]);
+    const { rowCount: known } = await db.query(
+      'update restaurants set osm_tags = $2, address = coalesce(address, $3) where osm_id = $1',
+      [p.osmId, JSON.stringify(p.tags), p.address],
+    );
     if (known) {
       skipped++;
       continue;
@@ -94,16 +104,17 @@ export async function importOsmPlaces(db: Db, cityId: number, places: OsmPlace[]
     );
     if (twin[0]) {
       await db.query(
-        'update restaurants set osm_id = $2, cuisine = coalesce(cuisine, $3), opening_hours = coalesce(opening_hours, $4) where id = $1',
-        [twin[0].id, p.osmId, p.cuisine, p.openingHours],
+        `update restaurants set osm_id = $2, cuisine = coalesce(cuisine, $3), opening_hours = coalesce(opening_hours, $4),
+                                osm_tags = $5, address = coalesce(address, $6) where id = $1`,
+        [twin[0].id, p.osmId, p.cuisine, p.openingHours, JSON.stringify(p.tags), p.address],
       );
       linked++;
       continue;
     }
     await db.query(
-      `insert into restaurants (city_id, name, name_norm, locality, geo, status, source, osm_id, cuisine, opening_hours)
-       values ($1, $2, norm_name($2), $3, st_setsrid(st_makepoint($5, $4), 4326)::geography, 'active', 'osm', $6, $7, $8)`,
-      [cityId, p.name, p.locality, p.lat, p.lng, p.osmId, p.cuisine, p.openingHours],
+      `insert into restaurants (city_id, name, name_norm, locality, geo, status, source, osm_id, cuisine, opening_hours, osm_tags, address)
+       values ($1, $2, norm_name($2), $3, st_setsrid(st_makepoint($5, $4), 4326)::geography, 'active', 'osm', $6, $7, $8, $9, $10)`,
+      [cityId, p.name, p.locality, p.lat, p.lng, p.osmId, p.cuisine, p.openingHours, JSON.stringify(p.tags), p.address],
     );
     added++;
   }

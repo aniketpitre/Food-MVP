@@ -30,8 +30,9 @@ export async function adminRoutes(app: FastifyInstance) {
               array_agg(distinct rp.reason) as reasons,
               max(rp.created_at) as "lastReportAt",
               coalesce(p.status, d.status, c.status) as status,
-              coalesce(pd.name, d.name, u.handle, '"' || left(c.body, 80) || '"') as label,
-              coalesce(p.thumb_path, cp.thumb_path) as "thumbUrl", coalesce(p.dish_id, d.id, cp.dish_id) as "dishId"
+              coalesce(pd.name, d.name, u.handle, '"' || left(c.body, 80) || '"', '"' || left(m.body, 80) || '"',
+                       case when s.id is not null then 'Story by @' || su.handle end) as label,
+              coalesce(p.thumb_path, cp.thumb_path, s.thumb_path) as "thumbUrl", coalesce(p.dish_id, d.id, cp.dish_id) as "dishId"
        from reports rp
        left join posts p    on rp.target_type = 'post' and p.id = rp.target_id
        left join dishes pd  on pd.id = p.dish_id
@@ -39,9 +40,12 @@ export async function adminRoutes(app: FastifyInstance) {
        left join profiles u on rp.target_type = 'user' and u.id = rp.target_id
        left join comments c on rp.target_type = 'comment' and c.id = rp.target_id
        left join posts cp   on cp.id = c.post_id
+       left join messages m on rp.target_type = 'message' and m.id = rp.target_id
+       left join stories s  on rp.target_type = 'story' and s.id = rp.target_id
+       left join profiles su on su.id = s.user_id
        where rp.status = 'open'
        group by rp.target_type, rp.target_id, p.status, d.status, c.status, pd.name, d.name, u.handle, c.body,
-                p.thumb_path, cp.thumb_path, p.dish_id, cp.dish_id, d.id
+                p.thumb_path, cp.thumb_path, p.dish_id, cp.dish_id, d.id, m.body, s.id, s.thumb_path, su.handle
        order by count(*) desc, max(rp.created_at) desc`,
     );
     return { pendingPlaces, reported };
@@ -74,6 +78,22 @@ export async function adminRoutes(app: FastifyInstance) {
       p.id,
     ]);
     if (p.type === 'dishes') await db.query('select refresh_dish_stats($1)', [p.id]);
+    return { ok: true };
+  });
+
+  // A reported message or story: remove it (a story ends now, a message is deleted) or dismiss.
+  app.post('/admin/talk/:type/:id/:action', { preHandler: requireAdmin }, async (req, reply) => {
+    const p = parse(
+      z.object({ type: z.enum(['message', 'story']), id: z.string().uuid(), action: z.enum(['remove', 'dismiss']) }),
+      req.params,
+      reply,
+    );
+    if (!p) return;
+    if (p.action === 'remove') {
+      if (p.type === 'story') await db.query('update stories set expires_at = now() where id = $1', [p.id]);
+      else await db.query('delete from messages where id = $1', [p.id]);
+    }
+    await db.query("update reports set status = 'resolved' where target_type = $1 and target_id = $2", [p.type, p.id]);
     return { ok: true };
   });
 

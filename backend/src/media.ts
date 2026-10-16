@@ -19,11 +19,16 @@ const THUMB_EDGE = 360;
  * applies the EXIF orientation first so photos are not sideways.
  */
 export async function storePostImage(mediaDir: string, postId: string, input: Buffer): Promise<StoredImage> {
+  return storeImage(mediaDir, 'posts', postId, input);
+}
+
+/** Same as [storePostImage] for any kind of photo, stored under media/<kind>/<id>/. */
+export async function storeImage(mediaDir: string, kind: 'posts' | 'stories' | 'places', id: string, input: Buffer): Promise<StoredImage> {
   const meta = await sharp(input, { failOn: 'error' }).metadata();
   if (!meta.width || !meta.height) throw new Error('not_an_image');
   if (meta.width < 200 || meta.height < 200) throw new Error('image_too_small');
 
-  const dir = path.join(mediaDir, 'posts', postId);
+  const dir = path.join(mediaDir, kind, id);
   await fs.mkdir(dir, { recursive: true });
 
   const main = await sharp(input)
@@ -43,12 +48,16 @@ export async function storePostImage(mediaDir: string, postId: string, input: Bu
 
   const hex = (n: number) => n.toString(16).padStart(2, '0');
   return {
-    imagePath: `/media/posts/${postId}/main.webp`,
-    thumbPath: `/media/posts/${postId}/thumb.webp`,
+    imagePath: `/media/${kind}/${id}/main.webp`,
+    thumbPath: `/media/${kind}/${id}/thumb.webp`,
     width: main.info.width,
     height: main.info.height,
     placeholderColor: `#${hex(dominant.r)}${hex(dominant.g)}${hex(dominant.b)}`,
   };
+}
+
+export async function deleteImages(mediaDir: string, kind: 'posts' | 'stories' | 'places', id: string): Promise<void> {
+  await fs.rm(path.join(mediaDir, kind, id), { recursive: true, force: true });
 }
 
 export async function deletePostImages(mediaDir: string, postId: string): Promise<void> {

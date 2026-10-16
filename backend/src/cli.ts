@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { removeDemoActivity, seedCatalog, seedDemoActivity } from './seed.js';
 import { fetchOsmPlaces, importOsmPlaces } from './osm.js';
+import { fetchPlacePhotos } from './photos.js';
 
 const [command, ...args] = process.argv.slice(2);
 const config = loadConfig();
@@ -47,8 +48,26 @@ try {
       log(`${city.name}: ${places.length} found, ${r.added} added, ${r.linked} matched to existing places, ${r.skipped} already imported`);
       break;
     }
+    case 'fetch-place-photos': {
+      // Openly licensed photos of a city's places: Wikimedia Commons, plus Mapillary street
+      // photos of the shopfront when MAPILLARY_TOKEN is set. e.g. fetch-place-photos nashik 200
+      const slug = args[0];
+      if (!slug) throw new Error('usage: fetch-place-photos <city-slug> [max-places]');
+      const { rows } = await db.query<{ id: number; name: string }>('select id, name from cities where slug = $1', [slug]);
+      const city = rows[0];
+      if (!city) throw new Error(`no city with slug "${slug}"`);
+      if (!config.mapillaryToken) log('MAPILLARY_TOKEN is not set: only places linked to Wikimedia Commons will get photos.');
+      const r = await fetchPlacePhotos(db, config.mediaDir, city.id, {
+        mapillaryToken: config.mapillaryToken || undefined,
+        limit: Number(args[1] ?? 500),
+        log,
+        pauseMs: 250,
+      });
+      log(`${city.name}: checked ${r.checked} places, added ${r.added} photos`);
+      break;
+    }
     default:
-      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-places <city> [km]>');
+      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-places <city> [km]|fetch-place-photos <city> [max]>');
       process.exitCode = 1;
   }
 } finally {

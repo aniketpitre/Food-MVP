@@ -4,6 +4,7 @@ import { parse } from '../app.js';
 import { optionalAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
 import { inCity, nearestCity } from '../geo.js';
+import { googlePlacePhotos } from '../photos.js';
 
 const coords = {
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -12,7 +13,7 @@ const coords = {
 const uuid = z.string().uuid();
 
 export async function browseRoutes(app: FastifyInstance) {
-  const { db } = app;
+  const { db, config } = app;
 
   // Cities with dishes first (most dishes first), then the biggest. With q, a name search.
   app.get('/cities', async (req, reply) => {
@@ -143,7 +144,9 @@ export async function browseRoutes(app: FastifyInstance) {
     const viewer = userId(req);
     const { rows } = await db.query(
       `select id, name, locality, address, maps_url as "mapsUrl", instagram_handle as "instagramHandle",
-              price_band as "priceBand", status, created_by as "createdBy",
+              price_band as "priceBand", status, created_by as "createdBy", cuisine, opening_hours as "openingHours",
+              coalesce(osm_tags->>'phone', osm_tags->>'contact:phone') as phone,
+              coalesce(osm_tags->>'website', osm_tags->>'contact:website') as website,
               st_y(geo::geometry) as lat, st_x(geo::geometry) as lng,
               case when $2::float8 is not null and $3::float8 is not null
                    then round(st_distance(geo, st_setsrid(st_makepoint($3, $2), 4326)::geography))::int end as "distanceM"
@@ -162,7 +165,41 @@ export async function browseRoutes(app: FastifyInstance) {
       [p.id],
     );
     delete r.createdBy;
-    return { ...r, dishes: await loadDishCards(db, dishIds.map((d) => d.id), viewer, q.lat, q.lng) };
+    // Photos of the place itself, openly licensed (see photos.ts), with their credits.
+    const { rows: photos } = await db.query(
+      `select image_path as "imageUrl", thumb_path as "thumbUrl", placeholder_color as "placeholderColor",
+              attribution, source_url as "sourceUrl", source
+       from restaurant_photos where restaurant_id = $1 order by (source = 'owner') desc, created_at limit 10`,
+      [p.id],
+    );
+    return {
+      ...r,
+      photos,
+      googlePhotos: !!config.googlePlacesApiKey,
+      dishes: await loadDishCards(db, dishIds.map((d) => d.id), viewer, q.lat, q.lng),
+    };
+  });
+
+  // Google Maps photos of a place, fetched live (never stored). Empty when not configured.
+  app.get('/restaurants/:id/google-photos', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const p = parse(z.object({ id: uuid }), req.params, reply);
+    if (!p) return;
+    if (!config.googlePlacesApiKey) return { photos: [] };
+    const { rows } = await db.query(
+      `select r.id, r.name, r.locality, c.name as city, st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
+              r.google_place_id as "googlePlaceId"
+       from restaurants r join cities c on c.id = r.city_id where r.id = $1 and r.status = 'active'`,
+      [p.id],
+    );
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'This place is not available.' });
+    try {
+      return {
+        photos: await googlePlacePhotos(db, rows[0], { apiKey: config.googlePlacesApiKey, dailyLimit: config.googlePhotosDailyLimit }),
+      };
+    } catch (err) {
+      req.log.warn(err);
+      return { photos: [] };
+    }
   });
 
   // Dish and place search with typo tolerance (trigram similarity) and the alias table.

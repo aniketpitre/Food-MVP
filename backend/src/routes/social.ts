@@ -96,6 +96,7 @@ export async function socialRoutes(app: FastifyInstance) {
         username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,20}$/, 'use 3 to 20 letters, numbers or underscores').optional(),
         bio: z.string().trim().max(160).nullable().optional(),
         commentPolicy: z.enum(['everyone', 'followers', 'off']).optional(),
+        dmPolicy: z.enum(['everyone', 'following', 'off']).optional(),
       }),
       req.body,
       reply,
@@ -108,10 +109,11 @@ export async function socialRoutes(app: FastifyInstance) {
            display_name   = case when $2 then nullif($3, '') else display_name end,
            handle         = coalesce($4, handle),
            bio            = case when $5 then nullif($6, '') else bio end,
-           comment_policy = coalesce($7, comment_policy)
+           comment_policy = coalesce($7, comment_policy),
+           dm_policy      = coalesce($8, dm_policy)
          where id = $1`,
         [me, body.displayName !== undefined, body.displayName ?? null, body.username ?? null,
-          body.bio !== undefined, body.bio ?? null, body.commentPolicy ?? null],
+          body.bio !== undefined, body.bio ?? null, body.commentPolicy ?? null, body.dmPolicy ?? null],
       );
     } catch (err) {
       if ((err as { code?: string }).code === '23505') {

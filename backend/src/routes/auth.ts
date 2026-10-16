@@ -15,7 +15,7 @@ const registerSchema = z.object({
   password: z.string().min(8, 'use at least 8 characters').max(200),
   handle: handleSchema,
   displayName: z.string().trim().max(40).optional(),
-  acceptTerms: z.literal(true, 'you must accept the terms and confirm you are 13 or older'),
+  acceptTerms: z.literal(true, 'you must accept the terms'),
 });
 
 const loginSchema = z.object({
@@ -33,6 +33,7 @@ interface ProfileRow {
   bio?: string | null;
   avatar_path?: string | null;
   comment_policy?: string;
+  dm_policy?: string;
   created_at: Date;
 }
 
@@ -47,6 +48,7 @@ export function profileJson(p: ProfileRow) {
     bio: p.bio ?? null,
     avatarUrl: p.avatar_path ?? null,
     commentPolicy: p.comment_policy ?? 'everyone',
+    dmPolicy: p.dm_policy ?? 'everyone',
     createdAt: p.created_at.toISOString(),
   };
 }

@@ -20,6 +20,9 @@ export interface Config {
   appDownloadUrl: string;
   contactEmail: string;
   logLevel: string;
+  mapillaryToken: string;
+  googlePlacesApiKey: string;
+  googlePhotosDailyLimit: number;
 }
 
 export function loadConfig(): Config {
@@ -42,5 +45,9 @@ export function loadConfig(): Config {
     appDownloadUrl: process.env.APP_DOWNLOAD_URL ?? 'https://github.com/aniketpitre/Food-MVP/releases/latest',
     contactEmail: process.env.CONTACT_EMAIL ?? 'contact@example.com',
     logLevel: process.env.LOG_LEVEL ?? 'info',
+    mapillaryToken: process.env.MAPILLARY_TOKEN ?? '',
+    googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? '',
+    // 30 a day stays inside Google's 1,000 free photo loads a month.
+    googlePhotosDailyLimit: Number(process.env.GOOGLE_PHOTOS_DAILY_LIMIT ?? 30),
   };
 }

@@ -16,6 +16,8 @@ import { commentRoutes } from './routes/comments.js';
 import { socialRoutes } from './routes/social.js';
 import { discoverRoutes } from './routes/discover.js';
 import { adminRoutes } from './routes/admin.js';
+import { messageRoutes } from './routes/messages.js';
+import { storyRoutes } from './routes/stories.js';
 import { pageRoutes } from './routes/pages.js';
 
 declare module 'fastify' {
@@ -93,6 +95,8 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean 
   await app.register(commentRoutes);
   await app.register(socialRoutes);
   await app.register(discoverRoutes);
+  await app.register(messageRoutes);
+  await app.register(storyRoutes);
   await app.register(adminRoutes);
   await app.register(pageRoutes);
 

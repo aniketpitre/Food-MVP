@@ -179,7 +179,8 @@ export async function discoverRoutes(app: FastifyInstance) {
     };
   });
 
-  // Places for the map: the ones with dishes on FoodFeed, each with its best dish.
+  // Places for the map: the ones with dishes on FoodFeed, each with its best dish, a food
+  // logo (the best dish's category, else a guess from the cuisine) and what the popup shows.
   // With all=true, also real places nobody has posted from yet (imported from OpenStreetMap).
   app.get('/map', { preHandler: optionalAuth }, async (req, reply) => {
     const q = parse(
@@ -189,14 +190,21 @@ export async function discoverRoutes(app: FastifyInstance) {
     );
     if (!q) return;
     const { rows } = await db.query(
-      `select r.id, r.name, r.locality, r.cuisine, st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
+      `select r.id, r.name, r.locality, r.cuisine, r.address, r.opening_hours as "openingHours",
+              st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
               count(d.id)::int as "dishCount",
+              (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
+               where de.restaurant_id = r.id and e.kind = 'recommend') as lovers,
+              (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
+               order by (rp.source = 'owner') desc, rp.created_at limit 1) as "photoUrl",
               (select json_build_object('dishId', d2.id, 'name', d2.name, 'loves', coalesce(dr.loves, 0),
                         'percent', case when coalesce(dr.loves, 0) + coalesce(dr.passes, 0) > 0
                                         then round(100.0 * dr.loves / (dr.loves + dr.passes)) end,
+                        'priceInr', d2.price_inr, 'isVeg', d2.is_veg, 'emoji', c.emoji,
                         'thumbUrl', (select p.thumb_path from posts p where p.dish_id = d2.id and p.status = 'live'
                                      order by (p.id = d2.cover_post_id) desc, p.created_at desc limit 1))
                from dishes d2 left join dish_rating dr on dr.dish_id = d2.id
+               left join dish_categories c on c.id = d2.category_id
                where d2.restaurant_id = r.id and d2.status = 'live'
                  and exists (select 1 from posts p where p.dish_id = d2.id and p.status = 'live')
                order by coalesce(dr.confidence, 0) desc, coalesce(dr.loves, 0) desc limit 1) as "topDish"
@@ -210,6 +218,29 @@ export async function discoverRoutes(app: FastifyInstance) {
        limit 3000`,
       [q.city, q.all === 'true'],
     );
-    return { places: rows };
+    return { places: rows.map((r) => ({ ...r, emoji: r.topDish?.emoji ?? foodLogo(r.cuisine, r.name) })) };
   });
+}
+
+const LOGOS: [RegExp, string][] = [
+  [/pizza/, '🍕'],
+  [/burger/, '🍔'],
+  [/ice.?cream|gelato|kulfi/, '🍦'],
+  [/cake|bakery|pastry|patisserie|dessert|sweet|mithai/, '🧁'],
+  [/donut|doughnut/, '🍩'],
+  [/coffee|cafe|café/, '☕'],
+  [/tea|chai/, '🍵'],
+  [/juice|shake|smoothie|bubble/, '🥤'],
+  [/chinese|noodle|asian|thai|momo|ramen/, '🍜'],
+  [/sushi|japanese/, '🍣'],
+  [/sandwich|sub\b|bread/, '🥪'],
+  [/roll|wrap|shawarma|kebab|kabab|frankie/, '🌯'],
+  [/chicken|grill|bbq|barbecue|tandoor/, '🍗'],
+  [/biryani|indian|thali|curry|punjabi|maharashtrian|south|dosa|idli|veg/, '🍛'],
+];
+
+/** A food logo for a place nobody has posted from yet, guessed from its cuisine or name. */
+export function foodLogo(cuisine: string | null, name: string): string {
+  const text = `${cuisine ?? ''} ${name}`.toLowerCase();
+  return LOGOS.find(([re]) => re.test(text))?.[1] ?? '🍽️';
 }

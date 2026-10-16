@@ -121,7 +121,7 @@ export async function actionRoutes(app: FastifyInstance) {
   app.post('/reports', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
     const body = parse(
       z.object({
-        targetType: z.enum(['post', 'dish', 'user', 'comment']),
+        targetType: z.enum(['post', 'dish', 'user', 'comment', 'message', 'story']),
         targetId: uuid.optional(),
         targetHandle: z.string().max(20).optional(),
         reason: z.enum(['wrong_place', 'not_food', 'inappropriate', 'spam', 'other']),
@@ -137,7 +137,7 @@ export async function actionRoutes(app: FastifyInstance) {
       targetId = rows[0]?.id;
     }
     if (!targetId) return reply.code(400).send({ error: 'invalid_input', message: 'Missing report target.' });
-    const table = { post: 'posts', dish: 'dishes', user: 'profiles', comment: 'comments' }[body.targetType];
+    const table = { post: 'posts', dish: 'dishes', user: 'profiles', comment: 'comments', message: 'messages', story: 'stories' }[body.targetType];
     const { rowCount } = await db.query(`select 1 from ${table} where id = $1`, [targetId]);
     if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Nothing to report.' });
 
@@ -148,7 +148,8 @@ export async function actionRoutes(app: FastifyInstance) {
     );
 
     let hidden = false;
-    if (body.targetType !== 'user') {
+    // Messages go to the review queue only; the reporter can already block the sender.
+    if (body.targetType !== 'user' && body.targetType !== 'message') {
       const { rows } = await db.query<{ n: number }>(
         `select count(*)::int as n from reports rp join profiles pr on pr.id = rp.reporter_id
          where rp.target_type = $1 and rp.target_id = $2 and rp.status = 'open'
@@ -157,7 +158,8 @@ export async function actionRoutes(app: FastifyInstance) {
       );
       const { rows: t } = await db.query<{ v: string }>("select cfg('report_hide_threshold') as v");
       if (rows[0]!.n >= Number(t[0]!.v)) {
-        await db.query(`update ${table} set status = 'hidden' where id = $1 and status = 'live'`, [targetId]);
+        if (body.targetType === 'story') await db.query('update stories set expires_at = now() where id = $1', [targetId]);
+        else await db.query(`update ${table} set status = 'hidden' where id = $1 and status = 'live'`, [targetId]);
         hidden = true;
       }
     }
