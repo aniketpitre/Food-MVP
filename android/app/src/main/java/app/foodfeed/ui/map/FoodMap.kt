@@ -1,5 +1,7 @@
 package app.foodfeed.ui.map
 
+import app.foodfeed.ui.components.DemoTag
+import app.foodfeed.ui.components.rememberTakeMeThere
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.Color
@@ -411,7 +413,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
     }
 
     val current = places.firstOrNull { it.id == selected }
-    val takeMeThere = app.foodfeed.ui.components.rememberTakeMeThere()
+    val takeMeThere = rememberTakeMeThere()
     Box(modifier.fillMaxSize()) {
         AndroidView({ mapView }, Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).testTag("food_map"))
 
@@ -596,7 +598,7 @@ fun MapPopup(
                     // The name opens the place page: its photos, hours and every dish.
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onOpenPlace(p.id) },
                 )
-                if (p.demo) app.foodfeed.ui.components.DemoTag()
+                if (p.demo) DemoTag()
                 val line = listOfNotNull(p.cuisine?.replaceFirstChar { it.uppercase() }, p.locality, Format.distance(distanceM)).joinToString(" · ")
                 if (line.isNotEmpty()) {
                     Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -723,7 +725,7 @@ private fun PlaceCard(p: MapPlace, thumb: String?, onClick: () -> Unit) {
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(p.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (p.demo) app.foodfeed.ui.components.DemoTag()
+                if (p.demo) DemoTag()
             }
             p.topDish?.let { t ->
                 Text("Best here: ${t.name}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

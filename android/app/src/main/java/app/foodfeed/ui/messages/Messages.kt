@@ -1,5 +1,6 @@
 package app.foodfeed.ui.messages
 
+import app.foodfeed.data.SearchResult
 import app.foodfeed.data.ShareMessage
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -920,7 +921,7 @@ fun AttachSheet(onDismiss: () -> Unit, onPick: (NewMessage) -> Unit) {
     val app = LocalApp.current
     val city by app.city.collectAsState()
     var query by remember { mutableStateOf("") }
-    var result by remember { mutableStateOf<app.foodfeed.data.SearchResult?>(null) }
+    var result by remember { mutableStateOf<SearchResult?>(null) }
     LaunchedEffect(query, city) {
         val c = city ?: return@LaunchedEffect
         delay(250)
@@ -931,7 +932,7 @@ fun AttachSheet(onDismiss: () -> Unit, onPick: (NewMessage) -> Unit) {
         } else {
             runCatching {
                 val feed = apiCall { app.api.feed(c.id, null, "top", 12, 0, "attach", loc?.lat, loc?.lng) }
-                app.foodfeed.data.SearchResult(dishes = feed.items)
+                SearchResult(dishes = feed.items)
             }.getOrNull()
         }
     }

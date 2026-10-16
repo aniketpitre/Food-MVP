@@ -1,5 +1,7 @@
 package app.foodfeed.ui.dish
 
+import app.foodfeed.ui.components.DemoTag
+import app.foodfeed.ui.components.rememberTakeMeThere
 import app.foodfeed.data.DishCard
 import app.foodfeed.ui.messages.SendToSheet
 import androidx.compose.ui.text.SpanStyle
@@ -154,7 +156,7 @@ fun DishScreen(
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var sendingCard by remember { mutableStateOf<DishCard?>(null) }
     var sendingPost by remember { mutableStateOf<String?>(null) }
-    val takeMeThere = app.foodfeed.ui.components.rememberTakeMeThere()
+    val takeMeThere = rememberTakeMeThere()
     val commentCounts by app.commentCounts.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -311,7 +313,7 @@ fun DishContent(
                             VegMark(dish.isVeg)
                             if (dish.isVeg != null) Spacer(Modifier.width(8.dp))
                             if (dish.restaurant.isDemo) {
-                                app.foodfeed.ui.components.DemoTag()
+                                DemoTag()
                                 Spacer(Modifier.width(8.dp))
                             }
                             Text(
