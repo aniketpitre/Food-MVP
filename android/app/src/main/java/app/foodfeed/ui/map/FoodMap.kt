@@ -228,7 +228,7 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 m.uiSettings.isLogoEnabled = false
                 m.uiSettings.isAttributionEnabled = false
                 m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style ->
-                    addLayers(style)
+                    runCatching { addLayers(style) }.onFailure { android.util.Log.e("FoodMap", "map layers failed", it) }
                     styleReady = true
                     FoodMapProbe.styleReady = true
                 }
@@ -792,24 +792,27 @@ private fun addLayers(style: Style) {
             PropertyFactory.symbolSortKey(Expression.get("rank")),
         ).withFilter(hasDishes),
     )
-    // The accuracy halo: metres → pixels depends on zoom (doubles per level; at zoom 15 a
-    // pixel is ~4.8 m on screen at India's latitudes).
-    style.addLayer(
-        CircleLayer("ff-me-halo", ME).withProperties(
-            PropertyFactory.circleRadius(
-                Expression.interpolate(
-                    Expression.exponential(2f), Expression.zoom(),
-                    Expression.stop(10, Expression.division(Expression.get("acc"), Expression.literal(150f))),
-                    Expression.stop(20, Expression.division(Expression.get("acc"), Expression.literal(0.146f))),
+    // The accuracy halo: the phone's error estimate in metres, shown as a soft circle. At
+    // zoom 15 one pixel is about 4.8 m here; every zoom level halves that. Optional: if this
+    // layer can't be added, the map still works.
+    runCatching {
+        style.addLayer(
+            CircleLayer("ff-me-halo", ME).withProperties(
+                PropertyFactory.circleRadius(
+                    Expression.interpolate(
+                        Expression.exponential(2f), Expression.zoom(),
+                        Expression.stop(10f, Expression.product(Expression.toNumber(Expression.get("acc")), Expression.literal(1f / 150f))),
+                        Expression.stop(20f, Expression.product(Expression.toNumber(Expression.get("acc")), Expression.literal(1f / 0.146f))),
+                    ),
                 ),
+                PropertyFactory.circleColor("#1E88E5"),
+                PropertyFactory.circleOpacity(0.15f),
+                PropertyFactory.circleStrokeColor("#1E88E5"),
+                PropertyFactory.circleStrokeOpacity(0.35f),
+                PropertyFactory.circleStrokeWidth(1f),
             ),
-            PropertyFactory.circleColor("#1E88E5"),
-            PropertyFactory.circleOpacity(0.15f),
-            PropertyFactory.circleStrokeColor("#1E88E5"),
-            PropertyFactory.circleStrokeOpacity(0.35f),
-            PropertyFactory.circleStrokeWidth(1f),
-        ),
-    )
+        )
+    }.onFailure { android.util.Log.w("FoodMap", "accuracy halo skipped", it) }
     style.addLayer(
         CircleLayer("ff-me", ME).withProperties(
             PropertyFactory.circleRadius(8f),

@@ -20,7 +20,7 @@ done
 ls -la device-shots
 adb logcat -d > logcat.txt
 echo "--- UI tree and app log lines"
-grep -E "JOURNEY : map|pin tap|Mbgl|MapLibre|maplibre" logcat.txt | tail -80
+grep -E "JOURNEY : map|pin tap|FoodMap|Mbgl.*(rror|xception)|AndroidRuntime" logcat.txt | tail -80
 grep -E "JOURNEY" logcat.txt | tail -60
 if grep -q "OK (1 test)" journey.log; then
   echo "Device journey passed."
