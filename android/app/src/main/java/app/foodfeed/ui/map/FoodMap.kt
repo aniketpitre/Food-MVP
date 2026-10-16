@@ -227,11 +227,18 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 m.uiSettings.isCompassEnabled = false
                 m.uiSettings.isLogoEnabled = false
                 m.uiSettings.isAttributionEnabled = false
-                m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style ->
-                    runCatching { addLayers(style) }.onFailure { android.util.Log.e("FoodMap", "map layers failed", it) }
-                    styleReady = true
-                    FoodMapProbe.styleReady = true
+                // Our layers go on once the style is in. The style callback alone has been seen
+                // to go missing on slow networks, so the style-finished event and a short
+                // poll below can do the same job; whichever comes first wins.
+                val ready: (Style) -> Unit = { style ->
+                    if (!styleReady && style.isFullyLoaded) {
+                        runCatching { addLayers(style) }.onFailure { android.util.Log.e("FoodMap", "map layers failed", it) }
+                        styleReady = true
+                        FoodMapProbe.styleReady = true
+                    }
                 }
+                addOnDidFinishLoadingStyleListener { m.style?.let(ready) }
+                m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style -> ready(style) }
                 m.addOnMapClickListener { point ->
                     val hit = m.queryRenderedFeatures(m.projection.toScreenLocation(point), *PIN_LAYERS)
                     // A tap on empty map closes the card.
@@ -244,6 +251,20 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
         }
     }
     MapLifecycle(mapView)
+    LaunchedEffect(map) {
+        val m = map ?: return@LaunchedEffect
+        repeat(120) {
+            if (styleReady) return@LaunchedEffect
+            m.style?.takeIf { it.isFullyLoaded }?.let { style ->
+                runCatching { addLayers(style) }.onFailure { android.util.Log.e("FoodMap", "map layers failed", it) }
+                styleReady = true
+                FoodMapProbe.styleReady = true
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(500)
+        }
+        android.util.Log.w("FoodMap", "map style never finished loading")
+    }
     DisposableEffect(mapView) {
         FoodMapProbe.view = mapView
         onDispose {
