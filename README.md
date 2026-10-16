@@ -109,8 +109,8 @@ categories, 30 demo dishes at 12 invented places, and (with `DEMO_ACTIVITY=true`
 `demo_` accounts so every tab has data.
 
 **Before inviting real people:** set `DEMO_ACTIVITY=false`, run
-`docker compose exec api node dist/cli.js remove-demo`, replace the illustrated demo images and places
-with your own (see the plan, section 7.1), and fill in the bracketed parts of the policy pages.
+`docker compose exec api node dist/cli.js remove-demo --all` (demo accounts plus the invented demo places and
+their illustrated photos; real imported places stay), and fill in the bracketed parts of the policy pages.
 
 | Task | Command |
 |---|---|

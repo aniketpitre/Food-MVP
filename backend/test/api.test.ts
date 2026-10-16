@@ -997,3 +997,21 @@ describe('photos of places', () => {
     expect(mediaCalls).toBe(2);
   });
 });
+
+describe('removing demo content', () => {
+  it('removes demo accounts and, with --all, the invented places, keeping real ones', async () => {
+    const { removeDemoActivity, removeDemoCatalog } = await import('../src/seed.js');
+    const real = await db.query<{ n: number }>("select count(*)::int as n from restaurants where source <> 'seed'");
+    const { rows: anyPost } = await db.query<{ id: string }>(
+      "select p.id from posts p join dishes d on d.id = p.dish_id join restaurants r on r.id = d.restaurant_id where r.source = 'seed' limit 1",
+    );
+    await removeDemoActivity(db);
+    expect((await db.query('select 1 from profiles where is_demo')).rowCount).toBe(0);
+    const r = await removeDemoCatalog(db, mediaDir);
+    expect(r.places).toBeGreaterThan(0);
+    expect((await db.query("select 1 from restaurants where source = 'seed'")).rowCount).toBe(0);
+    expect((await db.query<{ n: number }>("select count(*)::int as n from restaurants where source <> 'seed'")).rows[0]!.n).toBe(real.rows[0]!.n);
+    await expect(fs.stat(path.join(mediaDir, 'posts', anyPost[0]!.id))).rejects.toThrow();
+    expect((await app.inject(`/feed?city=${cityId}&tab=top&limit=5&offset=0&seed=x`)).statusCode).toBe(200);
+  });
+});

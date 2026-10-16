@@ -2,7 +2,7 @@
 //   docker compose exec api node dist/cli.js seed
 import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
-import { removeDemoActivity, seedCatalog, seedDemoActivity } from './seed.js';
+import { removeDemoActivity, removeDemoCatalog, seedCatalog, seedDemoActivity } from './seed.js';
 import { fetchOsmPlaces, importOsmPlaces } from './osm.js';
 import { fetchPlacePhotos } from './photos.js';
 
@@ -23,9 +23,16 @@ try {
     case 'demo-activity':
       if (!(await seedDemoActivity(db, log))) log('demo activity already present');
       break;
-    case 'remove-demo':
+    case 'remove-demo': {
+      // remove-demo        : the demo_ accounts and their votes, follows, stories
+      // remove-demo --all  : also the invented demo places, dishes and DEMO IMAGE photos
       log(`removed ${await removeDemoActivity(db)} demo accounts and their actions`);
+      if (args.includes('--all')) {
+        const r = await removeDemoCatalog(db, config.mediaDir);
+        log(`removed ${r.places} demo places with their dishes and ${r.photos} demo photos`);
+      }
       break;
+    }
     case 'refresh':
       await db.query('select refresh_dish_stats()');
       await db.query('select refresh_people_pick()');

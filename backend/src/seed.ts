@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Db } from './db.js';
-import { storePostImage } from './media.js';
+import { deletePostImages, storePostImage } from './media.js';
 import * as data from './seed-data.js';
 
 const imagesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../seed/images');
@@ -167,4 +167,21 @@ export async function removeDemoActivity(db: Db): Promise<number> {
   await db.query('select refresh_dish_stats()');
   await db.query('select refresh_people_pick()');
   return rowCount ?? 0;
+}
+
+/**
+ * Removes the invented demo places with their dishes and illustrated "DEMO IMAGE" photos
+ * (everything seeded with source = 'seed'). Cities, dish types and spellings stay.
+ * Real places imported from OpenStreetMap and places people added are untouched.
+ */
+export async function removeDemoCatalog(db: Db, mediaDir: string): Promise<{ places: number; photos: number }> {
+  const { rows: posts } = await db.query<{ id: string }>(
+    `select p.id from posts p join dishes d on d.id = p.dish_id join restaurants r on r.id = d.restaurant_id
+     where r.source = 'seed'`,
+  );
+  const { rowCount } = await db.query("delete from restaurants where source = 'seed'");
+  for (const p of posts) await deletePostImages(mediaDir, p.id);
+  await db.query('select refresh_dish_stats()');
+  await db.query('select refresh_people_pick()');
+  return { places: rowCount ?? 0, photos: posts.length };
 }
