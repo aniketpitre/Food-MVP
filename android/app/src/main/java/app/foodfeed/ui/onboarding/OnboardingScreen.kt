@@ -1,22 +1,46 @@
 package app.foodfeed.ui.onboarding
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import app.foodfeed.ui.components.AppIcons
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.components.Sticker
+import app.foodfeed.ui.theme.Chili
+import app.foodfeed.ui.theme.Ink
+import app.foodfeed.ui.theme.Lagoon
+import app.foodfeed.ui.theme.Mint
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Turmeric
+import app.foodfeed.ui.theme.pressScale
+import kotlinx.coroutines.delay
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,9 +54,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -188,18 +210,12 @@ fun OnboardingContent(
     onChoose: (City) -> Unit,
     onChangeServer: () -> Unit,
 ) {
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
+        WelcomeHero()
     Column(
-        Modifier.fillMaxSize().statusBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(24.dp),
+        Modifier.padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Spacer(Modifier.height(24.dp))
-        Wordmark(large = true)
-        Text(
-            "The dishes people in your city actually recommend, whatever the restaurant's rating.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
 
         when (state.step) {
             OnboardingStep.Server -> {
@@ -225,7 +241,7 @@ fun OnboardingContent(
                 )
             }
             OnboardingStep.City -> {
-                Text("Show dishes near you?", style = MaterialTheme.typography.titleMedium)
+                Text("Show dishes near you?", style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "We use your approximate location once to pick your city. It's never stored.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -236,16 +252,9 @@ fun OnboardingContent(
                     enabled = !state.detecting, leading = Icons.Filled.LocationOn,
                 )
                 state.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                Text("Or choose a city", style = MaterialTheme.typography.titleSmall)
-                Column {
-                    state.cities.forEach { c ->
-                        ListItem(
-                            headlineContent = { Text(c.name) },
-                            supportingContent = { Text(if (c.isActive) listOfNotNull(c.state, "Live").joinToString(" · ") else "Coming soon") },
-                            modifier = if (c.isActive) Modifier.clickable { onChoose(c) } else Modifier,
-                        )
-                        HorizontalDivider()
-                    }
+                KickerText("Or choose a city", Modifier.padding(top = 10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    state.cities.forEachIndexed { i, c -> CityCard(c, i) { onChoose(c) } }
                 }
                 // Builds with a server baked in behave like a normal app: no server choice at all.
                 if (BuildConfig.DEFAULT_SERVER_URL.isBlank()) {
@@ -253,5 +262,106 @@ fun OnboardingContent(
                 }
             }
         }
+    }
+    }
+}
+
+/**
+ * The welcome block: a saffron panel where the wordmark's letters drop in one by one with a
+ * bounce, the promise rises in, and three stickers slap on at angles.
+ */
+@Composable
+private fun WelcomeHero() {
+    val t = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { t.animateTo(1f, tween(1500, easing = LinearEasing)) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 40.dp, bottomEnd = 40.dp))
+            .background(Saffron)
+            .statusBarsPadding()
+            .padding(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 30.dp),
+    ) {
+        Row {
+            "foodfeed.".forEachIndexed { i, ch ->
+                Text(
+                    ch.toString(),
+                    style = MaterialTheme.typography.displayLarge,
+                    color = when {
+                        ch == '.' -> Chili
+                        i < 4 -> Ink
+                        else -> Color.White
+                    },
+                    modifier = Modifier.graphicsLayer {
+                        val p = Motion.window(t.value, 0.04f * i, 0.3f) { Motion.backOut(it, 2.4f) }
+                        translationY = (1f - p) * -140f
+                        alpha = p.coerceIn(0f, 1f)
+                        rotationZ = (1f - p) * (if (i % 2 == 0) -25f else 25f)
+                    },
+                )
+            }
+        }
+        Text(
+            "Eat what your city swears by.",
+            style = MaterialTheme.typography.headlineSmall,
+            color = Ink,
+            modifier = Modifier.graphicsLayer {
+                val p = Motion.window(t.value, 0.35f, 0.3f)
+                alpha = p
+                translationY = (1f - p) * 30f
+            },
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Dishes ranked by how many real people recommend them, whatever the restaurant's rating.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Ink.copy(alpha = 0.75f),
+            modifier = Modifier.graphicsLayer {
+                val p = Motion.window(t.value, 0.42f, 0.3f)
+                alpha = p
+                translationY = (1f - p) * 30f
+            },
+        )
+        Spacer(Modifier.height(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Sticker("Crowd favourite", Chili, content = Color.White, icon = AppIcons.Heart, tilt = -6f, appear = { Motion.window(t.value, 0.55f, 0.25f) { it } })
+            Sticker("Hidden gem", Lagoon, content = Color.White, icon = AppIcons.Gem, tilt = 5f, appear = { Motion.window(t.value, 0.65f, 0.25f) { it } })
+            Sticker("₹90", Turmeric, tilt = -3f, appear = { Motion.window(t.value, 0.75f, 0.25f) { it } })
+        }
+    }
+}
+
+/** A city as a rounded card; live cities press down and show a mint "Live" chip. */
+@Composable
+private fun CityCard(c: City, index: Int, onClick: () -> Unit) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { delay(70L * index); appear.animateTo(1f, Motion.enter(Motion.LONG)) }
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = appear.value
+                translationX = (1f - appear.value) * 60f
+            }
+            .pressScale(interaction, 0.97f)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .then(if (c.isActive) Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick) else Modifier)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(c.name, style = MaterialTheme.typography.titleLarge)
+            c.state?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Text(
+            if (c.isActive) "Live" else "Soon",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (c.isActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .background(if (c.isActive) Mint else MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(50))
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }

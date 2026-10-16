@@ -137,8 +137,8 @@ fun AuthContent(
         Wordmark()
         Spacer(Modifier.height(12.dp))
         Text(
-            if (state.register) "Join FoodFeed" else "Welcome back",
-            style = MaterialTheme.typography.headlineMedium,
+            if (state.register) "Join the table" else "Welcome back",
+            style = MaterialTheme.typography.displaySmall,
         )
         Text(
             "Recommend dishes, save them for later and post the ones you love.",

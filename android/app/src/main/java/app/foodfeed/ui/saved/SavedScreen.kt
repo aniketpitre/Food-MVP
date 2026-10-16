@@ -20,7 +20,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import app.foodfeed.ui.components.ActionLook
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.dishHero
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -134,32 +144,49 @@ fun SavedContent(
         items.isEmpty() -> CenteredMessage(
             "Nothing saved yet",
             "Tap the bookmark on any dish to keep it here for later.",
+            AppIcons.BookmarkBorder,
         )
         else -> LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
             item(span = { GridItemSpan(2) }) {
-                Text("Saved", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 6.dp, bottom = 6.dp))
+                Column(Modifier.padding(start = 6.dp, top = 6.dp, bottom = 10.dp)) {
+                    KickerText(if (items.size == 1) "1 dish to try" else "${items.size} dishes to try")
+                    Text("Your cravings", style = MaterialTheme.typography.displaySmall)
+                }
             }
-            items(items, key = { it.id }) { d ->
+            itemsIndexed(items, key = { _, d -> d.id }) { i, d ->
+                // Polaroids pinned to a board: each leans a little, and drops in a beat after the last.
+                val tilt = listOf(-2f, 1.6f, 1.2f, -1.4f)[i % 4]
+                val drop = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { delay(60L * i.coerceAtMost(8)); drop.animateTo(1f, Motion.bouncy()) }
                 val interaction = remember { MutableInteractionSource() }
                 Column(
                     Modifier
                         .animateItem()
-                        .pressScale(interaction, 0.97f)
-                        .clickable(interaction, indication = null, role = Role.Button) { onOpenDish(d.id) },
+                        .graphicsLayer {
+                            val p = drop.value
+                            alpha = p.coerceIn(0f, 1f)
+                            translationY = (1f - p) * -80f
+                            rotationZ = tilt + (1f - p) * tilt * 4f
+                        }
+                        .pressScale(interaction, 0.95f)
+                        .shadow(4.dp, RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(16.dp))
+                        .clickable(interaction, indication = null, role = Role.Button) { onOpenDish(d.id) }
+                        .padding(8.dp),
                 ) {
                     DishImage(
                         thumbOf(d), d.cover?.placeholderColor, d.name,
-                        Modifier.fillMaxWidth().aspectRatio(0.85f).clip(RoundedCornerShape(18.dp)),
+                        Modifier.fillMaxWidth().aspectRatio(0.9f).dishHero(d.id, 10.dp).clip(RoundedCornerShape(10.dp)),
                     )
-                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(top = 8.dp, start = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(d.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(d.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
                                 Format.placeLine(d.restaurant.name, null, d.distanceM),
                                 style = MaterialTheme.typography.bodySmall,
@@ -168,7 +195,10 @@ fun SavedContent(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        EngageAction(Engagement.Save, true, "", null, "Remove from saved", { onUnsave(d) }, iconSize = 20.dp)
+                        EngageAction(
+                            Engagement.Save, true, "", null, "Remove from saved", { onUnsave(d) },
+                            look = ActionLook.Bare, iconSize = 20.dp,
+                        )
                     }
                 }
             }

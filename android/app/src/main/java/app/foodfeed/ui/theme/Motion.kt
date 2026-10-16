@@ -39,9 +39,14 @@ import androidx.compose.ui.text.TextStyle
  * One motion vocabulary for the whole app, so everything moves like it belongs together.
  *
  * - Things that respond to a finger use springs (they can be interrupted mid-flight and
- *   never jump). Taps settle in ~250 ms, the heart overshoots a little because it should feel happy.
+ *   never jump). Taps settle in ~250 ms; anything that celebrates (heart, save, stickers)
+ *   overshoots, because it should feel happy.
  * - Things that enter or leave use Material's emphasized curves: fast out, long gentle landing.
- * - Nothing animates for more than ~400 ms; nothing loops except loading shimmer.
+ * - Content is choreographed, not dumped: when a card lands, the photo settles first, then
+ *   the sticker slaps on, the title rises out of a mask and the rest follows 60-90 ms apart.
+ *   One progress value drives each sequence ([window] cuts it into staggered steps), so a
+ *   whole sequence costs a single animation and no recomposition.
+ * - Nothing loops except the loading shimmer.
  */
 object Motion {
     /** Material 3 emphasized curves. */
@@ -66,6 +71,31 @@ object Motion {
         tween(duration, delay, EmphasizedDecelerate)
 
     fun <T> exit(duration: Int = SHORT): FiniteAnimationSpec<T> = tween(duration, 0, EmphasizedAccelerate)
+
+    /** Bigger overshoot for stickers and celebratory moments. */
+    fun <T> bouncy(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.5f, stiffness = 380f)
+
+    /** Leading edge of the liquid tab blob: quick. */
+    fun <T> liquidLead(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.75f, stiffness = 900f)
+
+    /** Trailing edge of the liquid tab blob: lags behind, so the blob stretches while it travels. */
+    fun <T> liquidTrail(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 260f)
+
+    /**
+     * The slice of a 0..1 sequence that belongs to one step: 0 before [start], 1 after
+     * [start] + [length], eased in between.
+     */
+    fun window(t: Float, start: Float, length: Float, easing: (Float) -> Float = { EmphasizedDecelerate.transform(it) }): Float =
+        easing(((t - start) / length).coerceIn(0f, 1f))
+
+    /** Ease-out with overshoot ("back out"); goes a little past 1 before landing. */
+    fun backOut(x: Float, overshoot: Float = 1.70158f): Float {
+        val c3 = overshoot + 1f
+        val p = x - 1f
+        return 1f + c3 * p * p * p + overshoot * p * p
+    }
+
+    fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 }
 
 /**

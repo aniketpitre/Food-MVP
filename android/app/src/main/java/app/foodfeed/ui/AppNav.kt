@@ -1,9 +1,32 @@
 package app.foodfeed.ui
 
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContentScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import app.foodfeed.ui.theme.Ink
+import app.foodfeed.ui.theme.LocalNavScope
+import app.foodfeed.ui.theme.LocalSharedScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -14,20 +37,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -36,7 +55,6 @@ import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.pressScale
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -137,6 +155,7 @@ inline fun <reified VM : ViewModel> appViewModel(key: String? = null, crossinlin
     return viewModel(key = key, factory = viewModelFactory { initializer { create(app) } })
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
     val app = LocalApp.current
@@ -180,31 +199,46 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                 enter = slideInVertically(Motion.enter()) { it } + fadeIn(Motion.enter()),
                 exit = slideOutVertically(Motion.exit()) { it } + fadeOut(Motion.exit()),
             ) {
-                MinimalTabBar(currentRoute) { nav.navigateToTab(it) }
+                LiquidDock(currentRoute) { nav.navigateToTab(it) }
             }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).then(if (showBottomBar) Modifier else Modifier.navigationBarsPadding())) {
+            SharedTransitionLayout(Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalSharedScope provides this) {
             NavHost(
                 nav,
                 startDestination = startRoute,
-                // Tabs cross-fade in place; pushed pages slide in from the right with the
-                // emphasized curve while the page underneath drifts back a little and dims.
+                // Tabs slide a little toward the side you tapped and fade; the dish page only
+                // fades, because the photo itself morphs from the card (hero transition); other
+                // pushed pages slide in from the right while the page underneath drifts back and dims.
                 enterTransition = {
-                    if (isTabSwitch()) fadeIn(Motion.enter(Motion.MEDIUM, 60))
-                    else slideInHorizontally(Motion.enter(Motion.LONG)) { it / 3 } + fadeIn(Motion.enter(Motion.MEDIUM))
+                    when {
+                        isTabSwitch() -> tabEnter(tabDirection())
+                        targetIs(Routes.DISH) -> fadeIn(tween(320, 80, Motion.Standard))
+                        else -> slideInHorizontally(Motion.enter(Motion.LONG)) { it / 3 } + fadeIn(Motion.enter(Motion.MEDIUM))
+                    }
                 },
                 exitTransition = {
-                    if (isTabSwitch()) fadeOut(Motion.exit(90))
-                    else slideOutHorizontally(Motion.enter(Motion.LONG)) { -it / 8 } + fadeOut(Motion.exit(Motion.MEDIUM))
+                    when {
+                        isTabSwitch() -> fadeOut(Motion.exit(110)) + scaleOut(Motion.exit(110), targetScale = 0.98f)
+                        targetIs(Routes.DISH) -> fadeOut(tween(300, 60, Motion.Standard))
+                        else -> slideOutHorizontally(Motion.enter(Motion.LONG)) { -it / 8 } + fadeOut(Motion.exit(Motion.MEDIUM))
+                    }
                 },
                 popEnterTransition = {
-                    if (isTabSwitch()) fadeIn(Motion.enter(Motion.MEDIUM, 60))
-                    else slideInHorizontally(Motion.enter(Motion.LONG)) { -it / 8 } + fadeIn(Motion.enter(Motion.MEDIUM))
+                    when {
+                        isTabSwitch() -> tabEnter(tabDirection())
+                        initialIs(Routes.DISH) -> fadeIn(tween(300, 40, Motion.Standard))
+                        else -> slideInHorizontally(Motion.enter(Motion.LONG)) { -it / 8 } + fadeIn(Motion.enter(Motion.MEDIUM))
+                    }
                 },
                 popExitTransition = {
-                    if (isTabSwitch()) fadeOut(Motion.exit(90))
-                    else slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { it / 3 } + fadeOut(Motion.exit(Motion.MEDIUM))
+                    when {
+                        isTabSwitch() -> fadeOut(Motion.exit(110))
+                        initialIs(Routes.DISH) -> fadeOut(tween(260, 0, Motion.Standard))
+                        else -> slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { it / 3 } + fadeOut(Motion.exit(Motion.MEDIUM))
+                    }
                 },
             ) {
                 val openDish: (String) -> Unit = { nav.navigate(Routes.dish(it)) }
@@ -221,21 +255,25 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                     }
                 }
                 composable(Routes.FEED) {
-                    val vm = appViewModel { FeedViewModel(it) }
-                    Box(Modifier.statusBarsPadding()) {
-                        FeedScreen(
-                            vm, openDish, openRestaurant,
-                            onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
-                            onSearch = { nav.navigateToTab(Routes.SEARCH) },
-                            onAddDish = { nav.navigateToTab(Routes.ADD) },
-                            onNeedSignIn = signIn,
-                            showMessage = showMessage,
-                        )
+                    NavScoped {
+                        val vm = appViewModel { FeedViewModel(it) }
+                        Box(Modifier.statusBarsPadding()) {
+                            FeedScreen(
+                                vm, openDish, openRestaurant,
+                                onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
+                                onSearch = { nav.navigateToTab(Routes.SEARCH) },
+                                onAddDish = { nav.navigateToTab(Routes.ADD) },
+                                onNeedSignIn = signIn,
+                                showMessage = showMessage,
+                            )
+                        }
                     }
                 }
                 composable(Routes.SEARCH) {
-                    val vm = appViewModel { SearchViewModel(it) }
-                    Box(Modifier.statusBarsPadding()) { SearchScreen(vm, openDish, openRestaurant, signIn, showMessage) }
+                    NavScoped {
+                        val vm = appViewModel { SearchViewModel(it) }
+                        Box(Modifier.statusBarsPadding()) { SearchScreen(vm, openDish, openRestaurant, signIn, showMessage) }
+                    }
                 }
                 composable(Routes.ADD) {
                     val vm = appViewModel { AddDishViewModel(it) }
@@ -244,31 +282,41 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                     }
                 }
                 composable(Routes.SAVED) {
-                    val vm = appViewModel { SavedViewModel(it) }
-                    Box(Modifier.statusBarsPadding()) { SavedScreen(vm, openDish, signIn, showMessage) }
+                    NavScoped {
+                        val vm = appViewModel { SavedViewModel(it) }
+                        Box(Modifier.statusBarsPadding()) { SavedScreen(vm, openDish, signIn, showMessage) }
+                    }
                 }
                 composable(Routes.ME) {
-                    val vm = appViewModel(key = "me") { ProfileViewModel(it, null) }
-                    Box(Modifier.statusBarsPadding()) {
-                        ProfileScreen(vm, true, null, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage)
+                    NavScoped {
+                        val vm = appViewModel(key = "me") { ProfileViewModel(it, null) }
+                        Box(Modifier.statusBarsPadding()) {
+                            ProfileScreen(vm, true, null, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage)
+                        }
                     }
                 }
                 composable(Routes.USER) { entry ->
-                    val handle = entry.arguments?.getString("handle").orEmpty()
-                    val vm = appViewModel(key = "user-$handle") { ProfileViewModel(it, handle) }
-                    Box(Modifier.statusBarsPadding()) {
-                        ProfileScreen(vm, false, { nav.popBackStack() }, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage)
+                    NavScoped {
+                        val handle = entry.arguments?.getString("handle").orEmpty()
+                        val vm = appViewModel(key = "user-$handle") { ProfileViewModel(it, handle) }
+                        Box(Modifier.statusBarsPadding()) {
+                            ProfileScreen(vm, false, { nav.popBackStack() }, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage)
+                        }
                     }
                 }
                 composable(Routes.DISH) { entry ->
-                    val id = entry.arguments?.getString("id").orEmpty()
-                    val vm = appViewModel(key = "dish-$id") { DishViewModel(it, id) }
-                    DishScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                    NavScoped {
+                        val id = entry.arguments?.getString("id").orEmpty()
+                        val vm = appViewModel(key = "dish-$id") { DishViewModel(it, id) }
+                        DishScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                    }
                 }
                 composable(Routes.RESTAURANT) { entry ->
-                    val id = entry.arguments?.getString("id").orEmpty()
-                    val vm = appViewModel(key = "restaurant-$id") { RestaurantViewModel(it, id) }
-                    RestaurantScreen(vm, { nav.popBackStack() }, openDish, signIn, showMessage)
+                    NavScoped {
+                        val id = entry.arguments?.getString("id").orEmpty()
+                        val vm = appViewModel(key = "restaurant-$id") { RestaurantViewModel(it, id) }
+                        RestaurantScreen(vm, { nav.popBackStack() }, openDish, signIn, showMessage)
+                    }
                 }
                 composable(Routes.AUTH) {
                     val vm = appViewModel { AuthViewModel(it) }
@@ -294,6 +342,8 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                     AdminScreen(vm, { nav.popBackStack() }, openDish, showMessage)
                 }
             }
+            }
+            }
         }
     }
 }
@@ -309,24 +359,91 @@ private fun NavHostController.navigateToTab(route: String) {
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boolean =
     initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes
 
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.targetIs(route: String): Boolean =
+    targetState.destination.route == route
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.initialIs(route: String): Boolean =
+    initialState.destination.route == route
+
+/** +1 when moving to a tab on the right, -1 to the left. */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabDirection(): Int {
+    val from = tabs.indexOfFirst { it.route == initialState.destination.route }
+    val to = tabs.indexOfFirst { it.route == targetState.destination.route }
+    return if (to >= from) 1 else -1
+}
+
+private fun tabEnter(direction: Int): EnterTransition =
+    fadeIn(Motion.enter(Motion.MEDIUM, 40)) +
+        slideInHorizontally(Motion.enter(Motion.LONG, 40)) { direction * it / 12 } +
+        scaleIn(Motion.enter(Motion.LONG, 40), initialScale = 0.97f)
+
+/** Gives the screen inside a destination the scope its hero photos animate with. */
+@Composable
+private fun AnimatedContentScope.NavScoped(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalNavScope provides this, content = content)
+}
+
 /**
- * Icons only, no pill indicator: the active icon fills in, and a 4dp ink dot glides
- * underneath it on a spring.
+ * A floating ink dock with a saffron blob behind the current tab. The blob is liquid: its
+ * leading edge races to the new tab on a stiff spring while the trailing edge follows on a
+ * soft one, so it stretches as it travels (and thins, keeping its volume), then snaps back
+ * into a round pill. The icon that gains the blob pops and wiggles.
  */
 @Composable
-private fun MinimalTabBar(currentRoute: String?, onSelect: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding()) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        BoxWithConstraints(Modifier.fillMaxWidth().height(56.dp)) {
-            val slot = maxWidth / tabs.size
-            Row(Modifier.fillMaxSize()) {
-                tabs.forEach { tab ->
-                    val selected = tab.route == currentRoute
-                    val tint by animateColorAsState(
-                        if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                        Motion.enter(Motion.SHORT),
-                        label = "tab-tint",
+internal fun LiquidDock(currentRoute: String?, onSelect: (String) -> Unit) {
+    val index = tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+    val dock = MaterialTheme.colorScheme.inverseSurface
+    val idle = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.62f)
+    val blob = MaterialTheme.colorScheme.primary
+    val shape = RoundedCornerShape(50)
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 10.dp)) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
+                .background(dock, shape),
+        ) {
+            val density = LocalDensity.current
+            val slot = with(density) { (maxWidth / tabs.size).toPx() }
+            val inset = with(density) { 7.dp.toPx() }
+            val left = remember { Animatable(slot * index + inset) }
+            val right = remember { Animatable(slot * (index + 1) - inset) }
+            LaunchedEffect(index, slot) {
+                val l = slot * index + inset
+                val r = slot * (index + 1) - inset
+                val toRight = l > left.value
+                launch { left.animateTo(l, if (toRight) Motion.liquidTrail() else Motion.liquidLead()) }
+                launch { right.animateTo(r, if (toRight) Motion.liquidLead() else Motion.liquidTrail()) }
+            }
+            Box(
+                Modifier.fillMaxSize().drawBehind {
+                    val w = right.value - left.value
+                    val rest = slot - inset * 2
+                    // Stretch thins the blob so it reads as liquid rather than a sliding box.
+                    val h = (size.height - inset * 2) * (rest / w).coerceIn(0.62f, 1f).let { kotlin.math.sqrt(it) }
+                    drawRoundRect(
+                        blob,
+                        topLeft = Offset(left.value, (size.height - h) / 2),
+                        size = Size(w, h),
+                        cornerRadius = CornerRadius(h / 2),
                     )
+                },
+            )
+            Row(Modifier.fillMaxSize()) {
+                tabs.forEachIndexed { i, tab ->
+                    val selected = i == index
+                    val tint by animateColorAsState(if (selected) Ink else idle, Motion.enter(Motion.SHORT), label = "tab-tint")
+                    val pop = remember { Animatable(1f) }
+                    val wiggle = remember { Animatable(0f) }
+                    var was by remember { mutableStateOf(selected) }
+                    LaunchedEffect(selected) {
+                        if (selected && !was) {
+                            launch { pop.snapTo(0.6f); pop.animateTo(1f, Motion.bouncy()) }
+                            launch { wiggle.snapTo(if (tab.route == Routes.ADD) -90f else -16f); wiggle.animateTo(0f, Motion.pop()) }
+                        }
+                        was = selected
+                    }
                     val interaction = remember { MutableInteractionSource() }
                     Box(
                         Modifier
@@ -337,20 +454,18 @@ private fun MinimalTabBar(currentRoute: String?, onSelect: (String) -> Unit) {
                     ) {
                         Icon(
                             if (selected) tab.selectedIcon else tab.icon, tab.label, tint = tint,
-                            modifier = Modifier.size(26.dp).pressScale(interaction, 0.82f),
+                            modifier = Modifier
+                                .size(26.dp)
+                                .pressScale(interaction, 0.8f)
+                                .graphicsLayer {
+                                    scaleX = pop.value
+                                    scaleY = pop.value
+                                    rotationZ = wiggle.value
+                                },
                         )
                     }
                 }
             }
-            val index = tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
-            val dotX by animateDpAsState(slot * index + slot / 2 - 2.dp, Motion.glide(), label = "tab-dot")
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = dotX, y = (-7).dp)
-                    .size(4.dp)
-                    .background(MaterialTheme.colorScheme.onSurface, CircleShape),
-            )
         }
     }
 }

@@ -26,17 +26,38 @@ jobs:
           pip install --quiet pillow
           mkdir -p docs/screenshots
           python3 - <<'PY'
+          import re
+          from collections import defaultdict
           from pathlib import Path
           from PIL import Image
-          for src in sorted(Path("android/app/screenshots").glob("*.png")):
+          src_dir = Path("android/app/screenshots")
+          shots = Path("docs/screenshots"); shots.mkdir(parents=True, exist_ok=True)
+          motion = Path("docs/motion"); motion.mkdir(parents=True, exist_ok=True)
+          gifs = defaultdict(list)
+          for src in sorted(src_dir.glob("*.png")):
+              m = re.match(r"gif_(.+)_(\d+)ms_(\d+)$", src.stem)
+              if m:
+                  gifs[(m.group(1), int(m.group(2)))].append(src)
+                  continue
               im = Image.open(src).convert("RGB")
               w = 540
               im = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
-              im.save(Path("docs/screenshots") / (src.stem + ".jpg"), quality=85, optimize=True)
+              im.save(shots / (src.stem + ".jpg"), quality=85, optimize=True)
+          # Stitch motion frames into looping GIFs, played at real speed with a pause at the end.
+          for (name, step), files in gifs.items():
+              frames = []
+              for f in sorted(files):
+                  im = Image.open(f).convert("RGB")
+                  w = min(420, im.width)
+                  frames.append(im.resize((w, round(im.height * w / im.width)), Image.LANCZOS))
+              pal = [fr.quantize(colors=200, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE) for fr in frames]
+              durations = [step] * (len(pal) - 1) + [900]
+              pal[0].save(motion / f"{name}.gif", save_all=True, append_images=pal[1:], duration=durations, loop=0, optimize=True, disposal=2)
+              print("gif", name, len(pal), "frames")
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/screenshots
+          git add docs/screenshots docs/motion
           if git diff --cached --quiet; then echo "No changes"; exit 0; fi
           git commit -m "Update app screenshots [skip ci]"
           git push

@@ -1,6 +1,21 @@
 package app.foodfeed.ui.search
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import app.foodfeed.ui.components.DashedLine
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.components.TicketShape
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.pressScale
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -133,49 +148,43 @@ fun SearchContent(
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (autoFocus) runCatching { focus.requestFocus() } }
     Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp)) {
+            KickerText("Hungry for")
+            Text("Search", style = MaterialTheme.typography.displaySmall)
+        }
         OutlinedTextField(
             value = state.query,
             onValueChange = onQuery,
-            placeholder = { Text("Dish or place", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            placeholder = { Text("Misal, dosa, a café…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurface) },
             trailingIcon = {
                 if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Clear, "Clear") }
             },
             singleLine = true,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(50),
+            textStyle = MaterialTheme.typography.titleMedium,
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = Color.Transparent,
-                focusedBorderColor = Color.Transparent,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
             ),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).focusRequester(focus),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).focusRequester(focus),
         )
         val r = state.result
         when {
             state.loading && r == null -> LoadingBox()
             state.error != null -> CenteredMessage("Search failed", state.error)
-            r == null -> CenteredMessage(
-                "Find a dish",
-                "Spell it any way you like: wada pav, vada pav, vadapav.",
-            )
+            r == null -> SearchIdeas(onQuery)
             r.dishes.isEmpty() && r.restaurants.isEmpty() -> CenteredMessage(
-                "Nothing found", "Try another spelling or a broader word like \"dosa\".",
+                "Nothing found", "Try another spelling or a broader word like \"dosa\".", Icons.Filled.Search,
             )
-            else -> LazyColumn {
+            else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (r.restaurants.isNotEmpty()) {
                     item(key = "places-title") { SectionTitle("Places") }
-                    items(r.restaurants, key = { "p" + it.id }) { p ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onOpenRestaurant(p.id) }.padding(horizontal = 20.dp, vertical = 12.dp).animateItem(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(AppIcons.Restaurant, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(14.dp))
-                            Text(p.name, style = MaterialTheme.typography.titleMedium)
-                            p.locality?.let {
-                                Text("  ·  $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                    item(key = "places") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(r.restaurants, key = { "p" + it.id }) { p -> PlaceTicket(p.name, p.locality) { onOpenRestaurant(p.id) } }
                         }
                     }
                 }
@@ -183,6 +192,73 @@ fun SearchContent(
                 items(r.dishes, key = { it.id }) { d ->
                     DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) }, modifier = Modifier.animateItem())
                 }
+            }
+        }
+    }
+}
+
+/** A place as a little paper token, with notches and a perforation. */
+@Composable
+private fun PlaceTicket(name: String, locality: String?, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val shape = TicketShape(corner = 16.dp, notch = 8.dp, notchFromTop = 46.dp)
+    Column(
+        Modifier
+            .width(180.dp)
+            .pressScale(interaction, 0.95f)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick),
+    ) {
+        Row(Modifier.height(46.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(AppIcons.Restaurant, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        DashedLine(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.25f), Modifier.padding(horizontal = 12.dp))
+        Text(
+            locality ?: "See the menu",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f),
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
+}
+
+/** Before typing: a few tappable cravings that pop in one after another. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchIdeas(onQuery: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Text(
+            "Spell it any way you like: wada pav, vada pav, vadapav.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf("Misal", "Vada pav", "Biryani", "Dosa", "Cutting chai", "Jalebi", "Thali", "Pav bhaji").forEachIndexed { i, idea ->
+                val appear = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { delay(45L * i); appear.animateTo(1f, Motion.bouncy()) }
+                val interaction = remember { MutableInteractionSource() }
+                Text(
+                    idea,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            val p = appear.value
+                            alpha = p.coerceIn(0f, 1f)
+                            scaleX = 0.5f + 0.5f * p
+                            scaleY = 0.5f + 0.5f * p
+                            rotationZ = (if (i % 2 == 0) -2f else 2f) * p
+                        }
+                        .pressScale(interaction, 0.9f)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .clickable(interaction, indication = null, role = Role.Button) { onQuery(idea.lowercase()) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
             }
         }
     }

@@ -1,5 +1,15 @@
 package app.foodfeed.ui.dish
 
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.components.PrimaryButton
+import app.foodfeed.ui.components.PriceTag
+import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.accent
+import app.foodfeed.ui.theme.dishHero
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -218,6 +228,7 @@ fun DishContent(
                     .fillMaxWidth()
                     .aspectRatio(4f / 5f)
                     .onSizeChanged { photoHeight = it.height.coerceAtLeast(1) }
+                    .dishHero(dish.id)
                     .graphicsLayer {
                         translationY = scroll.value * 0.55f
                         alpha = 1f - (scroll.value / photoHeight.toFloat()).coerceIn(0f, 1f) * 0.5f
@@ -235,25 +246,30 @@ fun DishContent(
                 }
             }
 
-            // The content sheet overlaps the photo by 24dp with rounded shoulders.
+            // The content sheet overlaps the photo by 32dp with rounded shoulders and a grabber.
             Column(
                 Modifier
-                    .offset(y = (-24).dp)
+                    .offset(y = (-32).dp)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
                     .background(MaterialTheme.colorScheme.background)
-                    .padding(top = 24.dp),
+                    .padding(top = 12.dp),
             ) {
+                Box(
+                    Modifier.align(Alignment.CenterHorizontally).size(width = 40.dp, height = 5.dp)
+                        .background(MaterialTheme.colorScheme.outline, CircleShape),
+                )
+                Spacer(Modifier.height(16.dp))
                 Reveal(0) {
                     Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (currentPost?.isSponsored == true) Tag("Sponsored")
                         Row(verticalAlignment = Alignment.Top) {
                             Text(
-                                dish.name, style = MaterialTheme.typography.headlineMedium,
-                                modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                dish.name, style = MaterialTheme.typography.displaySmall,
+                                modifier = Modifier.weight(1f), maxLines = 3, overflow = TextOverflow.Ellipsis,
                             )
                             Format.price(dish.priceInr)?.let {
-                                Text(it, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 12.dp, top = 4.dp))
+                                PriceTag(it, Modifier.padding(start = 12.dp, top = 8.dp), tilt = 4f)
                             }
                         }
                         val placeInteraction = remember { MutableInteractionSource() }
@@ -289,8 +305,16 @@ fun DishContent(
                             Spacer(Modifier.width((10 + 15 * dish.recommenders.size.coerceAtMost(3)).dp))
                         }
                         Text(
-                            buildString {
-                                append(Format.recommended(engagement.stats.recommenders))
+                            buildAnnotatedString {
+                                val n = engagement.stats.recommenders
+                                if (n > 0) {
+                                    append("Recommended by ")
+                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = accent())) {
+                                        append(if (n == 1) "1 person" else "${Format.compact(n)} people")
+                                    }
+                                } else {
+                                    append(Format.recommended(0))
+                                }
                                 if (engagement.stats.tried > 0) append("  ·  tried by ${engagement.stats.tried}")
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -300,8 +324,7 @@ fun DishContent(
 
                 Reveal(140) {
                     Column {
-                        HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                             EngageAction(
                                 Engagement.Recommend, engagement.me.recommended,
                                 if (engagement.me.recommended) "Loved" else "Recommend", null,
@@ -318,13 +341,12 @@ fun DishContent(
                             )
                             EngageAction(null, false, "Share", null, "Share", onShare)
                         }
-                        HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
 
                 Reveal(210) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        QuietButton("Directions", onMaps, Modifier.fillMaxWidth(), leading = AppIcons.Directions)
+                        PrimaryButton("Take me there", onMaps, Modifier.fillMaxWidth(), leading = AppIcons.Directions)
                         currentPost?.let { post ->
                             Row(verticalAlignment = Alignment.Top) {
                                 val handle = post.authorHandle
@@ -332,7 +354,15 @@ fun DishContent(
                                     Avatar(handle, post.authorName, 32.dp, Modifier.clickable { onOpenUser(handle) })
                                     Spacer(Modifier.width(12.dp))
                                 }
-                                Column(Modifier.weight(1f)) {
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .background(
+                                            MaterialTheme.colorScheme.surfaceContainer,
+                                            RoundedCornerShape(topStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp),
+                                        )
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                ) {
                                     Text(
                                         when {
                                             handle != null -> "@$handle"
@@ -359,10 +389,11 @@ fun DishContent(
                 if (dish.moreAtPlace.isNotEmpty()) {
                     Reveal(280) {
                         Column {
+                            KickerText("More at", Modifier.padding(start = 20.dp, top = 8.dp))
                             Text(
-                                "More at ${dish.restaurant.name}",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                                dish.restaurant.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
                             )
                             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(dish.moreAtPlace, key = { it.id }) { d ->
@@ -432,7 +463,7 @@ private fun PageDots(count: Int, current: Int, modifier: Modifier) {
             val w by animateDpAsState(if (i == current) 16.dp else 6.dp, Motion.glide(), label = "dot")
             Box(
                 Modifier.size(width = w, height = 6.dp)
-                    .background(Color.White.copy(alpha = if (i == current) 1f else 0.55f), CircleShape),
+                    .background(if (i == current) Saffron else Color.White.copy(alpha = 0.6f), CircleShape),
             )
         }
     }
@@ -453,13 +484,16 @@ fun MiniDishTile(card: DishCard, thumbUrl: String?, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     Column(
         Modifier
-            .width(132.dp)
+            .width(140.dp)
             .pressScale(interaction, 0.96f)
             .clickable(interaction, indication = null, role = Role.Button, onClick = onClick),
     ) {
-        DishImage(thumbUrl, card.cover?.placeholderColor, card.name, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
+        DishImage(
+            thumbUrl, card.cover?.placeholderColor, card.name,
+            Modifier.fillMaxWidth().aspectRatio(0.85f).dishHero(card.id, 20.dp).clip(RoundedCornerShape(20.dp)),
+        )
         Text(
-            card.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            card.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 8.dp),
         )
         Text(

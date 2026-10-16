@@ -1,5 +1,30 @@
 package app.foodfeed.ui.profile
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import app.foodfeed.ui.components.AppIcons
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.components.Sticker
+import app.foodfeed.ui.theme.Chili
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.RollingNumber
+import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Turmeric
+import app.foodfeed.ui.theme.dishHero
+import app.foodfeed.ui.theme.pressScale
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +38,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,7 +59,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,7 +75,6 @@ import app.foodfeed.data.BlockBody
 import app.foodfeed.data.ProfilePost
 import app.foodfeed.data.UserProfile
 import app.foodfeed.data.apiCall
-import app.foodfeed.ui.components.AppIcons
 import app.foodfeed.ui.components.Avatar
 import app.foodfeed.ui.components.CenteredMessage
 import app.foodfeed.ui.components.DishImage
@@ -168,36 +193,57 @@ fun ProfileContent(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         item(span = { GridItemSpan(3) }) {
-            Column(Modifier.padding(bottom = 12.dp)) {
-                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.padding(bottom = 14.dp)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                    Text(
-                        "@${profile.handle}", style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f).padding(start = if (onBack == null) 12.dp else 0.dp),
+                    KickerText(
+                        "@${profile.handle}",
+                        modifier = Modifier.weight(1f).padding(start = if (onBack == null) 8.dp else 0.dp),
                     )
                     if (onSettings != null) IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings") }
                 }
-                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(profile.handle, profile.displayName, 64.dp)
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(profile.displayName ?: "@${profile.handle}", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "${profile.postCount} dishes  ·  ${profile.recommendations} recommended" +
-                                (if (profile.postCount >= 10) "  ·  Local expert" else ""),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Column(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    // A spice-coloured ring that spins once into place around the avatar.
+                    val spin = remember { Animatable(0f) }
+                    LaunchedEffect(Unit) { spin.animateTo(1f, tween(1100, easing = Motion.EmphasizedDecelerate)) }
+                    Box(
+                        Modifier
+                            .size(104.dp)
+                            .graphicsLayer { rotationZ = -200f * (1f - spin.value) }
+                            .drawBehind {
+                                drawCircle(
+                                    Brush.sweepGradient(listOf(Saffron, Turmeric, Chili, Saffron)),
+                                    style = Stroke(width = 4.dp.toPx()),
+                                    radius = size.minDimension / 2 - 2.dp.toPx(),
+                                )
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Avatar(
+                            profile.handle, profile.displayName, 88.dp,
+                            Modifier.graphicsLayer { rotationZ = 200f * (1f - spin.value) },
                         )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(profile.displayName ?: "@${profile.handle}", style = MaterialTheme.typography.headlineMedium)
+                    if (profile.postCount >= 10) {
+                        Spacer(Modifier.height(8.dp))
+                        Sticker("Local expert", Turmeric, icon = AppIcons.Sparkle, tilt = -3f)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Stat(profile.postCount, if (profile.postCount == 1) "dish posted" else "dishes posted", Modifier.weight(1f))
+                        Stat(profile.recommendations, "recommended", Modifier.weight(1f))
                     }
                 }
                 if (!profile.isMe) {
-                    Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         QuietButton(if (profile.blockedByMe) "Unblock" else "Block", onBlockToggle, Modifier.weight(1f))
                         QuietButton("Report", onReport, Modifier.weight(1f))
                     }
@@ -214,22 +260,48 @@ fun ProfileContent(
                 )
             }
         }
-        items(profile.posts, key = { it.id }) { p -> PostTile(p, thumbOf(p.thumbUrl)) { onOpenDish(p.dishId) } }
+        itemsIndexed(profile.posts, key = { _, p -> p.id }) { i, p -> PostTile(p, thumbOf(p.thumbUrl), i) { onOpenDish(p.dishId) } }
     }
 }
 
 @Composable
 private fun Stat(value: Int, label: String, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value.toString(), style = MaterialTheme.typography.titleLarge)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(
+        modifier
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(20.dp))
+            .padding(vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        RollingNumber(value, MaterialTheme.typography.headlineMedium, MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
+/** A rounded tile that pops in a beat after the one before it. */
 @Composable
-private fun PostTile(p: ProfilePost, thumb: String?, onClick: () -> Unit) {
-    Box(Modifier.aspectRatio(1f).clickable(onClick = onClick)) {
-        DishImage(thumb, p.placeholderColor, p.dishName, Modifier.fillMaxSize())
+private fun PostTile(p: ProfilePost, thumb: String?, index: Int, onClick: () -> Unit) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { delay(50L * index.coerceAtMost(12)); appear.animateTo(1f, Motion.bouncy()) }
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .aspectRatio(0.8f)
+            .graphicsLayer {
+                val a = appear.value
+                alpha = a.coerceIn(0f, 1f)
+                scaleX = 0.7f + 0.3f * a
+                scaleY = 0.7f + 0.3f * a
+            }
+            .pressScale(interaction, 0.94f)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick),
+    ) {
+        DishImage(thumb, p.placeholderColor, p.dishName, Modifier.fillMaxSize().dishHero(p.dishId, 18.dp))
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.65f)),
+            ),
+        )
         val label = when {
             p.restaurantStatus == "pending" -> "In review"
             p.status == "hidden" -> "Hidden"
@@ -237,8 +309,8 @@ private fun PostTile(p: ProfilePost, thumb: String?, onClick: () -> Unit) {
         }
         if (label != null) Tag(label, onPhoto = true, modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         Text(
-            p.dishName, color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+            p.dishName, color = Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 2,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
         )
     }
 }

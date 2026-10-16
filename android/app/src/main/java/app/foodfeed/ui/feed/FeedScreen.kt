@@ -7,6 +7,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -153,12 +155,13 @@ fun FeedContent(
             state.items.isEmpty() -> FeedBody.Empty
             else -> FeedBody.Cards
         }
-        // States cross-fade; content arrives with a slight zoom-in so it feels placed, not swapped.
+        // States cross-fade; content arrives rising and zooming in so it feels placed, not swapped.
         AnimatedContent(
             targetState = body,
             transitionSpec = {
-                (fadeIn(Motion.enter(Motion.MEDIUM, 60)) + scaleIn(Motion.enter(Motion.MEDIUM, 60), initialScale = 0.97f))
-                    .togetherWith(fadeOut(Motion.exit(120)))
+                (fadeIn(Motion.enter(Motion.LONG, 60)) + scaleIn(Motion.enter(Motion.LONG, 60), initialScale = 0.92f) +
+                    slideInVertically(Motion.enter(Motion.LONG, 60)) { it / 10 })
+                    .togetherWith(fadeOut(Motion.exit(120)) + scaleOut(Motion.exit(120), targetScale = 0.97f))
             },
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp).padding(bottom = 10.dp),
             label = "feed-body",
@@ -194,11 +197,13 @@ fun FeedContent(
 @Composable
 private fun FeedSkeleton() {
     Box(Modifier.fillMaxSize()) {
-        SkeletonBlock(Modifier.fillMaxSize(), RoundedCornerShape(26.dp))
+        SkeletonBlock(Modifier.fillMaxSize(), RoundedCornerShape(32.dp))
         Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) {
-            SkeletonBlock(Modifier.width(200.dp).height(26.dp), RoundedCornerShape(6.dp))
+            SkeletonBlock(Modifier.width(64.dp).height(22.dp), RoundedCornerShape(8.dp))
+            Spacer(Modifier.height(12.dp))
+            SkeletonBlock(Modifier.width(230.dp).height(34.dp), RoundedCornerShape(10.dp))
             Spacer(Modifier.height(10.dp))
-            SkeletonBlock(Modifier.width(140.dp).height(14.dp), RoundedCornerShape(4.dp))
+            SkeletonBlock(Modifier.width(160.dp).height(16.dp), RoundedCornerShape(6.dp))
         }
     }
 }
@@ -267,6 +272,8 @@ private fun DishPager(
             onShare = { onShare(card) },
             // Signed distance of this page from the centre, read during draw only.
             pageOffset = { (pager.currentPage - page) + pager.currentPageOffsetFraction },
+            // Start the landing choreography as soon as the swipe commits to this card.
+            active = pager.targetPage == page,
         )
     }
 }

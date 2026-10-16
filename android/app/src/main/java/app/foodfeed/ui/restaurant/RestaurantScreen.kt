@@ -1,17 +1,23 @@
 package app.foodfeed.ui.restaurant
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import app.foodfeed.ui.components.DashedLine
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.components.PrimaryButton
+import app.foodfeed.ui.components.TicketShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,7 +34,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -124,22 +129,44 @@ fun RestaurantContent(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                 }
                 Reveal(0) {
-                    Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (place.status == "pending") Tag("Waiting for review")
-                        Text(place.name, style = MaterialTheme.typography.headlineMedium)
-                        Text(
-                            listOfNotNull(place.locality, Format.distance(place.distanceM), place.priceBand?.let { "₹".repeat(it) })
-                                .joinToString("  ·  "),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            if (totalRecs > 0) "$totalRecs recommendations across ${place.dishes.size} dishes"
-                            else "${place.dishes.size} dishes, no recommendations yet",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        QuietButton("Directions", { onMaps(place) }, leading = AppIcons.Directions)
+                    // The place as a big restaurant token: name on top, perforation, then the numbers.
+                    Column(
+                        Modifier
+                            .padding(horizontal = 16.dp)
+                            .fillMaxWidth()
+                            .clip(TicketShape(corner = 28.dp, notch = 13.dp, notchFromTop = 150.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                    ) {
+                        Column(
+                            Modifier.height(150.dp).padding(horizontal = 22.dp, vertical = 18.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            KickerText(
+                                listOfNotNull(place.locality, Format.distance(place.distanceM)).joinToString("  ·  ").ifEmpty { "Place" },
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                            )
+                            Text(
+                                place.name, style = MaterialTheme.typography.displaySmall, maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            if (place.status == "pending") Tag("Waiting for review")
+                        }
+                        DashedLine(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.25f), Modifier.padding(horizontal = 20.dp))
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            BigStat(Format.compact(totalRecs), "recommends")
+                            Spacer(Modifier.width(22.dp))
+                            BigStat(place.dishes.size.toString(), if (place.dishes.size == 1) "dish" else "dishes")
+                            place.priceBand?.let {
+                                Spacer(Modifier.width(22.dp))
+                                BigStat("₹".repeat(it), "price")
+                            }
+                            Spacer(Modifier.weight(1f))
+                            PrimaryButton("Go", { onMaps(place) }, leading = AppIcons.Directions)
+                        }
                     }
                 }
             }
@@ -147,8 +174,8 @@ fun RestaurantContent(
         item(key = "title") {
             Text(
                 "Most recommended here",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 6.dp),
             )
         }
         if (place.dishes.isEmpty()) {
@@ -160,5 +187,13 @@ fun RestaurantContent(
             }
         }
         item(key = "end") { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun BigStat(value: String, label: String) {
+    Column {
+        Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
     }
 }
