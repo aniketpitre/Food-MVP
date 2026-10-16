@@ -48,6 +48,12 @@ import androidx.compose.ui.text.TextStyle
  *   whole sequence costs a single animation and no recomposition.
  * - Nothing loops except the loading shimmer.
  */
+/**
+ * Lite mode (low-memory phones by default, or switched on in Settings): skips blur, confetti
+ * and the card landing sequence, so the app stays smooth on any phone.
+ */
+val LocalLiteMode = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 object Motion {
     /** Material 3 emphasized curves. */
     val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)

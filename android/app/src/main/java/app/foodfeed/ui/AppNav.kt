@@ -37,6 +37,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -94,6 +95,16 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.DeviceLocation
+import app.foodfeed.ui.activity.ActivityScreen
+import app.foodfeed.ui.activity.ActivityViewModel
+import app.foodfeed.ui.home.CravingScreen
+import app.foodfeed.ui.home.CravingViewModel
+import app.foodfeed.ui.home.HomeScreen
+import app.foodfeed.ui.home.HomeViewModel
+import app.foodfeed.ui.profile.BlockedScreen
+import app.foodfeed.ui.profile.ChangePasswordScreen
+import app.foodfeed.ui.profile.EditProfileScreen
+import app.foodfeed.ui.profile.FollowListScreen
 import app.foodfeed.ui.add.AddDishScreen
 import app.foodfeed.ui.add.AddDishViewModel
 import app.foodfeed.ui.admin.AdminScreen
@@ -124,7 +135,14 @@ import app.foodfeed.ui.search.SearchViewModel
 import kotlinx.coroutines.launch
 
 object Routes {
+    const val HOME = "home"
     const val FEED = "feed"
+    const val ACTIVITY = "activity"
+    const val CRAVING = "craving/{q}"
+    const val EDIT_PROFILE = "edit-profile"
+    const val FOLLOWS = "follows/{handle}/{which}"
+    const val BLOCKED = "blocked"
+    const val PASSWORD = "password"
     const val SEARCH = "search"
     const val ADD = "add"
     const val SAVED = "saved"
@@ -139,16 +157,18 @@ object Routes {
     fun dish(id: String) = "dish/$id"
     fun restaurant(id: String) = "restaurant/$id"
     fun user(handle: String) = "user/$handle"
+    fun craving(q: String) = "craving/${android.net.Uri.encode(q)}"
+    fun follows(handle: String, followers: Boolean) = "follows/$handle/${if (followers) "followers" else "following"}"
     fun setup(step: OnboardingStep? = null) = if (step == null) "setup" else "setup?step=${step.name}"
 }
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector)
 
 private val tabs = listOf(
-    Tab(Routes.FEED, "Home", Icons.Outlined.Home, Icons.Filled.Home),
-    Tab(Routes.SEARCH, "Search", Icons.Outlined.Search, Icons.Filled.Search),
+    Tab(Routes.HOME, "Home", Icons.Outlined.Home, Icons.Filled.Home),
+    Tab(Routes.FEED, "Explore", AppIcons.Compass, AppIcons.Compass),
     Tab(Routes.ADD, "Post a dish", Icons.Outlined.AddCircle, Icons.Filled.AddCircle),
-    Tab(Routes.SAVED, "Saved", AppIcons.BookmarkBorder, AppIcons.Bookmark),
+    Tab(Routes.ACTIVITY, "Activity", AppIcons.BellOutline, AppIcons.Bell),
     Tab(Routes.ME, "Profile", Icons.Outlined.Person, Icons.Filled.Person),
 )
 private val tabRoutes = tabs.map { it.route }.toSet()
@@ -177,7 +197,7 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
     val showMessage: (String) -> Unit = { msg -> scope.launch { snackbar.showSnackbar(msg) } }
     val needsSetup = server.isBlank() || city == null
     // Decided once: changing the start destination later would reset navigation.
-    val startRoute = remember { if (needsSetup) Routes.SETUP else Routes.FEED }
+    val startRoute = remember { if (needsSetup) Routes.SETUP else Routes.HOME }
 
     // Look for a newer version once per launch; offer it in a sheet.
     val update by app.availableUpdate.collectAsState()
@@ -212,7 +232,8 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                 enter = slideInVertically(Motion.enter()) { it } + fadeIn(Motion.enter()),
                 exit = slideOutVertically(Motion.exit()) { it } + fadeOut(Motion.exit()),
             ) {
-                LiquidDock(currentRoute) { nav.navigateToTab(it) }
+                val unread by app.unreadActivity.collectAsState()
+                LiquidDock(currentRoute, unread) { nav.navigateToTab(it) }
             }
         },
     ) { padding ->
@@ -264,8 +285,43 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                     val vm = appViewModel(key = "setup-$step") { OnboardingViewModel(it, step) }
                     OnboardingScreen(vm) {
                         if (nav.previousBackStackEntry != null) nav.popBackStack()
-                        else nav.navigate(Routes.FEED) { popUpTo(Routes.SETUP) { inclusive = true } }
+                        else nav.navigate(Routes.HOME) { popUpTo(Routes.SETUP) { inclusive = true } }
                     }
+                }
+                composable(Routes.HOME) {
+                    NavScoped {
+                        val vm = appViewModel { HomeViewModel(it) }
+                        Box(Modifier.statusBarsPadding()) {
+                            HomeScreen(
+                                vm,
+                                onCraving = { nav.navigate(Routes.craving(it)) },
+                                onOpenDish = openDish,
+                                onOpenUser = openUser,
+                                onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
+                                onExplore = { nav.navigateToTab(Routes.FEED) },
+                                onAddDish = { nav.navigateToTab(Routes.ADD) },
+                            )
+                        }
+                    }
+                }
+                composable(Routes.CRAVING, arguments = listOf(navArgument("q") { type = NavType.StringType })) { entry ->
+                    NavScoped {
+                        val q = entry.arguments?.getString("q").orEmpty()
+                        val vm = appViewModel(key = "craving-$q") { CravingViewModel(it, q) }
+                        CravingScreen(vm, { nav.popBackStack() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) })
+                    }
+                }
+                composable(Routes.ACTIVITY) {
+                    val vm = appViewModel { ActivityViewModel(it) }
+                    Box(Modifier.statusBarsPadding()) { ActivityScreen(vm, openDish, openUser, signIn, showMessage) }
+                }
+                composable(Routes.EDIT_PROFILE) { EditProfileScreen({ nav.popBackStack() }, showMessage) }
+                composable(Routes.BLOCKED) { BlockedScreen({ nav.popBackStack() }, showMessage) }
+                composable(Routes.PASSWORD) { ChangePasswordScreen({ nav.popBackStack() }, showMessage) }
+                composable(Routes.FOLLOWS) { entry ->
+                    val handle = entry.arguments?.getString("handle").orEmpty()
+                    val which = entry.arguments?.getString("which")
+                    FollowListScreen(handle, which == "followers", { nav.popBackStack() }, openUser, signIn, showMessage)
                 }
                 composable(Routes.FEED) {
                     NavScoped {
@@ -274,7 +330,7 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                             FeedScreen(
                                 vm, openDish, openRestaurant,
                                 onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
-                                onSearch = { nav.navigateToTab(Routes.SEARCH) },
+                                onSearch = { nav.navigate(Routes.SEARCH) },
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
                                 onNeedSignIn = signIn,
                                 showMessage = showMessage,
@@ -286,7 +342,9 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                 composable(Routes.SEARCH) {
                     NavScoped {
                         val vm = appViewModel { SearchViewModel(it) }
-                        Box(Modifier.statusBarsPadding()) { SearchScreen(vm, openDish, openRestaurant, signIn, showMessage) }
+                        Box(Modifier.statusBarsPadding()) {
+                            SearchScreen(vm, openDish, openRestaurant, signIn, showMessage, onOpenUser = openUser, onBack = { nav.popBackStack() })
+                        }
                     }
                 }
                 composable(Routes.ADD) {
@@ -305,7 +363,11 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val vm = appViewModel(key = "me") { ProfileViewModel(it, null) }
                         Box(Modifier.statusBarsPadding()) {
-                            ProfileScreen(vm, true, null, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage)
+                            ProfileScreen(
+                                vm, true, null, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage,
+                                onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
+                                onFollows = { h, f -> nav.navigate(Routes.follows(h, f)) },
+                            )
                         }
                     }
                 }
@@ -314,7 +376,11 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                         val handle = entry.arguments?.getString("handle").orEmpty()
                         val vm = appViewModel(key = "user-$handle") { ProfileViewModel(it, handle) }
                         Box(Modifier.statusBarsPadding()) {
-                            ProfileScreen(vm, false, { nav.popBackStack() }, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage)
+                            ProfileScreen(
+                                vm, false, { nav.popBackStack() }, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage,
+                                onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
+                                onFollows = { h, f -> nav.navigate(Routes.follows(h, f)) },
+                            )
                         }
                     }
                 }
@@ -349,6 +415,9 @@ fun FoodFeedRoot(deepLinkDishId: String?, onDeepLinkHandled: () -> Unit) {
                         onAdmin = { nav.navigate(Routes.ADMIN) },
                         onSignIn = signIn,
                         showMessage = showMessage,
+                        onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
+                        onPassword = { nav.navigate(Routes.PASSWORD) },
+                        onBlocked = { nav.navigate(Routes.BLOCKED) },
                     )
                 }
                 composable(Routes.ADMIN) {
@@ -404,7 +473,7 @@ private fun AnimatedContentScope.NavScoped(content: @Composable () -> Unit) {
  * into a round pill. The icon that gains the blob pops and wiggles.
  */
 @Composable
-internal fun LiquidDock(currentRoute: String?, onSelect: (String) -> Unit) {
+internal fun LiquidDock(currentRoute: String?, unread: Int = 0, onSelect: (String) -> Unit) {
     val index = tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
     // Light theme: an ink dock. Dark theme: a raised dark dock, so it never glares at night.
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -481,6 +550,18 @@ internal fun LiquidDock(currentRoute: String?, onSelect: (String) -> Unit) {
                             .clickable(interaction, indication = null, role = Role.Tab) { onSelect(tab.route) },
                         contentAlignment = Alignment.Center,
                     ) {
+                        if (tab.route == Routes.ACTIVITY && unread > 0 && !selected) {
+                            // Unread activity: a chili dot that pops in on the bell.
+                            val dot = remember { Animatable(0f) }
+                            LaunchedEffect(unread) { dot.snapTo(0.3f); dot.animateTo(1f, Motion.bouncy()) }
+                            Box(
+                                Modifier
+                                    .offset(x = 9.dp, y = (-9).dp)
+                                    .size(9.dp)
+                                    .graphicsLayer { scaleX = dot.value; scaleY = dot.value }
+                                    .background(MaterialTheme.colorScheme.tertiary, androidx.compose.foundation.shape.CircleShape),
+                            )
+                        }
                         Icon(
                             if (selected) tab.selectedIcon else tab.icon, tab.label, tint = tint,
                             modifier = Modifier

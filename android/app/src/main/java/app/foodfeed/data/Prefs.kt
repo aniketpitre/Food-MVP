@@ -20,6 +20,8 @@ data class StoredState(
     val cityId: Int?,
     val cityName: String?,
     val deviceId: String,
+    val themeMode: String = "system",
+    val liteMode: String = "auto",
 )
 
 class Prefs(private val context: Context) {
@@ -30,6 +32,8 @@ class Prefs(private val context: Context) {
         val cityId = intPreferencesKey("city_id")
         val cityName = stringPreferencesKey("city_name")
         val deviceId = stringPreferencesKey("device_id")
+        val themeMode = stringPreferencesKey("theme_mode")
+        val liteMode = stringPreferencesKey("lite_mode")
     }
 
     suspend fun load(defaultServerUrl: String): StoredState {
@@ -46,8 +50,14 @@ class Prefs(private val context: Context) {
             cityId = p[Keys.cityId],
             cityName = p[Keys.cityName],
             deviceId = deviceId,
+            themeMode = p[Keys.themeMode] ?: "system",
+            liteMode = p[Keys.liteMode] ?: "auto",
         )
     }
+
+    suspend fun saveThemeMode(mode: String) = context.dataStore.edit { it[Keys.themeMode] = mode }
+
+    suspend fun saveLiteMode(mode: String) = context.dataStore.edit { it[Keys.liteMode] = mode }
 
     suspend fun saveServerUrl(url: String) = context.dataStore.edit { it[Keys.serverUrl] = url }
 

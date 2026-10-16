@@ -7,6 +7,8 @@ import androidx.compose.ui.text.withStyle
 import app.foodfeed.ui.components.KickerText
 import app.foodfeed.ui.components.PrimaryButton
 import app.foodfeed.ui.components.PriceTag
+import app.foodfeed.ui.components.RatingPill
+import app.foodfeed.ui.components.ChampionLine
 import app.foodfeed.ui.theme.Saffron
 import app.foodfeed.ui.theme.accent
 import app.foodfeed.ui.theme.dishHero
@@ -161,7 +163,7 @@ fun DishScreen(
             val card = dish.toCard()
             DishContent(
                 dish = dish,
-                engagement = overrides[dish.id] ?: EngagementState(dish.stats, dish.me),
+                engagement = overrides[dish.id] ?: EngagementState(dish.stats, dish.me, dish.rating),
                 imageUrl = { app.mediaUrl(it) },
                 onBack = onBack,
                 onToggle = { actions.toggle(card, it) },
@@ -311,7 +313,12 @@ fun DishContent(
                 }
 
                 Reveal(70) {
-                    Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // The People's Pick verdict and whose top pick this is.
+                    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RatingPill(engagement.rating)
+                        dish.champion?.let { ChampionLine(it, onOpenUser) }
+                    }
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (dish.recommenders.isNotEmpty() && engagement.stats.recommenders > 0) {
                             AvatarStack(dish.recommenders, ringColor = MaterialTheme.colorScheme.background, size = 22.dp)
                             Spacer(Modifier.width((10 + 15 * dish.recommenders.size.coerceAtMost(3)).dp))
@@ -338,10 +345,14 @@ fun DishContent(
                     Column {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                             EngageAction(
-                                Engagement.Recommend, engagement.me.recommended,
-                                if (engagement.me.recommended) "Loved" else "Recommend", null,
+                                Engagement.Recommend, engagement.me.recommended, "Loved it", null,
                                 if (engagement.me.recommended) "Remove recommendation" else "Recommend",
                                 { onToggle(Engagement.Recommend) },
+                            )
+                            EngageAction(
+                                Engagement.Pass, engagement.me.passed, "Not for me", null,
+                                if (engagement.me.passed) "Undo not for me" else "Tried it, not for me",
+                                { onToggle(Engagement.Pass) },
                             )
                             currentPost?.let { post ->
                                 EngageAction(
@@ -352,10 +363,6 @@ fun DishContent(
                             EngageAction(
                                 Engagement.Save, engagement.me.saved, if (engagement.me.saved) "Saved" else "Save", null,
                                 if (engagement.me.saved) "Remove from saved" else "Save", { onToggle(Engagement.Save) },
-                            )
-                            EngageAction(
-                                Engagement.Tried, engagement.me.tried, "Tried", null,
-                                if (engagement.me.tried) "Unmark tried" else "I tried this", { onToggle(Engagement.Tried) },
                             )
                             EngageAction(null, false, "Share", null, "Share", onShare)
                         }

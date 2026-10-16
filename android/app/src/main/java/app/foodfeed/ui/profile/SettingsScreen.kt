@@ -1,24 +1,25 @@
 package app.foodfeed.ui.profile
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,18 +31,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
 import app.foodfeed.BuildConfig
-import app.foodfeed.data.Updates
 import app.foodfeed.data.ApiException
+import app.foodfeed.data.Updates
 import app.foodfeed.ui.components.AppIcons
+import app.foodfeed.ui.components.KickerText
 import app.foodfeed.ui.components.LocalApp
 import app.foodfeed.ui.components.openUrl
 import kotlinx.coroutines.launch
 
+/**
+ * Settings, grouped like Instagram's: your account, privacy and safety, how the app looks
+ * and behaves (theme, Lite mode for slower phones), and support. Sign out and Delete account
+ * at the bottom.
+ */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -50,6 +57,9 @@ fun SettingsScreen(
     onAdmin: () -> Unit,
     onSignIn: () -> Unit,
     showMessage: (String) -> Unit,
+    onEditProfile: () -> Unit = {},
+    onPassword: () -> Unit = {},
+    onBlocked: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -57,46 +67,97 @@ fun SettingsScreen(
     val session by app.session.collectAsState()
     val city by app.city.collectAsState()
     val server by app.serverUrl.collectAsState()
+    val theme by app.themeMode.collectAsState()
+    val lite by app.liteModeSetting.collectAsState()
     var confirmDelete by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())) {
-        androidx.compose.foundation.layout.Row {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-            Text("Settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 10.dp))
-        }
-        Item(Icons.Filled.LocationOn, "City", city?.name ?: "Not chosen", onChangeCity)
-        if (BuildConfig.DEFAULT_SERVER_URL.isBlank()) {
-            Item(Icons.Filled.Settings, "Server", server.ifBlank { "Not set" }, onChangeServer)
-        }
-        HorizontalDivider()
-        if (session == null) {
-            Item(Icons.Filled.Lock, "Sign in", "Recommend, save and post dishes", onSignIn)
-        } else {
-            val user = session!!.user
-            Item(Icons.Filled.Lock, "Signed in as @${user.handle}", user.email, null)
-            if (user.role == "admin") Item(AppIcons.Shield, "Moderation", "Review new places and reports", onAdmin)
-            Item(Icons.AutoMirrored.Filled.ExitToApp, "Sign out", null) { scope.launch { app.signOut() } }
-            Item(Icons.Filled.Delete, "Delete my account", "Removes your profile, photos and actions") { confirmDelete = true }
-        }
-        HorizontalDivider()
-        Item(Icons.Filled.Info, "Privacy policy", null) { openUrl(context, "$server/privacy") }
-        Item(Icons.Filled.Info, "Terms of use", null) { openUrl(context, "$server/terms") }
-        var checking by remember { mutableStateOf(false) }
-        Item(
-            Icons.Filled.Info,
-            "Version ${BuildConfig.VERSION_NAME}",
-            if (checking) "Checking for updates…" else "Tap to check for updates",
-        ) {
-            if (!Updates.enabled) {
-                showMessage("This build doesn't update itself.")
-            } else if (!checking) {
-                checking = true
-                scope.launch {
-                    val found = app.checkForUpdate()
-                    checking = false
-                    if (found == null) showMessage("You're on the latest version.")
+    Column(Modifier.fillMaxSize()) {
+        BackBar("Settings", onBack)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            val user = session?.user
+            if (user == null) {
+                Group("Account")
+                Item(Icons.Filled.Lock, "Sign in", "Follow people, comment, recommend and post", onClick = onSignIn)
+            } else {
+                Group("Account")
+                Item(Icons.Filled.Person, "Edit profile", "Photo, name, username, bio", onClick = onEditProfile)
+                Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
+                Group("Privacy and safety")
+                Item(
+                    AppIcons.Shield, "Comments on your posts",
+                    when (user.commentPolicy) {
+                        "followers" -> "People you follow"
+                        "off" -> "Turned off"
+                        else -> "Everyone"
+                    },
+                    onClick = onEditProfile,
+                )
+                Item(AppIcons.Block, "Blocked accounts", null, onClick = onBlocked)
+                if (user.role == "admin") Item(AppIcons.Shield, "Moderation", "Review new places and reports", onClick = onAdmin)
+            }
+
+            Group("App")
+            Item(Icons.Filled.LocationOn, "City", city?.name ?: "Not chosen", onClick = onChangeCity)
+            Item(
+                AppIcons.Palette, "Theme",
+                when (theme) {
+                    "light" -> "Light"
+                    "dark" -> "Dark"
+                    else -> "Same as phone"
+                },
+            ) {
+                val next = when (theme) {
+                    "system" -> "light"
+                    "light" -> "dark"
+                    else -> "system"
+                }
+                scope.launch { app.setThemeMode(next) }
+            }
+            Item(
+                AppIcons.Bolt, "Lite mode",
+                when (lite) {
+                    "on" -> "On: fewer effects, smoother on slower phones"
+                    "off" -> "Off: full effects"
+                    else -> if (app.isLowEndDevice) "Automatic (on for this phone)" else "Automatic (off for this phone)"
+                },
+            ) {
+                val next = when (lite) {
+                    "auto" -> "on"
+                    "on" -> "off"
+                    else -> "auto"
+                }
+                scope.launch { app.setLiteMode(next) }
+            }
+            if (BuildConfig.DEFAULT_SERVER_URL.isBlank()) {
+                Item(Icons.Filled.Settings, "Server", server.ifBlank { "Not set" }, onClick = onChangeServer)
+            }
+            Item(
+                Icons.Filled.Info, "Version ${BuildConfig.VERSION_NAME}",
+                if (checking) "Checking for updates…" else "Tap to check for updates",
+            ) {
+                if (!Updates.enabled) {
+                    showMessage("This build doesn't update itself.")
+                } else if (!checking) {
+                    checking = true
+                    scope.launch {
+                        val found = app.checkForUpdate()
+                        checking = false
+                        if (found == null) showMessage("You're on the latest version.")
+                    }
                 }
             }
+
+            Group("Support")
+            Item(Icons.Filled.Info, "Privacy policy", null) { openUrl(context, "$server/privacy") }
+            Item(Icons.Filled.Info, "Terms of use", null) { openUrl(context, "$server/terms") }
+
+            if (user != null) {
+                Group("")
+                Item(Icons.AutoMirrored.Filled.ExitToApp, "Sign out", "@${user.handle}") { scope.launch { app.signOut() } }
+                Item(Icons.Filled.Delete, "Delete my account", "Removes your profile, photos and actions", danger = true) { confirmDelete = true }
+            }
+            Spacer(Modifier.height(32.dp))
         }
     }
 
@@ -104,7 +165,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete your account?") },
-            text = { Text("This permanently removes your profile, every photo you posted and all your recommendations and saves. It can't be undone.") },
+            text = { Text("This permanently removes your profile, every photo and comment you posted and all your recommendations, saves and follows. It can't be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -125,11 +186,19 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun Item(icon: ImageVector, title: String, subtitle: String?, onClick: (() -> Unit)?) {
+private fun Group(title: String) {
+    if (title.isEmpty()) Spacer(Modifier.height(12.dp))
+    else KickerText(title, Modifier.padding(start = 20.dp, top = 20.dp, bottom = 4.dp))
+}
+
+@Composable
+private fun Item(icon: ImageVector, title: String, subtitle: String?, danger: Boolean = false, onClick: (() -> Unit)?) {
+    val color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     ListItem(
-        headlineContent = { Text(title) },
+        headlineContent = { Text(title, color = color) },
         supportingContent = if (subtitle != null) { { Text(subtitle) } } else null,
-        leadingContent = { Icon(icon, null) },
+        leadingContent = { Icon(icon, null, tint = color) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
     )
 }

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.foodfeed.data.engagement
 import app.foodfeed.data.ApiException
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.DishCard
@@ -106,7 +107,7 @@ fun RestaurantScreen(
         )
         else -> RestaurantContent(
             place = state.place!!,
-            engagementOf = { overrides[it.id] ?: EngagementState(it.stats, it.me) },
+            engagementOf = { overrides[it.id] ?: it.engagement() },
             thumbOf = { app.mediaUrl(it.cover?.thumbUrl) },
             onBack = onBack,
             onOpenDish = onOpenDish,

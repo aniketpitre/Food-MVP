@@ -17,10 +17,15 @@ data class Session(val token: String, val user: User)
 data class SelectedCity(val id: Int, val name: String)
 data class Coords(val lat: Double, val lng: Double)
 
-enum class Engagement(val api: String) { Recommend("recommend"), Save("save"), Tried("tried") }
+enum class Engagement(val api: String) { Recommend("recommend"), Save("save"), Tried("tried"), Pass("pass") }
 
 /** The engagement state of one dish as the app currently believes it. */
-data class EngagementState(val stats: DishStats, val me: MyActions)
+data class EngagementState(val stats: DishStats, val me: MyActions, val rating: Rating = Rating())
+
+fun DishCard.engagement() = EngagementState(stats, me, rating)
+
+/** Counts towards "Recommended by N": loved it, or tried it without saying "not for me". */
+private fun MyActions.endorses() = recommended || (tried && !passed)
 
 /**
  * Optimistic update for turning one action on or off. "Recommended by N" counts people
@@ -29,12 +34,15 @@ data class EngagementState(val stats: DishStats, val me: MyActions)
 fun EngagementState.toggled(kind: Engagement): EngagementState {
     val before = me
     val after = when (kind) {
-        Engagement.Recommend -> before.copy(recommended = !before.recommended)
+        // Loving a dish and "not for me" exclude each other; a "not for me" means you tried it.
+        Engagement.Recommend -> before.copy(recommended = !before.recommended, passed = if (!before.recommended) false else before.passed)
         Engagement.Save -> before.copy(saved = !before.saved)
         Engagement.Tried -> before.copy(tried = !before.tried)
+        Engagement.Pass -> if (before.passed) before.copy(passed = false)
+        else before.copy(passed = true, recommended = false, tried = true)
     }
-    val wasRec = before.recommended || before.tried
-    val isRec = after.recommended || after.tried
+    val wasRec = before.endorses()
+    val isRec = after.endorses()
     val recDelta = (if (isRec) 1 else 0) - (if (wasRec) 1 else 0)
     val saveDelta = (if (after.saved) 1 else 0) - (if (before.saved) 1 else 0)
     val triedDelta = (if (after.tried) 1 else 0) - (if (before.tried) 1 else 0)
@@ -45,6 +53,10 @@ fun EngagementState.toggled(kind: Engagement): EngagementState {
             tried = (stats.tried + triedDelta).coerceAtLeast(0),
         ),
         me = after,
+        rating = rating.adjusted(
+            loves = (if (after.recommended) 1 else 0) - (if (before.recommended) 1 else 0),
+            passes = (if (after.passed) 1 else 0) - (if (before.passed) 1 else 0),
+        ),
     )
 }
 
@@ -52,11 +64,31 @@ fun MyActions.has(kind: Engagement) = when (kind) {
     Engagement.Recommend -> recommended
     Engagement.Save -> saved
     Engagement.Tried -> tried
+    Engagement.Pass -> passed
 }
 
 /** App-wide state and the single entry point to the server. */
 class AppContainer(context: Context, private val scope: CoroutineScope) {
     private val prefs = Prefs(context.applicationContext)
+
+    /** True on phones with little memory, where Lite mode turns itself on by default. */
+    val isLowEndDevice: Boolean = Device.isLowEnd(context.applicationContext)
+
+    /** "system", "light" or "dark". */
+    val themeMode = MutableStateFlow("system")
+
+    /** "auto" (on for low-end phones), "on" or "off". */
+    val liteModeSetting = MutableStateFlow("auto")
+
+    /** Whether Lite mode is in effect now: fewer effects, smaller images, simpler motion. */
+    val liteMode: Boolean get() = when (liteModeSetting.value) {
+        "on" -> true
+        "off" -> false
+        else -> isLowEndDevice
+    }
+
+    /** Unread Activity items, refreshed every minute while signed in. */
+    val unreadActivity = MutableStateFlow(0)
     private val network = NetworkFactory { session.value?.token }
     val okHttp get() = network.okHttp
 
@@ -117,8 +149,11 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         _serverUrl.value = stored.serverUrl
         if (stored.token != null && stored.user != null) _session.value = Session(stored.token, stored.user)
         if (stored.cityId != null && stored.cityName != null) _city.value = SelectedCity(stored.cityId, stored.cityName)
+        themeMode.value = stored.themeMode
+        liteModeSetting.value = stored.liteMode
         _ready.value = true
         scope.launch { impressionLoop() }
+        scope.launch { activityLoop() }
         if (_session.value != null) scope.launch { refreshMe() }
     }
 
@@ -144,6 +179,49 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         contentVersion.update { it + 1 }
     }
 
+    suspend fun setThemeMode(mode: String) {
+        themeMode.value = mode
+        prefs.saveThemeMode(mode)
+    }
+
+    suspend fun setLiteMode(mode: String) {
+        liteModeSetting.value = mode
+        prefs.saveLiteMode(mode)
+    }
+
+    suspend fun refreshUnread() {
+        if (_session.value == null) {
+            unreadActivity.value = 0
+            return
+        }
+        runCatching { apiCall { api.unread() } }.onSuccess { unreadActivity.value = it.count }
+    }
+
+    private suspend fun activityLoop() {
+        while (true) {
+            refreshUnread()
+            delay(60_000)
+        }
+    }
+
+    /** Applies a profile change from the server to the signed-in session. */
+    suspend fun updatedMe(user: User) {
+        val token = _session.value?.token ?: return
+        _session.value = Session(token, user)
+        prefs.saveSession(token, user)
+        contentVersion.update { it + 1 }
+    }
+
+    suspend fun updateProfile(change: ProfileUpdate) = updatedMe(apiCall { api.updateProfile(change) })
+
+    suspend fun uploadAvatar(jpeg: ByteArray) = updatedMe(
+        apiCall {
+            api.uploadAvatar(MultipartBody.Part.createFormData("image", "avatar.jpg", jpeg.toRequestBody("image/jpeg".toMediaType())))
+        },
+    )
+
+    suspend fun removeAvatar() = updatedMe(apiCall { api.deleteAvatar() })
+
     suspend fun signedIn(result: AuthResult) {
         _session.value = Session(result.token, result.user)
         prefs.saveSession(result.token, result.user)
@@ -156,6 +234,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
 
     suspend fun signOut() {
         _session.value = null
+        unreadActivity.value = 0
         prefs.saveSession(null, null)
         _overrides.value = emptyMap()
         pendingAction = null
@@ -178,7 +257,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     }
 
     fun effective(card: DishCard): EngagementState =
-        _overrides.value[card.id] ?: EngagementState(card.stats, card.me)
+        _overrides.value[card.id] ?: card.engagement()
 
     /** Optimistically flips one action, then reconciles with the server's counts. */
     suspend fun toggle(card: DishCard, kind: Engagement) {
@@ -189,7 +268,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
             val res = apiCall {
                 if (next.me.has(kind)) api.engage(card.id, kind.api) else api.disengage(card.id, kind.api)
             }
-            _overrides.update { it + (card.id to EngagementState(res.stats, res.me)) }
+            _overrides.update { it + (card.id to EngagementState(res.stats, res.me, res.rating ?: next.rating)) }
         } catch (e: ApiException) {
             _overrides.update { it + (card.id to current) }
             if (e.status == 401) signOut()

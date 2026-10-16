@@ -97,7 +97,7 @@ export async function pageRoutes(app: FastifyInstance) {
          <h2>Where it is stored</h2><p>On servers we operate ([hosting location]). Nothing is shared with third parties.</p>
          <h2>How long</h2><p>Until you delete your account. Deleting it removes your profile, photos and actions immediately; backups roll off within [30] days.</p>
          <h2>Your choices</h2><p>You can withdraw location permission at any time in Android settings, and delete your account in the app (Profile → Settings → Delete account) or as described on <a href="/delete-account">this page</a>.</p>
-         <h2>Age</h2><p>FoodFeed is for people aged 18 or over.</p>
+         <h2>Age</h2><p>FoodFeed is for people aged 13 or over. If you are under 18, use it with the permission of a parent or guardian; we don't knowingly show ads to under-18s or track them across apps.</p>
          <h2>Grievance officer</h2><p>[Name], ${esc(config.contactEmail)}. We acknowledge complaints within 24 hours.</p>`,
       ),
     ),
@@ -108,7 +108,7 @@ export async function pageRoutes(app: FastifyInstance) {
       page(
         'Terms of Use',
         `<h1>Terms of Use</h1>${DRAFT_NOTE}
-         <ul><li>You must be 18 or older.</li>
+         <ul><li>You must be 13 or older; if you are under 18, you need a parent or guardian's permission.</li>
          <li>Post only photos you took or have permission to use. You keep ownership and give FoodFeed a licence to show them in the app and in share links.</li>
          <li>Mark a post as sponsored if you were paid or got the food or anything else for free.</li>
          <li>No fake recommendations, multiple accounts, spam, abuse, or photos of people without their consent.</li>

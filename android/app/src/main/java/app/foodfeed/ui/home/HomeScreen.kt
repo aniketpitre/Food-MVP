@@ -1,0 +1,493 @@
+package app.foodfeed.ui.home
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import app.foodfeed.data.ApiException
+import app.foodfeed.data.AppContainer
+import app.foodfeed.data.DishCard
+import app.foodfeed.data.HomeData
+import app.foodfeed.data.SelectedCity
+import app.foodfeed.data.Taster
+import app.foodfeed.data.apiCall
+import app.foodfeed.ui.Format
+import app.foodfeed.ui.components.CenteredMessage
+import app.foodfeed.ui.components.ChampionLine
+import app.foodfeed.ui.components.DishImage
+import app.foodfeed.ui.components.KickerText
+import app.foodfeed.ui.components.LocalApp
+import app.foodfeed.ui.components.RatingPill
+import app.foodfeed.ui.components.Sticker
+import app.foodfeed.ui.components.TasterCard
+import app.foodfeed.ui.components.VegMark
+import app.foodfeed.ui.feed.greetingFor
+import app.foodfeed.ui.theme.Ink
+import app.foodfeed.ui.theme.Motion
+import app.foodfeed.ui.theme.SkeletonBlock
+import app.foodfeed.ui.theme.Turmeric
+import app.foodfeed.ui.theme.dishHero
+import app.foodfeed.ui.theme.pressScale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+data class HomeUiState(
+    val city: SelectedCity? = null,
+    val loading: Boolean = true,
+    val refreshing: Boolean = false,
+    val data: HomeData = HomeData(),
+    val error: String? = null,
+)
+
+class HomeViewModel(private val app: AppContainer) : ViewModel() {
+    private val _state = MutableStateFlow(HomeUiState())
+    val state: StateFlow<HomeUiState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            combine(app.city, app.contentVersion, app.location) { c, _, _ -> c }.collect { city ->
+                _state.update { it.copy(city = city) }
+                if (city != null) load()
+            }
+        }
+    }
+
+    fun refresh() {
+        _state.update { it.copy(refreshing = true) }
+        load()
+    }
+
+    fun load() {
+        val city = app.city.value ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(loading = it.data == HomeData() && !it.refreshing, error = null) }
+            try {
+                val loc = app.location.value
+                val data = apiCall { app.api.home(city.id, loc?.lat, loc?.lng) }
+                _state.update { it.copy(loading = false, refreshing = false, data = data) }
+            } catch (e: ApiException) {
+                _state.update { it.copy(loading = false, refreshing = false, error = e.message) }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(
+    vm: HomeViewModel,
+    onCraving: (String) -> Unit,
+    onOpenDish: (String) -> Unit,
+    onOpenUser: (String) -> Unit,
+    onChangeCity: () -> Unit,
+    onExplore: () -> Unit,
+    onAddDish: () -> Unit,
+) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val app = LocalApp.current
+    HomeContent(
+        state = state,
+        imageUrl = { app.mediaUrl(it) },
+        onCraving = onCraving,
+        onOpenDish = onOpenDish,
+        onOpenUser = onOpenUser,
+        onChangeCity = onChangeCity,
+        onExplore = onExplore,
+        onAddDish = onAddDish,
+        onRefresh = vm::refresh,
+        onRetry = vm::load,
+    )
+}
+
+/** Things people crave, cycled in the search box until you start typing. */
+private val Ideas = listOf("pav bhaji", "misal pav", "cold coffee", "biryani", "masala dosa", "vada pav", "jalebi", "thali")
+
+/**
+ * Home asks the one question the app exists for: "What are you craving?". Type a dish (any
+ * spelling) or tap a craving, and the next screen ranks where to get it by what people who
+ * tried it decided. Below: today's People's Picks, what's good near you, what people you
+ * follow loved, the city's tastemakers, and what's trending or new.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeContent(
+    state: HomeUiState,
+    imageUrl: (String?) -> String?,
+    onCraving: (String) -> Unit,
+    onOpenDish: (String) -> Unit,
+    onOpenUser: (String) -> Unit,
+    onChangeCity: () -> Unit,
+    onExplore: () -> Unit,
+    onAddDish: () -> Unit,
+    onRefresh: () -> Unit,
+    onRetry: () -> Unit,
+    greeting: String = greetingFor(java.time.LocalTime.now().hour),
+    cyclePlaceholder: Boolean = true,
+) {
+    val d = state.data
+    PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "hero") {
+                CravingHero(state.city?.name ?: "your city", greeting, onChangeCity, onCraving, cyclePlaceholder)
+            }
+            if (d.cravings.isNotEmpty()) {
+                item(key = "chips") {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                    ) {
+                        itemsIndexed(d.cravings, key = { _, c -> c.label }) { i, c ->
+                            CravingChip(listOfNotNull(c.emoji, c.label).joinToString("  "), i) { onCraving(c.label) }
+                        }
+                    }
+                }
+            }
+            when {
+                state.loading -> item(key = "skeleton") { HomeSkeleton() }
+                state.error != null && d == HomeData() -> item(key = "error") {
+                    Box(Modifier.height(360.dp)) { CenteredMessage("Couldn't load", state.error, null, "Try again", onRetry) }
+                }
+                d.peoplesPicks.isEmpty() && d.fresh.isEmpty() -> item(key = "empty") {
+                    Box(Modifier.height(380.dp)) {
+                        CenteredMessage(
+                            "Nothing here yet",
+                            "Be the first to post a dish you love in ${state.city?.name ?: "your city"}.",
+                            null, "Post a dish", onAddDish,
+                        )
+                    }
+                }
+                else -> {
+                    if (d.peoplesPicks.isNotEmpty()) {
+                        item(key = "picks-title") {
+                            SectionHeader("People's Pick", "Loved most by people who tried them", onMore = onExplore)
+                        }
+                        item(key = "picks") { CardCarousel(d.peoplesPicks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true) }
+                    }
+                    if (d.nearby.isNotEmpty()) {
+                        item(key = "near-title") { SectionHeader("Good near you", "Within 5 km") }
+                        item(key = "near") { CardCarousel(d.nearby, imageUrl, onOpenDish, onOpenUser) }
+                    }
+                    if (d.following.isNotEmpty()) {
+                        item(key = "follow-title") { SectionHeader("From people you follow", null) }
+                        item(key = "follow") {
+                            CardCarousel(d.following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = d.following.map { it.lovedBy })
+                        }
+                    }
+                    if (d.tasters.isNotEmpty()) {
+                        item(key = "tasters-title") { SectionHeader("Tastemakers", "Their picks were backed by the most people") }
+                        item(key = "tasters") { TasterRow(d.tasters, onOpenUser) }
+                    }
+                    if (d.trending.isNotEmpty()) {
+                        item(key = "trend-title") { SectionHeader("Trending this week", null) }
+                        item(key = "trend") { CardCarousel(d.trending, imageUrl, onOpenDish, onOpenUser) }
+                    }
+                    if (d.fresh.isNotEmpty()) {
+                        item(key = "fresh-title") { SectionHeader("Just posted", "Help decide: tried any of these?") }
+                        item(key = "fresh") { CardCarousel(d.fresh, imageUrl, onOpenDish, onOpenUser) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The big question, a city switch and a search box whose example cravings roll by. */
+@Composable
+private fun CravingHero(city: String, greeting: String, onChangeCity: () -> Unit, onCraving: (String) -> Unit, cycle: Boolean) {
+    var text by remember { mutableStateOf("") }
+    var idea by remember { mutableIntStateOf(0) }
+    if (cycle) {
+        LaunchedEffect(text.isEmpty()) {
+            while (text.isEmpty()) {
+                delay(2200)
+                idea = (idea + 1) % Ideas.size
+            }
+        }
+    }
+    val rise = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { rise.animateTo(1f, Motion.enter(600)) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(top = 12.dp, bottom = 12.dp)
+            .graphicsLayer {
+                alpha = rise.value
+                translationY = (1f - rise.value) * 40f
+            },
+    ) {
+        val interaction = remember { MutableInteractionSource() }
+        Row(
+            Modifier
+                .pressScale(interaction, 0.97f)
+                .clickable(interaction, indication = null, role = Role.Button, onClick = onChangeCity),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            KickerText("$greeting $city")
+            Icon(Icons.Filled.KeyboardArrowDown, "Change city", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        Text("What are you\ncraving?", style = MaterialTheme.typography.displayMedium, lineHeight = 52.sp)
+        Spacer(Modifier.height(16.dp))
+        val submit = { if (text.isNotBlank()) onCraving(text.trim()) }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.weight(1f)) {
+                if (text.isEmpty()) {
+                    AnimatedContent(
+                        targetState = idea,
+                        transitionSpec = {
+                            (slideInVertically(Motion.enter(Motion.LONG)) { it } + fadeIn(Motion.enter(Motion.LONG)))
+                                .togetherWith(slideOutVertically(Motion.exit(Motion.MEDIUM)) { -it } + fadeOut(Motion.exit(Motion.MEDIUM)))
+                        },
+                        label = "idea",
+                    ) { i ->
+                        Text(
+                            "Try “${Ideas[i]}”",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                BasicTextField(
+                    value = text,
+                    onValueChange = { text = it.take(60) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { submit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            val go = remember { MutableInteractionSource() }
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .pressScale(go, 0.88f)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(go, indication = null, role = Role.Button) {
+                        if (text.isBlank()) onCraving(Ideas[idea]) else submit()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Search, "Find the best", tint = Ink, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CravingChip(label: String, index: Int, onClick: () -> Unit) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { delay(40L * index.coerceAtMost(10)); appear.animateTo(1f, Motion.bouncy()) }
+    val interaction = remember { MutableInteractionSource() }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier
+            .graphicsLayer {
+                val p = appear.value
+                alpha = p.coerceIn(0f, 1f)
+                scaleX = 0.6f + 0.4f * p
+                scaleY = 0.6f + 0.4f * p
+            }
+            .pressScale(interaction, 0.9f)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    )
+}
+
+@Composable
+fun SectionHeader(title: String, subtitle: String?, onMore: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (onMore != null) {
+            Text(
+                "See all",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onMore).padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CardCarousel(
+    cards: List<DishCard>,
+    imageUrl: (String?) -> String?,
+    onOpenDish: (String) -> Unit,
+    onOpenUser: (String) -> Unit,
+    big: Boolean = false,
+    ranked: Boolean = false,
+    lovedBy: List<String>? = null,
+) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        itemsIndexed(cards, key = { _, c -> c.id }) { i, c ->
+            PickCard(
+                c, imageUrl(c.cover?.thumbUrl ?: c.cover?.imageUrl), { onOpenDish(c.id) }, onOpenUser,
+                width = if (big) 236 else 176, rank = if (ranked) i + 1 else null, lovedBy = lovedBy?.getOrNull(i),
+            )
+        }
+    }
+}
+
+/** A dish as a tall card: photo with its verdict on it, name, place, and whose top pick it is. */
+@Composable
+fun PickCard(
+    card: DishCard,
+    thumb: String?,
+    onClick: () -> Unit,
+    onOpenUser: (String) -> Unit,
+    width: Int = 200,
+    rank: Int? = null,
+    lovedBy: String? = null,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        Modifier
+            .width(width.dp)
+            .pressScale(interaction, 0.96f)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick),
+    ) {
+        Box {
+            DishImage(
+                thumb, card.cover?.placeholderColor, card.name,
+                Modifier.fillMaxWidth().aspectRatio(0.82f).dishHero(card.id, 24.dp).clip(RoundedCornerShape(24.dp)),
+            )
+            Box(
+                Modifier.matchParentSize().clip(RoundedCornerShape(24.dp)).background(
+                    Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f)),
+                ),
+            )
+            if (rank != null) {
+                Sticker(
+                    "#$rank", if (rank == 1) Turmeric else Color.White, tilt = -8f,
+                    modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+                )
+            }
+            RatingPill(card.rating, Modifier.align(Alignment.BottomStart).padding(10.dp), onPhoto = true)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            VegMark(card.isVeg)
+            if (card.isVeg != null) Spacer(Modifier.width(6.dp))
+            Text(card.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(
+            listOfNotNull(card.restaurant.name, Format.price(card.priceInr), Format.distance(card.distanceM)).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        when {
+            lovedBy != null -> Text(
+                "Loved by @$lovedBy",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            card.champion != null -> ChampionLine(card.champion, onOpenUser, Modifier.padding(top = 6.dp))
+        }
+    }
+}
+
+@Composable
+private fun TasterRow(tasters: List<Taster>, onOpenUser: (String) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(tasters, key = { it.handle }) { t -> TasterCard(t, { onOpenUser(t.handle) }) }
+    }
+}
+
+@Composable
+private fun HomeSkeleton() {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+        SkeletonBlock(Modifier.width(180.dp).height(26.dp), RoundedCornerShape(8.dp))
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            repeat(2) { SkeletonBlock(Modifier.width(236.dp).aspectRatio(0.82f), RoundedCornerShape(24.dp)) }
+        }
+    }
+}

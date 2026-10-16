@@ -100,6 +100,7 @@ import app.foodfeed.ui.theme.CardTitle
 import app.foodfeed.ui.theme.Chili
 import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.Lagoon
+import app.foodfeed.ui.theme.LocalLiteMode
 import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.Saffron
 import app.foodfeed.ui.theme.Turmeric
@@ -366,7 +367,8 @@ fun DishPage(
 ) {
     var burst by remember { mutableIntStateOf(0) }
     var burstAt by remember { mutableStateOf(Offset.Unspecified) }
-    val intro = remember(card.id) { Animatable(0f) }
+    val lite = LocalLiteMode.current
+    val intro = remember(card.id) { Animatable(if (lite) 1f else 0f) }
     LaunchedEffect(card.id, active) {
         if (active && intro.value == 0f) intro.animateTo(1f, tween(1100, easing = LinearEasing))
     }
@@ -414,7 +416,14 @@ fun DishPage(
         val cardAspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else photoAspect
         val fitWidth = cardAspect < photoAspect * 0.9f
         Box(Modifier.fillMaxSize().dishHero(card.id, 32.dp)) {
-            if (fitWidth) {
+            if (fitWidth && lite) {
+                // Lite mode: a flat tint of the photo's colour instead of a live blur.
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(Format.parseColor(card.cover?.placeholderColor, Color(0xFF2A1E17)))
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                )
+            } else if (fitWidth) {
                 DishImage(
                     imageUrl, card.cover?.placeholderColor, null,
                     Modifier.fillMaxSize().blur(36.dp).graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.9f },
@@ -660,8 +669,10 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
     val density = LocalDensity.current
     val heart = with(density) { 110.dp.toPx() }
     val burstColors = listOf(Chili, Turmeric, Saffron, Color.White)
+    val lite = LocalLiteMode.current
     Box(
         modifier.drawBehind {
+            if (lite) return@drawBehind
             val c = if (at.isSet()) at else center
             drawSpiceBurst(c, spray.value, burstColors, radius = heart * 1.05f, count = 14, seed = trigger)
         },

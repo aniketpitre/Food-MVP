@@ -28,6 +28,9 @@ android {
         // Where the app looks for newer versions (GitHub's "latest release" API). Empty turns it off.
         buildConfigField("String", "UPDATES_URL", "\"${(findProperty("updatesUrl") as String?) ?: ""}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The map's native code ships for real phones (64- and 32-bit ARM) and x86_64
+        // (emulators, Chromebooks); dropping 32-bit x86 keeps the APK smaller.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
     signingConfigs {
@@ -52,7 +55,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinks and optimises the code: a smaller download and faster start-up,
+            // which matters most on low-end phones. Keep rules are in proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
         debug {
@@ -99,6 +106,7 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
+    implementation(libs.maplibre.android)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.retrofit)

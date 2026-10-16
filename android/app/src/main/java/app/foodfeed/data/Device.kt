@@ -25,6 +25,19 @@ import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 import kotlin.math.max
 
+/** Facts about the phone that change how hard the app works it. */
+object Device {
+    /**
+     * Low-end: Android's own low-RAM flag, or under 3 GB of memory, or a small per-app heap.
+     * These phones get Lite mode by default.
+     */
+    fun isLowEnd(context: Context): Boolean {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val info = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        return am.isLowRamDevice || info.totalMem < 3L * 1024 * 1024 * 1024 || am.memoryClass <= 192
+    }
+}
+
 /** What happened when we asked the phone where it is. */
 sealed interface LocationResult {
     data class Found(val coords: Coords) : LocationResult

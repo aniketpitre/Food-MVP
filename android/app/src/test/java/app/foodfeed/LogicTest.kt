@@ -140,4 +140,23 @@ class LogicTest {
         assertEquals(listOf("Comments on posts", "Location everywhere in India"), app.foodfeed.data.Updates.whatsNew(body))
         assertEquals(emptyList<String>(), app.foodfeed.data.Updates.whatsNew("**FoodFeed pilot build**"))
     }
+
+    @Test
+    fun notForMeExcludesALoveAndMarksTried() {
+        val loved = base.toggled(Engagement.Recommend)
+        assertEquals(1, loved.rating.loves)
+        val passed = loved.toggled(Engagement.Pass)
+        assertFalse(passed.me.recommended)
+        assertTrue(passed.me.passed)
+        assertTrue(passed.me.tried)
+        // Someone who tried it and said "not for me" is not one of the people who recommend it.
+        assertEquals(base.stats.recommenders, passed.stats.recommenders)
+        assertEquals(0, passed.rating.loves)
+        assertEquals(1, passed.rating.passes)
+        assertEquals(0, passed.rating.percent)
+        val lovedAgain = passed.toggled(Engagement.Recommend)
+        assertTrue(lovedAgain.me.recommended)
+        assertFalse(lovedAgain.me.passed)
+        assertEquals(100, lovedAgain.rating.percent)
+    }
 }

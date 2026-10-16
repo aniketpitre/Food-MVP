@@ -55,9 +55,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.foodfeed.data.engagement
 import app.foodfeed.data.ApiException
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.DishCard
+import app.foodfeed.data.Person
+import app.foodfeed.ui.components.Avatar
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import app.foodfeed.data.Engagement
 import app.foodfeed.data.EngagementState
 import app.foodfeed.data.SearchResult
@@ -82,6 +86,7 @@ data class SearchUiState(
     val loading: Boolean = false,
     val result: SearchResult? = null,
     val error: String? = null,
+    val people: List<Person> = emptyList(),
 )
 
 class SearchViewModel(private val app: AppContainer) : ViewModel() {
@@ -103,7 +108,8 @@ class SearchViewModel(private val app: AppContainer) : ViewModel() {
             try {
                 val loc = app.location.value
                 val r = apiCall { app.api.search(q.trim(), city.id, loc?.lat, loc?.lng) }
-                _state.update { it.copy(loading = false, result = r) }
+                val people = runCatching { apiCall { app.api.people(q.trim()) } }.getOrDefault(emptyList())
+                _state.update { it.copy(loading = false, result = r, people = people) }
             } catch (e: ApiException) {
                 _state.update { it.copy(loading = false, error = e.message) }
             }
@@ -118,6 +124,8 @@ fun SearchScreen(
     onOpenRestaurant: (String) -> Unit,
     onNeedSignIn: () -> Unit,
     showMessage: (String) -> Unit,
+    onOpenUser: (String) -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
     val app = LocalApp.current
     val state by vm.state.collectAsStateWithLifecycle()
@@ -126,11 +134,13 @@ fun SearchScreen(
     SearchContent(
         state = state,
         onQuery = vm::onQuery,
-        engagementOf = { overrides[it.id] ?: EngagementState(it.stats, it.me) },
+        engagementOf = { overrides[it.id] ?: it.engagement() },
         thumbOf = { app.mediaUrl(it.cover?.thumbUrl) },
         onOpenDish = onOpenDish,
         onOpenRestaurant = onOpenRestaurant,
         onSave = { actions.toggle(it, Engagement.Save) },
+        onOpenUser = onOpenUser,
+        onBack = onBack,
     )
 }
 
@@ -144,12 +154,19 @@ fun SearchContent(
     onOpenRestaurant: (String) -> Unit,
     onSave: (DishCard) -> Unit,
     autoFocus: Boolean = true,
+    onOpenUser: (String) -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (autoFocus) runCatching { focus.requestFocus() } }
     Column(Modifier.fillMaxSize()) {
+        if (onBack != null) {
+            IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+            }
+        }
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp)) {
-            KickerText("Hungry for")
+            KickerText("Dishes, places and people")
             Text("Search", style = MaterialTheme.typography.displaySmall)
         }
         OutlinedTextField(
@@ -176,10 +193,29 @@ fun SearchContent(
             state.loading && r == null -> LoadingBox()
             state.error != null -> CenteredMessage("Search failed", state.error)
             r == null -> SearchIdeas(onQuery)
-            r.dishes.isEmpty() && r.restaurants.isEmpty() -> CenteredMessage(
+            r.dishes.isEmpty() && r.restaurants.isEmpty() && state.people.isEmpty() -> CenteredMessage(
                 "Nothing found", "Try another spelling or a broader word like \"dosa\".", Icons.Filled.Search,
             )
             else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                if (state.people.isNotEmpty()) {
+                    item(key = "people-title") { SectionTitle("People") }
+                    item(key = "people") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            items(state.people, key = { "u" + it.handle }) { p ->
+                                Column(
+                                    Modifier.width(76.dp).clip(RoundedCornerShape(16.dp)).clickable { onOpenUser(p.handle) }.padding(vertical = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Avatar(p.handle, p.displayName, 60.dp, photo = p.avatarUrl)
+                                    Text(
+                                        p.handle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(top = 6.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (r.restaurants.isNotEmpty()) {
                     item(key = "places-title") { SectionTitle("Places") }
                     item(key = "places") {

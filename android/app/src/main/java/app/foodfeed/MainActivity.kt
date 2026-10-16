@@ -7,12 +7,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import app.foodfeed.ui.theme.LocalLiteMode
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.foodfeed.ui.FoodFeedRoot
 import app.foodfeed.ui.components.LocalApp
+import app.foodfeed.ui.components.LocalMediaUrl
 import app.foodfeed.ui.theme.FoodFeedTheme
 
 class MainActivity : ComponentActivity() {
@@ -24,8 +28,19 @@ class MainActivity : ComponentActivity() {
         deepLinkDishId = dishIdFrom(intent)
         val container = (application as FoodFeedApp).container
         setContent {
-            FoodFeedTheme {
-                CompositionLocalProvider(LocalApp provides container) {
+            val mode by container.themeMode.collectAsState()
+            val lite by container.liteModeSetting.collectAsState()
+            val dark = when (mode) {
+                "light" -> false
+                "dark" -> true
+                else -> isSystemInDarkTheme()
+            }
+            FoodFeedTheme(darkTheme = dark) {
+                CompositionLocalProvider(
+                    LocalApp provides container,
+                    LocalMediaUrl provides container::mediaUrl,
+                    LocalLiteMode provides (lite == "on" || (lite == "auto" && container.isLowEndDevice)),
+                ) {
                     Surface(color = MaterialTheme.colorScheme.background) {
                         FoodFeedRoot(deepLinkDishId) { deepLinkDishId = null }
                     }

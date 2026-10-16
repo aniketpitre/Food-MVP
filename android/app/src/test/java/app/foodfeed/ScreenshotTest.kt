@@ -42,6 +42,22 @@ import app.foodfeed.ui.onboarding.OnboardingContent
 import app.foodfeed.ui.onboarding.OnboardingStep
 import app.foodfeed.ui.onboarding.OnboardingUiState
 import app.foodfeed.ui.profile.ProfileContent
+import app.foodfeed.ui.profile.ProfileUiState
+import app.foodfeed.data.TasteBadge
+import app.foodfeed.data.Rating
+import app.foodfeed.data.Champion
+import app.foodfeed.data.HomeData
+import app.foodfeed.data.CravingChip
+import app.foodfeed.data.Taster
+import app.foodfeed.data.CravingResult
+import app.foodfeed.data.ActivityItem
+import app.foodfeed.data.NotificationDish
+import app.foodfeed.ui.home.HomeContent
+import app.foodfeed.ui.home.HomeUiState
+import app.foodfeed.ui.home.CravingContent
+import app.foodfeed.ui.home.CravingUiState
+import app.foodfeed.ui.activity.ActivityContent
+import app.foodfeed.ui.activity.ActivityUiState
 import app.foodfeed.ui.restaurant.RestaurantContent
 import app.foodfeed.ui.saved.SavedContent
 import app.foodfeed.ui.search.SearchContent
@@ -170,8 +186,9 @@ class ScreenshotTest {
                     card("godavari_misal_pav", "Misal Pav", "Godavari Misal House", "Panchavati", 21),
                     card("godavari_kanda_bhaji", "Kanda Bhaji", "Godavari Misal House", "Panchavati", 8),
                 ),
+                champion = Champion("diya_k", "Diya K", isExpert = true, backers = 31),
             ),
-            engagement = EngagementState(d.stats, d.me),
+            engagement = EngagementState(d.stats, d.me, Rating(36, 2, 95, 0.8)),
             imageUrl = { it }, onBack = {}, onToggle = {}, onShare = {}, onMaps = {}, onOpenRestaurant = {},
             onOpenDish = {}, onOpenUser = {}, onReport = { _, _ -> }, onBlock = {},
         )
@@ -254,17 +271,95 @@ class ScreenshotTest {
     @Test
     fun profile() = shoot("10_profile") {
         ProfileContent(
-            profile = UserProfile(
-                handle = "aniket", displayName = "Aniket", recommendations = 42, isMe = true,
-                posts = listOf(
-                    ProfilePost("1", "d1", "/media/ananda_sabudana_khichdi", null, "live", "Sabudana Khichdi", "Cafe Ananda"),
-                    ProfilePost("2", "d2", "/media/katta_vada_pav", null, "live", "Vada Pav", "Chai Katta"),
-                    ProfilePost("3", "d3", "/media/sangam_jalebi", null, "live", "Jalebi", "Sweet Sangam", "pending"),
-                    ProfilePost("4", "d4", "/media/udupi_filter_coffee", null, "live", "Filter Coffee", "Udupi Swad"),
-                    ProfilePost("5", "d5", "/media/pbp_pav_bhaji", null, "live", "Pav Bhaji", "Pav Bhaji Point"),
+            state = ProfileUiState(
+                loading = false,
+                profile = UserProfile(
+                    handle = "aniket", displayName = "Aniket Pitre", bio = "Misal before work, chai after. Nashik.",
+                    recommendations = 42, followers = 128, following = 87, isMe = true,
+                    tasteBadges = listOf(
+                        TasteBadge("Misal", "🌶️", picks = 6, backers = 31, isExpert = true),
+                        TasteBadge("Chai & Coffee", "☕", picks = 3, backers = 9),
+                    ),
+                    posts = listOf(
+                        ProfilePost("1", "d1", "/media/ananda_sabudana_khichdi", null, "live", "Sabudana Khichdi", "Cafe Ananda"),
+                        ProfilePost("2", "d2", "/media/katta_vada_pav", null, "live", "Vada Pav", "Chai Katta"),
+                        ProfilePost("3", "d3", "/media/sangam_jalebi", null, "live", "Jalebi", "Sweet Sangam", "pending"),
+                        ProfilePost("4", "d4", "/media/udupi_filter_coffee", null, "live", "Filter Coffee", "Udupi Swad"),
+                        ProfilePost("5", "d5", "/media/pbp_pav_bhaji", null, "live", "Pav Bhaji", "Pav Bhaji Point"),
+                    ),
                 ),
             ),
-            thumbOf = { it }, onBack = null, onOpenDish = {}, onSettings = {}, onBlockToggle = {}, onReport = {},
+            imageUrl = { it }, onBack = null, onOpenDish = {}, onSettings = {}, onEditProfile = {}, onFollow = {},
+            onFollows = { _, _ -> }, onTab = {}, onBlockToggle = {}, onReport = {}, onShare = {},
+        )
+    }
+
+    private fun rated(c: DishCard, loves: Int, passes: Int, champ: String? = null, expert: Boolean = false) = c.copy(
+        rating = Rating(loves, passes, Math.round(100f * loves / (loves + passes)), 0.8),
+        champion = champ?.let { Champion(it, null, isExpert = expert, backers = 14) },
+    )
+
+    @Test
+    fun home() = shoot("17_home") {
+        HomeContent(
+            state = HomeUiState(
+                city = SelectedCity(1, "Nashik"),
+                loading = false,
+                data = HomeData(
+                    cravings = listOf(
+                        CravingChip("Misal", "🌶️", 4), CravingChip("Vada Pav & Snacks", "🥟", 6), CravingChip("Chai & Coffee", "☕", 3),
+                    ),
+                    peoplesPicks = listOf(
+                        rated(misal, 36, 2, "diya_k", expert = true),
+                        rated(card("pbp_pav_bhaji", "Pav Bhaji", "Pav Bhaji Point", "Canada Corner", 29, price = 110), 28, 6, "arjun"),
+                    ),
+                    tasters = listOf(
+                        Taster("diya_k", "Diya K", picks = 6, backers = 31, isExpert = true),
+                        Taster("arjun", "Arjun", picks = 4, backers = 12),
+                        Taster("myra_s", "Myra S", picks = 2, backers = 5),
+                    ),
+                ),
+            ),
+            imageUrl = { it }, onCraving = {}, onOpenDish = {}, onOpenUser = {}, onChangeCity = {}, onExplore = {}, onAddDish = {},
+            onRefresh = {}, onRetry = {}, greeting = "Lunch o'clock in", cyclePlaceholder = false,
+        )
+    }
+
+    @Test
+    fun craving() = shoot("18_craving_pav_bhaji") {
+        val pbp = card("pbp_pav_bhaji", "Pav Bhaji", "Pav Bhaji Point", "Canada Corner", 29, price = 110)
+        CravingContent(
+            state = CravingUiState(
+                loading = false, city = "Nashik",
+                result = CravingResult(
+                    query = "pav bhaji", label = "Pav Bhaji",
+                    results = listOf(
+                        rated(pbp, 5, 0, "diya_k", expert = true),
+                        rated(card("katta_vada_pav", "Pav Bhaji", "Chai Katta", "Canada Corner", 28, price = 90), 28, 6, "arjun"),
+                        rated(card("ananda_masala_dosa", "Butter Pav Bhaji", "Cafe Ananda", "College Road", 9, price = 130), 9, 4),
+                    ),
+                    tasters = listOf(Taster("diya_k", "Diya K", picks = 6, backers = 31, isExpert = true), Taster("arjun", "Arjun", picks = 4, backers = 12)),
+                ),
+            ),
+            imageUrl = { it }, onBack = {}, onOpenDish = {}, onOpenUser = {}, onAddDish = {}, onRetry = {},
+        )
+    }
+
+    @Test
+    fun activity() = shoot("19_activity") {
+        val now = java.time.Instant.now()
+        fun ago(m: Long) = now.minusSeconds(m * 60).toString()
+        ActivityContent(
+            state = ActivityUiState(
+                loading = false,
+                items = listOf(
+                    ActivityItem(1, "agree", ago(4), false, UserRef("diya_k", "Diya K"), NotificationDish("d1", "Kolhapuri Misal", "/media/godavari_kolhapuri_misal")),
+                    ActivityItem(2, "follow", ago(30), false, UserRef("arjun", "Arjun")),
+                    ActivityItem(3, "comment", ago(90), true, UserRef("myra_s", "Myra S"), NotificationDish("d2", "Vada Pav", "/media/katta_vada_pav"), commentBody = "Is it spicy?"),
+                    ActivityItem(4, "recommend", ago(60 * 26), true, UserRef("kabir"), NotificationDish("d3", "Pav Bhaji", "/media/pbp_pav_bhaji")),
+                ),
+            ),
+            imageUrl = { it }, onOpenDish = {}, onOpenUser = {}, onFollow = {}, onRefresh = {},
         )
     }
 

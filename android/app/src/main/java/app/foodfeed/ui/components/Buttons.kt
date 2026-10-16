@@ -124,6 +124,7 @@ private fun fillFor(kind: Engagement?): Color = when (kind) {
     Engagement.Recommend -> accent()
     Engagement.Save -> Turmeric
     Engagement.Tried -> Mint
+    Engagement.Pass -> MaterialTheme.colorScheme.onSurfaceVariant
     null -> Saffron
 }
 
@@ -171,7 +172,10 @@ fun EngageAction(
     val burst = remember { Animatable(0f) }
     var previous by remember { mutableStateOf(active) }
     LaunchedEffect(active) {
-        if (active && !previous) {
+        if (active && !previous && kind == Engagement.Pass) {
+            // "Not for me" is a quiet nod, never a celebration.
+            launch { pop.snapTo(0.85f); pop.animateTo(1f, Motion.press()) }
+        } else if (active && !previous) {
             launch { pop.snapTo(0.7f); pop.animateTo(1f, Motion.bouncy()) }
             launch { wiggle.snapTo(-18f); wiggle.animateTo(0f, Motion.pop()) }
             launch { burst.snapTo(0f); burst.animateTo(1f, tween(620, easing = LinearEasing)); burst.snapTo(0f) }
@@ -183,9 +187,11 @@ fun EngageAction(
         Engagement.Recommend -> if (active) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder
         Engagement.Save -> if (active) AppIcons.Bookmark else AppIcons.BookmarkBorder
         Engagement.Tried -> if (active) Icons.Filled.Check else Icons.Outlined.CheckCircle
+        Engagement.Pass -> if (active) AppIcons.ThumbDown else AppIcons.ThumbDownOutline
         null -> Icons.Outlined.Share
     }
     val burstColors = listOf(fill, Turmeric, Saffron, Mint)
+    val lite = app.foodfeed.ui.theme.LocalLiteMode.current
     val box = when (look) {
         ActionLook.Glass -> 48.dp
         ActionLook.Tile -> 56.dp
@@ -204,7 +210,7 @@ fun EngageAction(
             Modifier
                 .size(box)
                 .drawBehind {
-                    drawSpiceBurst(center, burst.value, burstColors, radius = size.minDimension * 0.95f, count = 10)
+                    if (!lite) drawSpiceBurst(center, burst.value, burstColors, radius = size.minDimension * 0.95f, count = 10)
                 }
                 .graphicsLayer { scaleX = pop.value; scaleY = pop.value }
                 .background(bg, shape),

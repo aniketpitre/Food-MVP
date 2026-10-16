@@ -160,7 +160,7 @@ fun AuthContent(
         )
         if (state.register) {
             OutlinedTextField(
-                state.handle, onHandle, label = { Text("Handle") }, prefix = { Text("@") }, singleLine = true,
+                state.handle, onHandle, label = { Text("Username") }, prefix = { Text("@") }, singleLine = true,
                 supportingText = { Text("3–20 lowercase letters, numbers or _") }, modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -169,7 +169,7 @@ fun AuthContent(
             )
             Row(Modifier.clickable { onAcceptTerms(!state.acceptTerms) }, verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(state.acceptTerms, onAcceptTerms)
-                Text("I'm 18 or older and accept the ", style = MaterialTheme.typography.bodyMedium)
+                Text("I'm 13 or older and accept the ", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     "Terms", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onOpenTerms),

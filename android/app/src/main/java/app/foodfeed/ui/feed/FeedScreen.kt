@@ -38,9 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.foodfeed.data.engagement
 import app.foodfeed.data.DeviceLocation
 import androidx.compose.runtime.saveable.rememberSaveable
 import app.foodfeed.ui.comments.CommentsSheet
+import app.foodfeed.ui.appViewModel
+import app.foodfeed.ui.map.FoodMap
+import app.foodfeed.ui.map.MapViewModel
 import app.foodfeed.data.LocationResult
 import app.foodfeed.data.DishCard
 import app.foodfeed.data.Engagement
@@ -95,7 +99,7 @@ fun FeedScreen(
 
     FeedContent(
         state = state,
-        engagementOf = { card -> overrides[card.id] ?: EngagementState(card.stats, card.me) },
+        engagementOf = { card -> overrides[card.id] ?: card.engagement() },
         imageUrlOf = { card -> app.mediaUrl(card.cover?.imageUrl) },
         onTab = vm::selectTab,
         onCategory = vm::selectCategory,
@@ -111,6 +115,11 @@ fun FeedScreen(
         onAddDish = onAddDish,
         onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
         commentCountOf = { card -> card.cover?.let { commentCounts[it.postId] ?: it.commentCount } ?: 0 },
+        nearbyContent = {
+            val mapVm = appViewModel { MapViewModel(it) }
+            val location by app.location.collectAsState()
+            FoodMap(mapVm, location, onOpenDish, onOpenRestaurant)
+        },
         onComments = { card ->
             val post = card.cover?.postId
             if (post == null) showMessage("This dish has no photo to comment on yet.") else commentsFor = post
@@ -130,7 +139,7 @@ fun FeedScreen(
     }
 }
 
-private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards }
+private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards, Map }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,6 +163,7 @@ fun FeedContent(
     onSettled: (DishCard, List<DishCard>) -> Unit = { _, _ -> },
     commentCountOf: (DishCard) -> Int = { it.cover?.commentCount ?: 0 },
     onComments: (DishCard) -> Unit = {},
+    nearbyContent: (@Composable () -> Unit)? = null,
 ) {
     var showFilter by remember { mutableStateOf(false) }
     val selectedCategory = state.categories.firstOrNull { it.id == state.selectedCategory }
@@ -170,6 +180,7 @@ fun FeedContent(
         ActiveFilterChip(selectedCategory) { onCategory(null) }
 
         val body = when {
+            state.tab == FeedTab.Nearby && nearbyContent != null -> FeedBody.Map
             state.loading && state.items.isEmpty() -> FeedBody.Loading
             state.error != null && state.items.isEmpty() -> FeedBody.Error
             state.needsLocation -> FeedBody.NeedsLocation
@@ -188,6 +199,7 @@ fun FeedContent(
             label = "feed-body",
         ) { b ->
             when (b) {
+                FeedBody.Map -> nearbyContent?.invoke()
                 FeedBody.Loading -> FeedSkeleton()
                 FeedBody.Error -> CenteredMessage("Couldn't load dishes", state.error, Icons.Filled.Refresh, "Try again", onRetry)
                 FeedBody.NeedsLocation -> CenteredMessage(

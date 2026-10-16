@@ -57,10 +57,38 @@ data class Cover(
 data class DishStats(val recommenders: Int = 0, val saves: Int = 0, val tried: Int = 0, val endorsers: Int = 0)
 
 @Serializable
-data class MyActions(val recommended: Boolean = false, val saved: Boolean = false, val tried: Boolean = false)
+data class MyActions(
+    val recommended: Boolean = false,
+    val saved: Boolean = false,
+    val tried: Boolean = false,
+    /** "Tried it, not for me." */
+    val passed: Boolean = false,
+)
+
+/** People's Pick: loves vs "not for me" (see docs/PEOPLES_PICK.md). [score] ranks; people see [percent]. */
+@Serializable
+data class Rating(val loves: Int = 0, val passes: Int = 0, val percent: Int? = null, val score: Double = 0.0) {
+    val votes: Int get() = loves + passes
+
+    fun adjusted(loves: Int, passes: Int): Rating {
+        val l = (this.loves + loves).coerceAtLeast(0)
+        val p = (this.passes + passes).coerceAtLeast(0)
+        return copy(loves = l, passes = p, percent = if (l + p > 0) Math.round(100f * l / (l + p)) else null)
+    }
+}
+
+/** The most trusted person who loved a dish. */
+@Serializable
+data class Champion(
+    val handle: String,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+    val isExpert: Boolean = false,
+    val backers: Int = 0,
+)
 
 @Serializable
-data class UserRef(val handle: String, val displayName: String? = null)
+data class UserRef(val handle: String, val displayName: String? = null, val avatarUrl: String? = null)
 
 @Serializable
 data class DishCard(
@@ -77,6 +105,8 @@ data class DishCard(
     val recentRecommenders: List<UserRef> = emptyList(),
     val distanceM: Int? = null,
     val lane: String? = null,
+    val rating: Rating = Rating(),
+    val champion: Champion? = null,
 )
 
 @Serializable
@@ -120,11 +150,13 @@ data class DishDetail(
     val posts: List<Post> = emptyList(),
     val recommenders: List<UserRef> = emptyList(),
     val moreAtPlace: List<DishCard> = emptyList(),
+    val rating: Rating = Rating(),
+    val champion: Champion? = null,
 ) {
     fun toCard() = DishCard(
         id = id, name = name, priceInr = priceInr, isVeg = isVeg, categoryId = categoryId,
         createdAt = createdAt, restaurant = restaurant, cover = cover, stats = stats, me = me,
-        recentRecommenders = recentRecommenders, distanceM = distanceM,
+        recentRecommenders = recentRecommenders, distanceM = distanceM, rating = rating, champion = champion,
     )
 }
 
@@ -169,12 +201,20 @@ data class ProfilePost(
 data class UserProfile(
     val handle: String,
     val displayName: String? = null,
+    val bio: String? = null,
+    val avatarUrl: String? = null,
     val role: String = "user",
     val createdAt: String = "",
     val posts: List<ProfilePost> = emptyList(),
     val recommendations: Int = 0,
+    val followers: Int = 0,
+    val following: Int = 0,
+    val isFollowing: Boolean = false,
+    val followsYou: Boolean = false,
     val isMe: Boolean = false,
     val blockedByMe: Boolean = false,
+    val commentPolicy: String = "everyone",
+    val tasteBadges: List<TasteBadge> = emptyList(),
 ) {
     val postCount: Int get() = posts.count { it.status == "live" }
 }
@@ -187,6 +227,9 @@ data class User(
     val displayName: String? = null,
     val role: String = "user",
     val homeCityId: Int? = null,
+    val bio: String? = null,
+    val avatarUrl: String? = null,
+    val commentPolicy: String = "everyone",
     val createdAt: String = "",
 )
 
@@ -206,7 +249,7 @@ data class RegisterBody(
 data class LoginBody(val email: String, val password: String)
 
 @Serializable
-data class EngagementResult(val stats: DishStats, val me: MyActions)
+data class EngagementResult(val stats: DishStats, val me: MyActions, val rating: Rating? = null)
 
 @Serializable
 data class ShareResult(val url: String, val counted: Boolean = false)
@@ -295,3 +338,114 @@ data class NewComment(val body: String, val parentId: String? = null)
 
 @Serializable
 data class CommentLike(val likes: Int = 0, val likedByMe: Boolean = false)
+
+@Serializable
+data class TasteBadge(
+    val category: String,
+    val emoji: String? = null,
+    val picks: Int = 0,
+    val backers: Int = 0,
+    val isExpert: Boolean = false,
+)
+
+/** A person in a list (followers, search, blocked). */
+@Serializable
+data class Person(
+    val handle: String,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+    val isFollowing: Boolean = false,
+    val isMe: Boolean = false,
+    val followers: Int = 0,
+)
+
+@Serializable
+data class FollowState(val isFollowing: Boolean = false, val followers: Int = 0)
+
+@Serializable
+data class ProfileUpdate(
+    val displayName: String? = null,
+    val username: String? = null,
+    val bio: String? = null,
+    val commentPolicy: String? = null,
+)
+
+@Serializable
+data class PasswordChange(val current: String, val next: String)
+
+@Serializable
+data class NotificationDish(val id: String, val name: String, val thumbUrl: String? = null)
+
+@Serializable
+data class ActivityItem(
+    val id: Long,
+    val kind: String,
+    val createdAt: String = "",
+    val read: Boolean = false,
+    val actor: UserRef,
+    val dish: NotificationDish? = null,
+    val postId: String? = null,
+    val commentBody: String? = null,
+    val followingActor: Boolean = false,
+)
+
+@Serializable
+data class ActivityPage(val items: List<ActivityItem> = emptyList())
+
+@Serializable
+data class UnreadCount(val count: Int = 0)
+
+/** Someone whose picks for a craving the community backed. */
+@Serializable
+data class Taster(
+    val handle: String,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+    val picks: Int = 0,
+    val backers: Int = 0,
+    val topPick: String? = null,
+    val isExpert: Boolean = false,
+)
+
+@Serializable
+data class CravingResult(
+    val query: String = "",
+    val label: String = "",
+    val results: List<DishCard> = emptyList(),
+    val tasters: List<Taster> = emptyList(),
+)
+
+@Serializable
+data class CravingChip(val label: String, val emoji: String? = null, val dishes: Int = 0)
+
+@Serializable
+data class FollowedPick(val card: DishCard, val lovedBy: String)
+
+@Serializable
+data class HomeData(
+    val cravings: List<CravingChip> = emptyList(),
+    val peoplesPicks: List<DishCard> = emptyList(),
+    val nearby: List<DishCard> = emptyList(),
+    val following: List<FollowedPick> = emptyList(),
+    val trending: List<DishCard> = emptyList(),
+    val fresh: List<DishCard> = emptyList(),
+    val tasters: List<Taster> = emptyList(),
+)
+
+@Serializable
+data class MapTopDish(val dishId: String, val name: String, val loves: Int = 0, val percent: Int? = null, val thumbUrl: String? = null)
+
+@Serializable
+data class MapPlace(
+    val id: String,
+    val name: String,
+    val locality: String? = null,
+    val cuisine: String? = null,
+    val lat: Double,
+    val lng: Double,
+    val dishCount: Int = 0,
+    val topDish: MapTopDish? = null,
+)
+
+@Serializable
+data class MapPlaces(val places: List<MapPlace> = emptyList())

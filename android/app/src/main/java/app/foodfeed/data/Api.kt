@@ -5,6 +5,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Part
@@ -99,6 +100,46 @@ interface FoodFeedApi {
     @PUT("comments/{id}/like") suspend fun likeComment(@Path("id") id: String): CommentLike
 
     @DELETE("comments/{id}/like") suspend fun unlikeComment(@Path("id") id: String): CommentLike
+
+    // ---- Social ----
+    @GET("users/{handle}/loved") suspend fun userLoved(@Path("handle") handle: String): FeedPage
+
+    @PATCH("me/profile") suspend fun updateProfile(@Body body: ProfileUpdate): User
+
+    @Multipart
+    @POST("me/avatar")
+    suspend fun uploadAvatar(@Part image: MultipartBody.Part): User
+
+    @DELETE("me/avatar") suspend fun deleteAvatar(): User
+
+    @POST("me/password") suspend fun changePassword(@Body body: PasswordChange): OkResult
+
+    @GET("me/blocked") suspend fun blocked(): List<Person>
+
+    @PUT("users/{handle}/follow") suspend fun follow(@Path("handle") handle: String): FollowState
+
+    @DELETE("users/{handle}/follow") suspend fun unfollow(@Path("handle") handle: String): FollowState
+
+    @GET("users/{handle}/followers") suspend fun followers(@Path("handle") handle: String): List<Person>
+
+    @GET("users/{handle}/following") suspend fun following(@Path("handle") handle: String): List<Person>
+
+    @GET("people") suspend fun people(@Query("q") q: String): List<Person>
+
+    @GET("notifications") suspend fun notifications(@Query("before") before: Long? = null): ActivityPage
+
+    @GET("notifications/unread") suspend fun unread(): UnreadCount
+
+    @POST("notifications/read") suspend fun markRead(): OkResult
+
+    // ---- Discover ----
+    @GET("craving")
+    suspend fun craving(@Query("q") q: String, @Query("city") city: Int, @Query("lat") lat: Double?, @Query("lng") lng: Double?): CravingResult
+
+    @GET("home")
+    suspend fun home(@Query("city") city: Int, @Query("lat") lat: Double?, @Query("lng") lng: Double?): HomeData
+
+    @GET("map") suspend fun map(@Query("city") city: Int, @Query("all") all: Boolean = false): MapPlaces
 
     @GET("admin/queue") suspend fun adminQueue(): AdminQueue
 

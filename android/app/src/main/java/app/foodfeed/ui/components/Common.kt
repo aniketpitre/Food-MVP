@@ -102,9 +102,22 @@ private val AvatarTints = listOf(
     Color(0xFFFFD8BF), Color(0xFFFFEDB0), Color(0xFFCDEFD9), Color(0xFFC9EEEA), Color(0xFFE5D9FF), Color(0xFFFFD1D1),
 )
 
-/** An initial-letter avatar on a warm pastel picked from the handle, so each person keeps a colour. */
+/** Turns a server path ("/media/...") into a full URL. Provided at the app root; tests use paths as-is. */
+val LocalMediaUrl = staticCompositionLocalOf<(String?) -> String?> { { it } }
+
+/**
+ * A person's face: their profile photo when they have one, otherwise their initials on a
+ * warm pastel picked from the username, so each person keeps a colour.
+ */
 @Composable
-fun Avatar(handle: String, displayName: String?, size: Dp = 32.dp, modifier: Modifier = Modifier, ring: Color? = null) {
+fun Avatar(
+    handle: String,
+    displayName: String?,
+    size: Dp = 32.dp,
+    modifier: Modifier = Modifier,
+    ring: Color? = null,
+    photo: String? = null,
+) {
     val tint = AvatarTints[(handle.hashCode() and 0x7fffffff) % AvatarTints.size]
     Box(
         modifier
@@ -121,15 +134,14 @@ fun Avatar(handle: String, displayName: String?, size: Dp = 32.dp, modifier: Mod
             fontWeight = FontWeight.Bold,
             fontSize = (size.value * 0.36f).sp,
         )
-    }
-}
-
-/** Overlapping faces of recent recommenders. */
-@Composable
-fun AvatarStack(people: List<UserRef>, ringColor: Color, size: Dp = 20.dp, max: Int = 3) {
-    Box {
-        people.take(max).forEachIndexed { i, p ->
-            Avatar(p.handle, p.displayName, size, Modifier.offset(x = (size * 0.66f) * i), ring = ringColor)
+        if (photo != null) {
+            val url = LocalMediaUrl.current(photo)
+            val override = url?.let { LocalImageOverride.current?.invoke(it) }
+            if (override != null) {
+                Image(override, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else if (url != null) {
+                AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
         }
     }
 }
