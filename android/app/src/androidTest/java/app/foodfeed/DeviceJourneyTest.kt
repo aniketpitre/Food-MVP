@@ -182,6 +182,7 @@ class DeviceJourneyTest {
         // Take me there → Google Maps directions to this place (stubbed so nothing opens).
         intending(anyIntent()).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, null))
         compose.onNodeWithText("Take me there").performClick()
+        Thread.sleep(3000) // it asks our server for the Google listing first (2.5 s at most)
         intended(allOf(hasAction(Intent.ACTION_VIEW), hasData(uriContaining("google.com/maps/dir/"))))
         intended(hasData(uriContaining("destination=${place.lat},${place.lng}")))
 
