@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+# A newer push replaces a run still in progress (and its screenshots).
+concurrency:
+  group: device-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -115,4 +120,4 @@ jobs:
           git add docs/device
           if git diff --cached --quiet; then echo "No changes"; exit 0; fi
           git commit -m "Update device journey screenshots [skip ci]"
-          git pull --rebase origin "${GITHUB_REF_NAME}" && git push
+          git pull --rebase -X theirs origin "${GITHUB_REF_NAME}" && git push

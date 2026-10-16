@@ -152,13 +152,29 @@ class DeviceJourneyTest {
         Thread.sleep(4000) // tiles and camera settle
         shot("04_map_logos")
 
+        // What the map engine itself reports, for the CI log.
+        instrumentation.runOnMainSync {
+            val m = FoodMapProbe.map
+            val v = FoodMapProbe.view
+            if (m != null && v != null) {
+                val all = m.queryRenderedFeatures(android.graphics.RectF(0f, 0f, v.width.toFloat(), v.height.toFloat()), "ff-pins", "ff-quiet")
+                android.util.Log.d("JOURNEY", "map: styleLoaded=${m.style?.isFullyLoaded} pinsRendered=${all.size} places=${FoodMapProbe.places.size} zoom=${m.cameraPosition.zoom}")
+            }
+        }
+
         // Tap a food logo (the pin's badge sits just above its anchor point).
         val place = FoodMapProbe.places.first { it.dishCount > 0 }
-        val pin = FoodMapProbe.pinOnScreen(place.id)
+        var pin: Pair<Float, Float>? = null
+        instrumentation.runOnMainSync { pin = FoodMapProbe.pinOnScreen(place.id) }
         assertNotNull("pin for ${place.name} is on screen", pin)
         val badge = (28 * instrumentation.targetContext.resources.displayMetrics.density).toInt()
-        device.click(pin!!.first.toInt(), pin.second.toInt() - badge)
-        compose.waitUntilAtLeastOneExists(hasTestTag("map_popup"), 10_000)
+        device.click(pin!!.first.toInt(), pin!!.second.toInt() - badge)
+        val pinTapWorked = runCatching { compose.waitUntilAtLeastOneExists(hasTestTag("map_popup"), 6_000) }.isSuccess
+        if (!pinTapWorked) {
+            android.util.Log.d("JOURNEY", "pin tap did not open the card; opening it from the card strip instead")
+            compose.onNodeWithTag("map_card_${place.id}").performClick()
+            compose.waitUntilAtLeastOneExists(hasTestTag("map_popup"), 10_000)
+        }
         Thread.sleep(1200) // let the 3D swing finish
         shot("05_map_popup")
         assertTrue(compose.onAllNodesWithText(place.name).fetchSemanticsNodes().isNotEmpty())
@@ -173,6 +189,7 @@ class DeviceJourneyTest {
         compose.onNodeWithContentDescription("Close").performClick()
         compose.waitUntilAtLeastOneExists(hasTestTag("map_card_${FoodMapProbe.places.first { it.dishCount > 0 }.id}"), 10_000)
         shot("06_map_strip")
+        assertTrue("tapping a food logo on the map opens its card", pinTapWorked)
     }
 
     private fun uriContaining(part: String) = object : TypeSafeMatcher<android.net.Uri>() {
