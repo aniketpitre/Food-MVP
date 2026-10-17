@@ -477,6 +477,9 @@ fun AuthContent(
 /** Forgot password (code + new password), forgot username (emailed), forgot email (a hint). */
 @Composable
 private fun RecoveryContent(state: AuthUiState, vm: AuthViewModel) {
+    // Once there's an answer, the keyboard goes away so the next steps are in view.
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    androidx.compose.runtime.LaunchedEffect(state.info) { if (state.info != null) focus.clearFocus() }
     Column(
         Modifier.fillMaxSize().statusBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),

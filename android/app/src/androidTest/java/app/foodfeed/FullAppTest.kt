@@ -701,7 +701,7 @@ class FullAppTest {
             waitText("This account uses", substring = true, timeoutMs = 15_000)
         }
         step("forgot password: a code by email and a new password") {
-            compose.onNodeWithText("Forgot the password too? Reset it").performClick()
+            compose.onNodeWithText("Forgot the password too? Reset it").performScrollTo().performClick()
             waitText("Forgot your password?")
             compose.onNodeWithTag("recover_input").performTextClearance()
             compose.onNodeWithTag("recover_input").performTextInput(handle)
