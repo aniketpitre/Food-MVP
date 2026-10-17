@@ -140,7 +140,7 @@ async function pick(file) {
   const only = process.argv.slice(4);
   for (const [key, pickValue] of Object.entries(picks)) {
     if (only.length && !only.includes(key)) continue;
-    // "File:Name.jpg" or "File:Name.jpg|centre" when the automatic crop picks the wrong part.
+    // "File:Name.jpg", or "File:Name.jpg|top" (etc.) to move the crop.
     const [title, crop] = pickValue.split('|');
     const [f] = await commons({ titles: title });
     if (!f) throw new Error(`${key}: ${title} is not a usable free photo`);
@@ -148,7 +148,10 @@ async function pick(file) {
     if (!res.ok) throw new Error(`${key}: download failed`);
     await sharp(Buffer.from(await res.arrayBuffer()))
       .rotate()
-      .resize(1080, 1350, { fit: 'cover', position: crop === 'centre' ? 'centre' : sharp.strategy.attention })
+      // Centred by default: food photos put the dish in the middle, and the app crops the
+      // middle too (tall Explore cards, square thumbnails). "|top", "|bottom", "|left",
+      // "|right" or "|attention" override it for a photo that needs it.
+      .resize(1080, 1350, { fit: 'cover', position: crop === 'attention' ? sharp.strategy.attention : (crop || 'centre') })
       .jpeg({ quality: 84, mozjpeg: true })
       .toFile(path.join(dir, `${key}.jpg`));
     credits[key] = { title: f.title, author: f.author, licence: f.licence, licenceUrl: f.licenceUrl, source: f.page };

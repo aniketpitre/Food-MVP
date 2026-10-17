@@ -415,55 +415,10 @@ fun DishPage(
                 )
             },
     ) {
-        // Photos are 4:5 but phones are much taller. When the card is noticeably taller than the
-        // photo, show the whole photo across the top (nothing cropped) over a blurred, dimmed copy
-        // of itself that fills the rest; otherwise crop to fill as before.
-        val photoAspect = card.cover?.let { c -> if ((c.width ?: 0) > 0 && (c.height ?: 0) > 0) c.width!!.toFloat() / c.height!! else null } ?: 0.8f
-        val cardAspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else photoAspect
-        val fitWidth = cardAspect < photoAspect * 0.9f
+        // The photo fills the whole card, centred, and stays put: it moves only with its card
+        // when you swipe, never sliding or zooming inside it.
         Box(Modifier.fillMaxSize().dishHero(card.id, 32.dp)) {
-            if (fitWidth && lite) {
-                // Lite mode: a flat tint of the photo's colour instead of a live blur.
-                Box(
-                    Modifier.fillMaxSize()
-                        .background(Format.parseColor(card.cover?.placeholderColor, Color(0xFF2A1E17)))
-                        .background(Color.Black.copy(alpha = 0.3f)),
-                )
-            } else if (fitWidth) {
-                // The blur hides detail, so the small thumbnail is plenty here.
-                DishImage(
-                    thumbUrl ?: imageUrl, card.cover?.placeholderColor, null,
-                    Modifier.fillMaxSize().blur(36.dp).graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.9f },
-                )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)))
-            }
-            DishImage(
-                imageUrl, card.cover?.placeholderColor, card.name, thumbUrl = thumbUrl, modifier =
-                (
-                    if (fitWidth) {
-                        Modifier.fillMaxWidth().aspectRatio(photoAspect).align(Alignment.TopCenter)
-                            // Melt the photo's bottom edge into the blurred backdrop: no hard seam.
-                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                            .drawWithContent {
-                                drawContent()
-                                drawRect(
-                                    Brush.verticalGradient(0.72f to Color.Black, 1f to Color.Transparent),
-                                    blendMode = BlendMode.DstIn,
-                                )
-                            }
-                    } else {
-                        Modifier.fillMaxSize()
-                    }
-                    )
-                    .graphicsLayer {
-                        val o = pageOffset()
-                        translationY = if (o < 0f) o * size.height * 0.25f else 0f
-                        val settle = Motion.window(t(), 0f, 0.7f)
-                        val s = if (fitWidth) Motion.lerp(1.12f, 1f, settle) else Motion.lerp(1.2f, 1.04f, settle)
-                        scaleX = s
-                        scaleY = s
-                    },
-            )
+            DishImage(imageUrl, card.cover?.placeholderColor, card.name, Modifier.fillMaxSize(), thumbUrl = thumbUrl)
         }
         Box(
             Modifier.fillMaxSize().background(
