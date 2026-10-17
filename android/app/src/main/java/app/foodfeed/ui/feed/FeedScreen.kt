@@ -280,17 +280,9 @@ private fun FeedSkeleton() {
 private fun EmptyFeed(state: FeedUiState, onAddDish: () -> Unit) {
     val city = state.city?.name ?: "your city"
     when (state.tab) {
-        FeedTab.Gems -> CenteredMessage(
-            title = "No hidden gems yet",
-            body = "A dish becomes a gem when at least five people back it at a place few people post about.",
-        )
         FeedTab.ForYou -> CenteredMessage(
             title = "Nothing picked for you yet",
             body = "Love a few dishes and follow people whose taste you trust: their picks show up here. Tell us your taste in Settings to get started.",
-        )
-        FeedTab.Trending -> CenteredMessage(
-            title = "Quiet week",
-            body = "Dishes people recommend, save or share in the last 7 days show up here.",
         )
         else -> CenteredMessage(
             title = if (state.selectedCategory != null) "Nothing here yet" else "No dishes in $city yet",

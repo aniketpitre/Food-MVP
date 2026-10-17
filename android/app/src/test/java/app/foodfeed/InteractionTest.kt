@@ -19,6 +19,7 @@ import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -46,6 +47,7 @@ import app.foodfeed.ui.comments.CommentsUiState
 import app.foodfeed.ui.theme.RollingNumber
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -130,9 +132,12 @@ class InteractionTest {
     fun tabsSwitch() {
         var selected by mutableStateOf(FeedTab.Top)
         setContent { FeedTabs(selected) { selected = it } }
-        compose.onNodeWithText("Trending").performClick()
+        // Explore keeps Top; Trending and Gems are gone.
+        assertTrue(compose.onAllNodesWithText("Trending").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Gems").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithText("Places").performClick()
         compose.waitForIdle()
-        assertEquals(FeedTab.Trending, selected)
+        assertEquals(FeedTab.Places, selected)
         compose.onNodeWithText("Nearby").performClick()
         compose.waitForIdle()
         assertEquals(FeedTab.Nearby, selected)

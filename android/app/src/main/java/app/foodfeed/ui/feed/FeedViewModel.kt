@@ -22,8 +22,6 @@ enum class FeedTab(val api: String, val label: String) {
     /** Dishes from people whose taste matches yours and people you follow (signed in only). */
     ForYou("foryou", "For you"),
     Top("top", "Top"),
-    Trending("trending", "Trending"),
-    Gems("gems", "Gems"),
     Nearby("nearby", "Nearby"),
     /** Places, with filters: shown by its own screen (ui/explore), not the dish pager. */
     Places("places", "Places"),

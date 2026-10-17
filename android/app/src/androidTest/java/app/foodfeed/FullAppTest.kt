@@ -233,12 +233,12 @@ class FullAppTest {
             backTo(hasTestTag("feed_pager"))
         }
         step("tabs") {
-            for (t in listOf("Trending", "Gems", "Top")) {
-                compose.onAllNodes(hasText(t)).onFirst().performClick()
-                compose.waitForIdle()
-                Thread.sleep(1500)
-                if (t == "Gems") shot("14_feed_gems")
-            }
+            // Explore keeps Top (plus For you, Nearby and Places); Trending and Gems are gone.
+            assertTrue(compose.onAllNodes(hasText("Gems")).fetchSemanticsNodes().isEmpty())
+            compose.onAllNodes(hasText("Top")).onFirst().performClick()
+            compose.waitForIdle()
+            Thread.sleep(1500)
+            shot("14_feed_tabs")
             waitFor(hasTestTag("feed_pager"), 15_000)
         }
     }

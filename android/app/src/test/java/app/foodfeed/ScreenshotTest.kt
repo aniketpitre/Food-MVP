@@ -181,8 +181,8 @@ class ScreenshotTest {
     }
 
     @Test
-    fun feedHiddenGemDark() = shoot("02_feed_hidden_gem_dark", dark = true) {
-        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, selectedCategory = null, tab = FeedTab.Gems, items = listOf(bhurji), loading = false))
+    fun feedDark() = shoot("02_feed_dark", dark = true) {
+        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, selectedCategory = null, tab = FeedTab.Top, items = listOf(bhurji), loading = false))
     }
 
     @Test
@@ -191,8 +191,8 @@ class ScreenshotTest {
     }
 
     @Test
-    fun feedEmptyGems() = shoot("04_feed_empty_gems") {
-        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, tab = FeedTab.Gems, loading = false))
+    fun feedEmpty() = shoot("04_feed_empty") {
+        feed(FeedUiState(city = SelectedCity(1, "Nashik"), categories = categories, tab = FeedTab.Top, loading = false))
     }
 
     @Test

@@ -148,7 +148,7 @@ class MotionTest {
             Box(Modifier.fillMaxWidth().testTag("stage")) { FeedTabs(tab) { tab = it } }
         }
         compose.mainClock.advanceTimeBy(300)
-        tab = FeedTab.Gems
+        tab = FeedTab.Places
         frames("tab_squiggle", 32, 22)
     }
 
