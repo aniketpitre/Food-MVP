@@ -74,13 +74,19 @@ fun VegMark(isVeg: Boolean?, modifier: Modifier = Modifier, size: Dp = 12.dp) {
 /** Lets screenshot tests and previews supply images without a network. */
 val LocalImageOverride = staticCompositionLocalOf<((String) -> ImageBitmap?)?> { null }
 
-/** A photo served by our API, showing its dominant colour while it loads (Coil crossfades it in). */
+/**
+ * A photo served by our API. While it loads you see its dominant colour, then (when
+ * [thumbUrl] is given) the small thumbnail, which is usually already cached from a list,
+ * and finally the full photo crossfades in on top. On a slow connection the picture
+ * appears at once and sharpens, instead of staying blank.
+ */
 @Composable
 fun DishImage(
     url: String?,
     placeholderColor: String?,
     contentDescription: String?,
     modifier: Modifier = Modifier,
+    thumbUrl: String? = null,
 ) {
     val bg = Format.parseColor(placeholderColor, MaterialTheme.colorScheme.surfaceContainerHigh)
     Box(modifier.background(bg)) {
@@ -88,6 +94,14 @@ fun DishImage(
         if (override != null) {
             Image(override, contentDescription, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else if (url != null) {
+            if (thumbUrl != null && thumbUrl != url) {
+                AsyncImage(
+                    model = thumbUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             AsyncImage(
                 model = url,
                 contentDescription = contentDescription,

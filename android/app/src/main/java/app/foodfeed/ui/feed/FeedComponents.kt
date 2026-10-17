@@ -87,6 +87,7 @@ import app.foodfeed.data.EngagementState
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.components.ActionLook
 import app.foodfeed.ui.components.AppIcons
+import app.foodfeed.ui.components.LocalMediaUrl
 import app.foodfeed.ui.components.AvatarStack
 import app.foodfeed.ui.components.DishImage
 import app.foodfeed.ui.components.EngageAction
@@ -368,6 +369,7 @@ fun DishPage(
     var burst by remember { mutableIntStateOf(0) }
     var burstAt by remember { mutableStateOf(Offset.Unspecified) }
     val lite = LocalLiteMode.current
+    val thumbUrl = LocalMediaUrl.current(card.cover?.thumbUrl)
     val intro = remember(card.id) { Animatable(if (lite) 1f else 0f) }
     LaunchedEffect(card.id, active) {
         if (active && intro.value == 0f) intro.animateTo(1f, tween(1100, easing = LinearEasing))
@@ -424,14 +426,15 @@ fun DishPage(
                         .background(Color.Black.copy(alpha = 0.3f)),
                 )
             } else if (fitWidth) {
+                // The blur hides detail, so the small thumbnail is plenty here.
                 DishImage(
-                    imageUrl, card.cover?.placeholderColor, null,
+                    thumbUrl ?: imageUrl, card.cover?.placeholderColor, null,
                     Modifier.fillMaxSize().blur(36.dp).graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = 0.9f },
                 )
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)))
             }
             DishImage(
-                imageUrl, card.cover?.placeholderColor, card.name,
+                imageUrl, card.cover?.placeholderColor, card.name, thumbUrl = thumbUrl, modifier =
                 (
                     if (fitWidth) {
                         Modifier.fillMaxWidth().aspectRatio(photoAspect).align(Alignment.TopCenter)

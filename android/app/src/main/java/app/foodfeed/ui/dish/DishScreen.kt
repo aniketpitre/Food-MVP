@@ -269,7 +269,7 @@ fun DishContent(
                     DishImage(null, dish.cover?.placeholderColor, dish.name, Modifier.fillMaxSize())
                 } else {
                     HorizontalPager(pager, Modifier.fillMaxSize(), key = { photos[it].id }) { i ->
-                        DishImage(imageUrl(photos[i].imageUrl), photos[i].placeholderColor, dish.name, Modifier.fillMaxSize())
+                        DishImage(imageUrl(photos[i].imageUrl), photos[i].placeholderColor, dish.name, Modifier.fillMaxSize(), thumbUrl = imageUrl(photos[i].thumbUrl))
                     }
                 }
                 if (photos.size > 1) {

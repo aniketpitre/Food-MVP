@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs DeviceJourneyTest (the real app on a running emulator against a local FoodFeed
+# Runs DeviceJourneyTest and FullAppTest (the real app on a running emulator against a local FoodFeed
 # server) and collects the screenshots it takes into ./device-shots.
 # usage: scripts/device-journey.sh app-debug.apk app-debug-androidTest.apk
 set -u
@@ -11,7 +11,7 @@ adb install -r "$TESTS" || exit 1
 adb logcat -c
 # Put the emulator's GPS in Nashik (it starts in California), where the demo places are.
 adb emu geo fix 73.7898 19.9975 || true
-adb shell am instrument -w -r -e class app.foodfeed.DeviceJourneyTest "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee journey.log
+adb shell am instrument -w -r -e class app.foodfeed.DeviceJourneyTest,app.foodfeed.FullAppTest "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee journey.log
 mkdir -p device-shots
 # The test app's own files; run-as works because the debug build is debuggable.
 for f in $(adb shell run-as "$PKG" ls files/device-shots 2>/dev/null | tr -d '\r'); do
@@ -21,8 +21,10 @@ ls -la device-shots
 adb logcat -d > logcat.txt
 echo "--- UI tree and app log lines"
 grep -E "JOURNEY : map|pin tap|FoodMap|JOURNEY : map state|Mbgl.*(rror|xception)|AndroidRuntime" logcat.txt | tail -80
-grep -E "JOURNEY" logcat.txt | tail -60
-if grep -q "OK (1 test)" journey.log; then
+grep -E "JOURNEY" logcat.txt | tail -120
+echo "--- Smoothness while swiping the Explore deck"
+grep -E "deck scroll" logcat.txt || true
+if grep -qE "^OK \([0-9]+ tests?\)" journey.log; then
   echo "Device journey passed."
 else
   echo "::error::Device journey failed"

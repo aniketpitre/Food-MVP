@@ -192,7 +192,7 @@ private fun WinnerCard(card: DishCard, imageUrl: (String?) -> String?, onOpenDis
             .clip(RoundedCornerShape(28.dp))
             .clickable(interaction, indication = null, role = Role.Button) { onOpenDish(card.id) },
     ) {
-        DishImage(imageUrl(card.cover?.imageUrl), card.cover?.placeholderColor, card.name, Modifier.fillMaxSize().dishHero(card.id, 28.dp))
+        DishImage(imageUrl(card.cover?.imageUrl), card.cover?.placeholderColor, card.name, Modifier.fillMaxSize().dishHero(card.id, 28.dp), thumbUrl = imageUrl(card.cover?.thumbUrl))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xFF1A0D06).copy(alpha = 0.9f))))
         Sticker("#1 pick", Turmeric, tilt = -6f, modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
         Column(Modifier.align(Alignment.BottomStart).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

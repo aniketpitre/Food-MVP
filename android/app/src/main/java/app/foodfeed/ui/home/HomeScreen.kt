@@ -379,7 +379,7 @@ private fun CravingHero(city: String, greeting: String, headline: String, onChan
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { submit() }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("craving_input"),
                 )
             }
             val go = remember { MutableInteractionSource() }

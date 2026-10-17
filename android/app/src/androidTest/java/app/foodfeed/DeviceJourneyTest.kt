@@ -62,7 +62,7 @@ class DeviceJourneyTest {
     private val app get() = instrumentation.targetContext.applicationContext as FoodFeedApp
     private val container: AppContainer get() = app.container
     private val shots by lazy {
-        File(instrumentation.targetContext.filesDir, "device-shots").apply { deleteRecursively(); mkdirs() }
+        File(instrumentation.targetContext.filesDir, "device-shots").apply { mkdirs() }
     }
     private lateinit var scenario: ActivityScenario<MainActivity>
 

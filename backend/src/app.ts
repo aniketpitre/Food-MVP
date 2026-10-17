@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import compress from '@fastify/compress';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
@@ -54,6 +56,15 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean 
   app.decorate('db', db);
   app.decorate('config', config);
 
+  // JSON (feed, home, map) shrinks 5-10x with compression, which matters on mobile data.
+  // Photos are already compressed WebP/JPEG, so they're sent as they are.
+  await app.register(compress, {
+    global: true,
+    threshold: 1024,
+    encodings: ['br', 'gzip'],
+    brotliOptions: { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } },
+    customTypes: /^(application\/json|text\/(html|css|plain)|application\/javascript)/,
+  });
   await app.register(cors, { origin: false });
   await app.register(jwt, { secret: config.jwtSecret, sign: { expiresIn: '30d' } });
   await app.register(multipart, { limits: { fileSize: 12 * 1024 * 1024, files: 1, fields: 20 } });

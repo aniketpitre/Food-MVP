@@ -9,6 +9,7 @@ import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.allowRgb565
 import coil3.request.crossfade
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,5 +40,7 @@ class FoodFeedApp : Application(), SingletonImageLoader.Factory {
                     .build()
             }
             .crossfade(true)
+            // Low-memory phones decode photos at half the memory (RGB_565); hardly visible on food.
+            .allowRgb565(container.isLowEndDevice)
             .build()
 }

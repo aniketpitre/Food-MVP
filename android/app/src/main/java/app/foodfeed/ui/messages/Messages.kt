@@ -955,7 +955,7 @@ fun AttachSheet(onDismiss: () -> Unit, onPick: (NewMessage) -> Unit) {
                     if (r.restaurants.isNotEmpty()) item { SectionLabel("Places") }
                     items(r.restaurants, key = { "p" + it.id }) { p ->
                         Row(
-                            Modifier.fillMaxWidth().clickable { onPick(NewMessage(restaurantId = p.id)) }.padding(vertical = 10.dp),
+                            Modifier.fillMaxWidth().clickable { onPick(NewMessage(restaurantId = p.id)) }.padding(vertical = 10.dp).testTag("attach_place"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(
@@ -971,7 +971,7 @@ fun AttachSheet(onDismiss: () -> Unit, onPick: (NewMessage) -> Unit) {
                     if (r.dishes.isNotEmpty()) item { SectionLabel(if (query.trim().length >= 2) "Dishes" else "Top dishes") }
                     items(r.dishes, key = { "d" + it.id }) { d ->
                         Row(
-                            Modifier.fillMaxWidth().clickable { onPick(NewMessage(dishId = d.id)) }.padding(vertical = 8.dp),
+                            Modifier.fillMaxWidth().clickable { onPick(NewMessage(dishId = d.id)) }.padding(vertical = 8.dp).testTag("attach_dish"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             DishImage(app.mediaUrl(d.cover?.thumbUrl), d.cover?.placeholderColor, d.name, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)))

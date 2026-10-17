@@ -462,7 +462,7 @@ private fun StoryPage(
 
     Box(Modifier.fillMaxSize().testTag("story_page")) {
         DishImage(
-            imageUrl(story.imageUrl), story.placeholderColor, story.caption ?: "Story by ${reel.user.handle}",
+            imageUrl(story.imageUrl), story.placeholderColor, story.caption ?: "Story by ${reel.user.handle}", thumbUrl = imageUrl(story.thumbUrl), modifier =
             Modifier.fillMaxSize().pointerInput(story.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown()

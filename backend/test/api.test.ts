@@ -169,6 +169,19 @@ describe('browsing as a guest', () => {
     expect(second.nextOffset).toBeNull();
   });
 
+  it('compresses JSON for phones but sends photos as they are', async () => {
+    const url = `/feed?city=${cityId}&tab=top&limit=20&offset=0&seed=z`;
+    const plain = await app.inject(url);
+    const gz = await app.inject({ url, headers: { 'accept-encoding': 'br, gzip' } });
+    expect(gz.headers['content-encoding']).toBe('br');
+    expect(gz.rawPayload.length).toBeLessThan(plain.rawPayload.length / 3);
+    const photo = plain.json().items[0].cover.imageUrl;
+    const img = await app.inject({ url: photo, headers: { 'accept-encoding': 'br, gzip' } });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers['content-encoding']).toBeUndefined();
+    expect(img.headers['cache-control']).toContain('immutable');
+  });
+
   it('filters by category', async () => {
     const misal = (await db.query("select id from dish_categories where slug = 'misal'")).rows[0].id;
     const { items } = (await app.inject(`/feed?city=${cityId}&category=${misal}`)).json();
@@ -542,6 +555,62 @@ describe('rich messages and notifications', () => {
     const after = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().messages;
     expect(after.find((m: { id: string }) => m.id === placeMsg.id).reactions).toEqual([]);
     expect(after.some((m: { kind: string }) => m.kind === 'photo')).toBe(false);
+  });
+});
+
+describe('message edge cases', () => {
+  it('rejects empty, too long, foreign and broken input, and never leaks other chats', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const c = await signUp();
+    const ab = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
+    const ac = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: c.handle } })).json();
+    const send = (conv: string, auth: Record<string, string>, payload: object) =>
+      app.inject({ method: 'POST', url: `/conversations/${conv}/messages`, headers: auth, payload });
+
+    expect((await send(ab.id, a.auth, {})).statusCode).toBe(400);
+    expect((await send(ab.id, a.auth, { body: '   ' })).statusCode).toBe(400);
+    expect((await send(ab.id, a.auth, { body: 'x'.repeat(1001) })).statusCode).toBe(400);
+    expect((await send(ab.id, a.auth, { dishId: 'not-a-uuid' })).statusCode).toBe(400);
+    expect((await send('00000000-0000-4000-8000-000000000000', a.auth, { body: 'hi' })).statusCode).toBe(404);
+    // c is not in a's chat with b.
+    expect((await send(ab.id, c.auth, { body: 'let me in' })).statusCode).toBe(404);
+    expect((await app.inject({ url: `/conversations/${ab.id}`, headers: c.auth })).statusCode).toBe(404);
+    expect((await app.inject({ url: `/conversations/${ab.id}` })).statusCode).toBe(401);
+    // Exactly 1000 characters is fine.
+    expect((await send(ab.id, a.auth, { body: 'y'.repeat(1000) })).statusCode).toBe(201);
+
+    // A reply can only point at a message in the same chat; otherwise it's sent without the quote.
+    const inAc = (await send(ac.id, a.auth, { body: 'secret for c' })).json();
+    const sneaky = (await send(ab.id, a.auth, { body: 'quoting?', replyTo: inAc.id })).json();
+    expect(sneaky.replyTo).toBeNull();
+
+    // Reactions: an emoji, not an essay; only members; removing twice is harmless.
+    const m = (await send(ab.id, a.auth, { body: 'react to me' })).json();
+    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: '' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: 'x'.repeat(17) } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: '😂' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: '❤️' } })).statusCode).toBe(200);
+    const reacted = (await app.inject({ url: `/conversations/${ab.id}`, headers: a.auth })).json().messages.find((x: { id: string }) => x.id === m.id);
+    expect(reacted.reactions).toEqual([{ emoji: '❤️', mine: false }]); // one per person: the newest wins
+    for (let i = 0; i < 2; i++) {
+      expect((await app.inject({ method: 'DELETE', url: `/messages/${m.id}/reaction`, headers: b.auth })).statusCode).toBe(200);
+    }
+
+    // Photos: a real image only, and big enough.
+    const notImage = multipart(a.auth, {}, Buffer.from('this is not a photo'));
+    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...notImage })).statusCode).toBe(400);
+    const tiny = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...multipart(a.auth, {}, tiny) })).statusCode).toBe(400);
+    const noFile = multipart(a.auth, { body: 'where is the photo' });
+    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...noFile })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...multipart(c.auth, {}, await photo()) })).statusCode).toBe(404);
+
+    // Updates: a bad cursor is refused, a future one returns nothing.
+    expect((await app.inject({ url: '/updates?since=yesterday', headers: b.auth })).statusCode).toBe(400);
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    expect((await app.inject({ url: `/updates?since=${encodeURIComponent(future)}`, headers: b.auth })).json().messages).toEqual([]);
+    expect((await app.inject({ url: '/updates' })).statusCode).toBe(401);
   });
 });
 
