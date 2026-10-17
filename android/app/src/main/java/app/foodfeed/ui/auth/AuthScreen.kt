@@ -153,7 +153,16 @@ class AuthViewModel(private val app: AppContainer) : ViewModel() {
     }
 
     fun open(page: AuthPage) = _state.update {
-        it.copy(page = page, error = null, info = null, code = "", newPassword = "", recover = if (page == AuthPage.ForgotPassword) it.recover.ifBlank { it.email } else it.recover)
+        it.copy(
+            page = page, error = null, info = null, code = "", newPassword = "",
+            recover = when (page) {
+                // Prefilled with what you typed (or just looked up).
+                AuthPage.ForgotPassword -> it.recover.ifBlank { it.email }
+                // An email in one, a username in the other: start empty.
+                AuthPage.ForgotUsername, AuthPage.ForgotEmail -> ""
+                else -> it.recover
+            },
+        )
     }
 
     fun submit() {
