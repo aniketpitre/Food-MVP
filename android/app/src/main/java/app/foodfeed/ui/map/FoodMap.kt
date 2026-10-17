@@ -531,7 +531,7 @@ fun FoodMap(
 
         if (route == null) {
             Row(
-                Modifier.align(Alignment.TopStart).padding(top = 14.dp, end = 70.dp)
+                Modifier.align(Alignment.TopStart).padding(top = 14.dp)
                     .horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -544,8 +544,11 @@ fun FoodMap(
                         if (!vm.setFilter(next)) onNeedSignIn() else selected = null
                     }
                 }
-                MapChip("Food on the way", AppIcons.Directions, tag = "map_route") { planning = true }
             }
+            MapChip(
+                "On the way", AppIcons.Directions, tag = "map_route",
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 122.dp, end = 14.dp),
+            ) { planning = true }
         } else {
             RouteBanner(route, state.routing, Modifier.align(Alignment.TopStart).padding(14.dp).padding(end = 60.dp)) {
                 selected = null
@@ -554,13 +557,13 @@ fun FoodMap(
         }
         LocateButton(
             onClick = locateMe,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 52.dp, end = 14.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 14.dp),
         )
         Text(
             "© OpenMapTiles © OpenStreetMap",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 16.dp),
+            modifier = Modifier.align(Alignment.TopStart).padding(top = 64.dp, start = 18.dp),
         )
 
         AnimatedVisibility(
@@ -853,13 +856,14 @@ private fun MapChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     on: Boolean = false,
     tag: String? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val bg = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLowest
     val fg = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     Row(
-        Modifier
+        modifier
             .pressScale(interaction, 0.94f)
             .shadow(6.dp, RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))

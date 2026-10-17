@@ -535,7 +535,7 @@ class FullAppTest {
             compose.onAllNodes(hasText("Nearby")).onFirst().performClick()
             waitFor(hasTestTag("food_map"), 15_000)
             compose.waitUntil(60_000) { app.foodfeed.ui.map.FoodMapProbe.styleReady }
-            compose.onNodeWithTag("map_filter_friends").performClick()
+            compose.onNodeWithTag("map_filter_friends").performScrollTo().performClick()
             // Only the places the person I follow loved, each with who loved it.
             val probe = app.foodfeed.ui.map.FoodMapProbe
             compose.waitUntil(20_000) { probe.places.isNotEmpty() && probe.places.all { it.lovedBy?.handle == twin.user.handle } }
@@ -549,7 +549,7 @@ class FullAppTest {
             Thread.sleep(1200)
             shot("57_map_loved_by_friend")
             compose.onNodeWithContentDescription("Close").performClick()
-            compose.onNodeWithTag("map_filter_friends").performClick()
+            compose.onNodeWithTag("map_filter_friends").performScrollTo().performClick()
         }
         step("map: food on the way") {
             compose.onNodeWithTag("map_route").performClick()
