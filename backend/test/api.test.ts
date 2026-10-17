@@ -1264,6 +1264,9 @@ describe('people-based recommendation', () => {
       id: string; lane: string; because: { handle: string | null; match: number | null; followed: boolean };
     }[];
     let items = await forYou();
+    // Ranked: the API keeps for_you()'s order.
+    const order = (await db.query('select dish_id from for_you($1, $2, 50, 0)', [me.id, cityId])).rows.map((r) => r.dish_id);
+    expect(items.map((i) => i.id)).toEqual(order);
     const find = items.find((i) => i.id === theirFind)!;
     expect(find.lane).toBe('foryou');
     expect(find.because).toMatchObject({ handle: alike.handle, followed: false });

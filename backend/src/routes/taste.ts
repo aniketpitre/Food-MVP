@@ -42,9 +42,10 @@ export async function forYouCards(
     category: string | null;
   }>(
     `select f.dish_id, f.by_match, f.followed, f.people, pr.handle, pr.display_name, pr.avatar_path, c.name as category
-     from for_you($1, $2, $3, $4) f
+     from for_you($1, $2, $3, $4) with ordinality f
      left join profiles pr on pr.id = f.by_user
-     left join dish_categories c on c.id = f.category_id`,
+     left join dish_categories c on c.id = f.category_id
+     order by f.ordinality`,
     [viewer, city, limit, offset],
   );
   const cards = await loadDishCards(db, rows.map((r) => r.dish_id), viewer, lat, lng);

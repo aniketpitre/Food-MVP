@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -156,7 +157,8 @@ fun TasteScreen(vm: TasteViewModel, first: Boolean, onDone: () -> Unit, showMess
                             .clickable(role = Role.Button) { vm.spice(n) }
                             .semantics { contentDescription = "Spice ${SpiceWords[n - 1]}"; selected = n == state.spice }
                             .testTag("taste_spice_$n")
-                            .padding(8.dp),
+                            .padding(8.dp)
+                            .graphicsLayer { alpha = if (on) 1f else 0.3f },
                     )
                 }
             }

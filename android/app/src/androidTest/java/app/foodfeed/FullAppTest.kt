@@ -502,9 +502,11 @@ class FullAppTest {
             waitFor(hasTestTag("home_list"), 15_000)
         }
         step("For you and people with your taste on Home") {
+            // The reason line sits inside a tappable card, so look for the section, then the line.
             compose.waitUntil(20_000) {
-                runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasTestTag("because")) }.isSuccess
+                runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasText("For you")) }.isSuccess
             }
+            waitFor(hasTestTag("because"), 10_000)
             Thread.sleep(1200)
             shot("51_home_for_you")
             runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasText("People with your taste")) }

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
@@ -99,14 +100,16 @@ class MotionCheckTest {
         deckFrames("71_deck_lite_off")
     }
 
+    private fun home() = runBlocking {
+        val c = container.city.value!!.id
+        container.api.home(c, container.location.value?.lat, container.location.value?.lng)
+    }
+
     @Test
     fun homePhotosDuringFastFling() {
         compose.waitUntilAtLeastOneExists(hasTestTag("craving_input"), 30_000)
         Thread.sleep(4000) // sections and their photos load
-        val home = runBlocking {
-            val c = container.city.value!!.id
-            container.api.home(c, container.location.value?.lat, container.location.value?.lng)
-        }
+        val home = home()
         val sections = listOf(home.peoplesPicks, home.nearby, home.following.map { it.card }, home.trending, home.fresh)
         val ids = sections.flatMap { s -> s.map { it.id }.distinct() }
         val repeated = ids.groupingBy { it }.eachCount().filterValues { it > 1 }.size
@@ -152,7 +155,10 @@ class MotionCheckTest {
         compose.onRoot().performTouchInput { swipeUp(startY = height * 0.7f, endY = height * 0.4f) }
         compose.onRoot().performTouchInput { swipeDown(startY = height * 0.3f, endY = height * 0.7f) }
         compose.waitForIdle()
-        device.click((w * 0.25f).toInt(), (h * 0.68f).toInt())
+        // Open a People's Pick by its name (where the card sits depends on the sections above it).
+        val pick = home().peoplesPicks.first().name
+        compose.onNodeWithTag("home_list").performScrollToNode(androidx.compose.ui.test.hasText(pick))
+        compose.onAllNodes(androidx.compose.ui.test.hasText(pick))[0].performClick()
         compose.waitUntilAtLeastOneExists(androidx.compose.ui.test.hasText("Take me there"), 15_000)
         frame("74_home_still_works")
     }
