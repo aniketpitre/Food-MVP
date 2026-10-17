@@ -708,6 +708,8 @@ class FullAppTest {
             assertTrue(container.session.value!!.user.twoFactor)
             // A first sign-in asks for your taste; skip it.
             waitText("Your taste", timeoutMs = 15_000)
+            compose.waitForIdle()
+            Thread.sleep(1500) // let the screen finish sliding in
             compose.onNodeWithText("Skip").performClick()
             gone(hasText("Your taste"))
         }
