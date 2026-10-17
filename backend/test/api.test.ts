@@ -1087,6 +1087,11 @@ describe('removing demo content', () => {
     expect(await restoreDemoPlaces(db, mediaDir)).toBe(true);
     expect(await restoreDemoPlaces(db, mediaDir)).toBe(false);
     expect(await again(db)).toBe(true);
+    // Every demo dish comes with its bundled real photo, credited.
+    const credited = await db.query<{ n: number }>(
+      "select count(*)::int as n from posts where source = 'seed' and photo_credit like 'Photo: %, via Wikimedia Commons'",
+    );
+    expect(credited.rows[0]!.n).toBe(30);
 
     // A server seeded with the old drawn pictures: its demo posts carry the old credit.
     await db.query("update posts set photo_credit = 'FoodFeed demo' where source = 'seed'");
