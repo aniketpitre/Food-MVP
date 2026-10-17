@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import app.foodfeed.ui.map.NavigateProbe
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.printToLog
@@ -196,7 +198,8 @@ class DeviceJourneyTest {
         assertNotNull("the card shows one of the map's places", shown)
         android.util.Log.d("JOURNEY", "card opened for ${shown!!.name}")
 
-        // Take me there → Google Maps directions to this place (stubbed so nothing opens).
+        // Take me there → WorthAbite's own directions; Google Maps one tap from there (stubbed so nothing opens).
+        NavigateProbe.testLocation = true
         intending(anyIntent()).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, null))
         compose.onNodeWithText("Take me there").performClick()
         if (shown.demo) {
@@ -205,12 +208,21 @@ class DeviceJourneyTest {
             shot("05b_demo_notice")
             compose.onNodeWithText("Open the map anyway").performClick()
         }
+        compose.waitUntilAtLeastOneExists(hasTestTag("nav_google"), 15_000)
+        shot("05c_in_app_directions")
+        compose.onNodeWithTag("nav_google").performClick()
         Thread.sleep(3000) // it asks our server for the Google listing first (2.5 s at most)
         intended(allOf(hasAction(Intent.ACTION_VIEW), hasData(uriContaining("google.com/maps/dir/"))))
         intended(hasData(uriContaining("destination=")))
+        compose.onNodeWithTag("nav_end").performClick()
+        NavigateProbe.testLocation = false
+        compose.waitUntilAtLeastOneExists(hasTestTag("food_map"), 15_000)
+        compose.waitUntil(60_000) { FoodMapProbe.styleReady }
 
-        // Close the card; the strip of places comes back and opens the card too.
-        compose.onNodeWithContentDescription("Close").performClick()
+        // Close the card if it's still open; the strip of places comes back and opens the card too.
+        if (compose.onAllNodesWithContentDescription("Close").fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithContentDescription("Close").performClick()
+        }
         compose.waitUntilAtLeastOneExists(hasTestTag("map_card_${FoodMapProbe.places.first { it.dishCount > 0 }.id}"), 10_000)
         shot("06_map_strip")
         assertTrue("tapping a food logo on the map opens its card", pinTapWorked)
