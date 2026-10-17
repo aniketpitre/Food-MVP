@@ -261,6 +261,7 @@ export async function socialRoutes(app: FastifyInstance) {
     const { rows } = await db.query(
       `select ${personSql('p')},
               ($2::uuid is not null and exists (select 1 from follows x where x.follower_id = $2 and x.followee_id = p.id)) as "isFollowing",
+              (p.id = $2::uuid) is true as "isMe",
               (select count(*) from follows where followee_id = p.id)::int as followers
        from profiles p
        where ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = p.id))

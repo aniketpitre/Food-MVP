@@ -762,6 +762,10 @@ describe('profiles and following', () => {
     expect((await app.inject('/people?q=chai_q')).json()[0].handle).toBe('chai_queen');
     expect((await app.inject('/people?q=@chai_queen')).json()[0].handle).toBe('chai_queen');
     expect((await app.inject('/people?q=kulkarni')).json().map((x: { handle: string }) => x.handle)).toContain('chai_queen');
+    // Searching while signed in marks you, so the app can leave you out of "message someone".
+    const mine = (await app.inject({ url: '/people?q=chai_queen', headers: u.auth })).json();
+    expect(mine[0]).toMatchObject({ handle: 'chai_queen', isMe: true });
+    expect((await app.inject('/people?q=chai_queen')).json()[0].isMe).toBe(false);
   });
 
   it('notifies on comments, replies and mentions, and respects comment settings', async () => {

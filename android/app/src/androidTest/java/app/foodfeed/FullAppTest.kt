@@ -112,20 +112,22 @@ class FullAppTest {
         try {
             block()
         } catch (e: Throwable) {
+            Log.e("JOURNEY", "step \"$name\" failed", e)
             runCatching { shot("99_failure_${name.replace(' ', '_')}") }
             runCatching { compose.onRoot(useUnmergedTree = true).printToLog("JOURNEY") }
             throw AssertionError("Step \"$name\" failed: ${e.message}", e)
         }
     }
 
+    /** Waits for [matcher] anywhere, including inside merged rows (a tag inside a tappable row). */
     private fun waitFor(matcher: SemanticsMatcher, timeoutMs: Long = 15_000) =
-        compose.waitUntilAtLeastOneExists(matcher, timeoutMs)
+        compose.waitUntil(timeoutMs) { compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
     private fun waitText(text: String, substring: Boolean = false, timeoutMs: Long = 15_000) =
         waitFor(hasText(text, substring = substring), timeoutMs)
 
     private fun gone(matcher: SemanticsMatcher, timeoutMs: Long = 10_000) =
-        compose.waitUntil(timeoutMs) { compose.onAllNodes(matcher).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(timeoutMs) { compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
 
     /** The first node matching [matcher] that is fully on screen (pager pages next door are composed too). */
     private fun visible(matcher: SemanticsMatcher): SemanticsNodeInteraction {
@@ -144,7 +146,7 @@ class FullAppTest {
     /** Back until [matcher] shows (a keyboard or sheet may take a press of its own). */
     private fun backTo(matcher: SemanticsMatcher, presses: Int = 4) {
         repeat(presses) {
-            if (compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()) return
+            if (compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()) return
             device.pressBack()
             Thread.sleep(600)
             compose.waitForIdle()
