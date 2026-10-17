@@ -1229,5 +1229,9 @@ describe('removing demo content', () => {
     expect(place.isDemo).toBe(true);
     // A second run leaves the photos alone.
     expect((await refreshDemoDishPhotos(db, mediaDir, () => {}, dir)).updated).toBe(0);
+    // A re-cropped photo with the same credit is still noticed.
+    const recropped = await sharp({ create: { width: 1080, height: 1350, channels: 3, background: { r: 20, g: 120, b: 60 } } }).jpeg().toBuffer();
+    await fs.writeFile(path.join(dir, 'katta_vada_pav.jpg'), recropped);
+    expect((await refreshDemoDishPhotos(db, mediaDir, () => {}, dir)).updated).toBe(1);
   });
 });
