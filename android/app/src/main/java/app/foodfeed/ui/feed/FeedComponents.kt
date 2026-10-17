@@ -370,9 +370,12 @@ fun DishPage(
     var burstAt by remember { mutableStateOf(Offset.Unspecified) }
     val lite = LocalLiteMode.current
     val thumbUrl = LocalMediaUrl.current(card.cover?.thumbUrl)
-    val intro = remember(card.id) { Animatable(if (lite) 1f else 0f) }
+    // The card's arrival (title, sticker, the Love / Comment / Save / Tried / Send buttons
+    // swinging in) only moves and fades layers, which is cheap even on slow phones, so it
+    // plays in Lite mode too, just quicker. Lite mode drops the costly parts: blur, bursts.
+    val intro = remember(card.id) { Animatable(0f) }
     LaunchedEffect(card.id, active) {
-        if (active && intro.value == 0f) intro.animateTo(1f, tween(1100, easing = LinearEasing))
+        if (active && intro.value == 0f) intro.animateTo(1f, tween(if (lite) 750 else 1100, easing = LinearEasing))
     }
     val t = { intro.value }
     val sticker = stickerFor(card, engagement.stats.recommenders)

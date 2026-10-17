@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.EnterTransition
@@ -309,15 +310,15 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     }
                 },
             ) {
-                val openDish: (String) -> Unit = { nav.navigate(Routes.dish(it)) }
-                val openRestaurant: (String) -> Unit = { nav.navigate(Routes.restaurant(it)) }
-                val openUser: (String) -> Unit = { nav.navigate(Routes.user(it)) }
-                val signIn: () -> Unit = { nav.navigate(Routes.AUTH) }
+                val openDish: (String) -> Unit = { nav.go(Routes.dish(it)) }
+                val openRestaurant: (String) -> Unit = { nav.go(Routes.restaurant(it)) }
+                val openUser: (String) -> Unit = { nav.go(Routes.user(it)) }
+                val signIn: () -> Unit = { nav.go(Routes.AUTH) }
                 val openChatWith: suspend (String) -> Unit = { handle ->
                     try {
                         val id = apiCall { app.api.openChat(OpenChat(handle)) }.id
                         // Navigation must happen on the main thread, whatever thread the reply came on.
-                        withContext(Dispatchers.Main) { nav.navigate(Routes.chat(id)) }
+                        withContext(Dispatchers.Main) { nav.go(Routes.chat(id)) }
                     } catch (e: ApiException) {
                         showMessage(e.message)
                     }
@@ -325,33 +326,33 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
 
                 composable(Routes.INBOX) {
                     val vm = appViewModel { InboxViewModel(it) }
-                    InboxScreen(vm, { nav.popBackStack() }, { nav.navigate(Routes.chat(it)) }, signIn, showMessage)
+                    InboxScreen(vm, { nav.back() }, { nav.go(Routes.chat(it)) }, signIn, showMessage)
                 }
                 composable(Routes.CHAT, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
                     val id = entry.arguments?.getString("id").orEmpty()
                     val vm = appViewModel(key = "chat-$id") { ChatViewModel(it, id) }
-                    ChatScreen(vm, id, { nav.popBackStack() }, openUser, openDish, openRestaurant, showMessage)
+                    ChatScreen(vm, id, { nav.back() }, openUser, openDish, openRestaurant, showMessage)
                 }
                 composable(Routes.STORIES, arguments = listOf(navArgument("start") { type = NavType.IntType })) { entry ->
                     val start = entry.arguments?.getInt("start") ?: 0
                     val vm = appViewModel(key = "stories-$start") { StoryViewerViewModel(it, null, start) }
-                    StoryViewerScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                    StoryViewerScreen(vm, { nav.back() }, openDish, openRestaurant, openUser, signIn, showMessage)
                 }
                 composable(Routes.USER_STORIES) { entry ->
                     val handle = entry.arguments?.getString("handle").orEmpty()
                     val vm = appViewModel(key = "user-stories-$handle") { StoryViewerViewModel(it, handle, 0) }
-                    StoryViewerScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                    StoryViewerScreen(vm, { nav.back() }, openDish, openRestaurant, openUser, signIn, showMessage)
                 }
                 composable(Routes.NEW_STORY) {
                     val vm = appViewModel { StoryComposerViewModel(it) }
-                    StoryComposerScreen(vm, { nav.popBackStack() }, signIn, showMessage)
+                    StoryComposerScreen(vm, { nav.back() }, signIn, showMessage)
                 }
 
                 composable(Routes.SETUP, arguments = listOf(navArgument("step") { type = NavType.StringType; nullable = true })) { entry ->
                     val step = entry.arguments?.getString("step")?.let { OnboardingStep.valueOf(it) }
                     val vm = appViewModel(key = "setup-$step") { OnboardingViewModel(it, step) }
                     OnboardingScreen(vm) {
-                        if (nav.previousBackStackEntry != null) nav.popBackStack()
+                        if (nav.previousBackStackEntry != null) nav.back()
                         else nav.navigate(Routes.HOME) { popUpTo(Routes.SETUP) { inclusive = true } }
                     }
                 }
@@ -361,15 +362,15 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         Box(Modifier.statusBarsPadding()) {
                             HomeScreen(
                                 vm,
-                                onCraving = { nav.navigate(Routes.craving(it)) },
+                                onCraving = { nav.go(Routes.craving(it)) },
                                 onOpenDish = openDish,
                                 onOpenUser = openUser,
-                                onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
+                                onChangeCity = { nav.go(Routes.setup(OnboardingStep.City)) },
                                 onExplore = { nav.navigateToTab(Routes.FEED) },
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
-                                onOpenStory = { nav.navigate(Routes.stories(it)) },
-                                onAddStory = { if (app.session.value == null) signIn() else nav.navigate(Routes.NEW_STORY) },
-                                onInbox = { nav.navigate(Routes.INBOX) },
+                                onOpenStory = { nav.go(Routes.stories(it)) },
+                                onAddStory = { if (app.session.value == null) signIn() else nav.go(Routes.NEW_STORY) },
+                                onInbox = { nav.go(Routes.INBOX) },
                             )
                         }
                     }
@@ -378,20 +379,20 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val q = entry.arguments?.getString("q").orEmpty()
                         val vm = appViewModel(key = "craving-$q") { CravingViewModel(it, q) }
-                        CravingScreen(vm, { nav.popBackStack() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) })
+                        CravingScreen(vm, { nav.back() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) })
                     }
                 }
                 composable(Routes.ACTIVITY) {
                     val vm = appViewModel { ActivityViewModel(it) }
                     Box(Modifier.statusBarsPadding()) { ActivityScreen(vm, openDish, openUser, signIn, showMessage) }
                 }
-                composable(Routes.EDIT_PROFILE) { EditProfileScreen({ nav.popBackStack() }, showMessage) }
-                composable(Routes.BLOCKED) { BlockedScreen({ nav.popBackStack() }, showMessage) }
-                composable(Routes.PASSWORD) { ChangePasswordScreen({ nav.popBackStack() }, showMessage) }
+                composable(Routes.EDIT_PROFILE) { EditProfileScreen({ nav.back() }, showMessage) }
+                composable(Routes.BLOCKED) { BlockedScreen({ nav.back() }, showMessage) }
+                composable(Routes.PASSWORD) { ChangePasswordScreen({ nav.back() }, showMessage) }
                 composable(Routes.FOLLOWS) { entry ->
                     val handle = entry.arguments?.getString("handle").orEmpty()
                     val which = entry.arguments?.getString("which")
-                    FollowListScreen(handle, which == "followers", { nav.popBackStack() }, openUser, signIn, showMessage)
+                    FollowListScreen(handle, which == "followers", { nav.back() }, openUser, signIn, showMessage)
                 }
                 composable(Routes.FEED) {
                     NavScoped {
@@ -399,8 +400,8 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         Box(Modifier.statusBarsPadding()) {
                             FeedScreen(
                                 vm, openDish, openRestaurant,
-                                onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
-                                onSearch = { nav.navigate(Routes.SEARCH) },
+                                onChangeCity = { nav.go(Routes.setup(OnboardingStep.City)) },
+                                onSearch = { nav.go(Routes.SEARCH) },
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
                                 onNeedSignIn = signIn,
                                 showMessage = showMessage,
@@ -413,14 +414,14 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val vm = appViewModel { SearchViewModel(it) }
                         Box(Modifier.statusBarsPadding()) {
-                            SearchScreen(vm, openDish, openRestaurant, signIn, showMessage, onOpenUser = openUser, onBack = { nav.popBackStack() })
+                            SearchScreen(vm, openDish, openRestaurant, signIn, showMessage, onOpenUser = openUser, onBack = { nav.back() })
                         }
                     }
                 }
                 composable(Routes.ADD) {
                     val vm = appViewModel { AddDishViewModel(it) }
                     Box(Modifier.statusBarsPadding()) {
-                        AddDishScreen(vm, signIn, onPosted = { id -> nav.navigate(Routes.dish(id)) }, showMessage = showMessage)
+                        AddDishScreen(vm, signIn, onPosted = { id -> nav.go(Routes.dish(id)) }, showMessage = showMessage)
                     }
                 }
                 composable(Routes.SAVED) {
@@ -434,11 +435,11 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         val vm = appViewModel(key = "me") { ProfileViewModel(it, null) }
                         Box(Modifier.statusBarsPadding()) {
                             ProfileScreen(
-                                vm, true, null, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage,
-                                onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
-                                onFollows = { h, f -> nav.navigate(Routes.follows(h, f)) },
+                                vm, true, null, openDish, { nav.go(Routes.SETTINGS) }, signIn, showMessage,
+                                onEditProfile = { nav.go(Routes.EDIT_PROFILE) },
+                                onFollows = { h, f -> nav.go(Routes.follows(h, f)) },
                                 onMessage = { h -> scope.launch { openChatWith(h) } },
-                                onOpenStory = { h -> nav.navigate(Routes.userStories(h)) },
+                                onOpenStory = { h -> nav.go(Routes.userStories(h)) },
                             )
                         }
                     }
@@ -449,11 +450,11 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         val vm = appViewModel(key = "user-$handle") { ProfileViewModel(it, handle) }
                         Box(Modifier.statusBarsPadding()) {
                             ProfileScreen(
-                                vm, false, { nav.popBackStack() }, openDish, { nav.navigate(Routes.SETTINGS) }, signIn, showMessage,
-                                onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
-                                onFollows = { h, f -> nav.navigate(Routes.follows(h, f)) },
+                                vm, false, { nav.back() }, openDish, { nav.go(Routes.SETTINGS) }, signIn, showMessage,
+                                onEditProfile = { nav.go(Routes.EDIT_PROFILE) },
+                                onFollows = { h, f -> nav.go(Routes.follows(h, f)) },
                                 onMessage = { h -> scope.launch { openChatWith(h) } },
-                                onOpenStory = { h -> nav.navigate(Routes.userStories(h)) },
+                                onOpenStory = { h -> nav.go(Routes.userStories(h)) },
                             )
                         }
                     }
@@ -462,47 +463,65 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val id = entry.arguments?.getString("id").orEmpty()
                         val vm = appViewModel(key = "dish-$id") { DishViewModel(it, id) }
-                        DishScreen(vm, { nav.popBackStack() }, openDish, openRestaurant, openUser, signIn, showMessage)
+                        DishScreen(vm, { nav.back() }, openDish, openRestaurant, openUser, signIn, showMessage)
                     }
                 }
                 composable(Routes.RESTAURANT) { entry ->
                     NavScoped {
                         val id = entry.arguments?.getString("id").orEmpty()
                         val vm = appViewModel(key = "restaurant-$id") { RestaurantViewModel(it, id) }
-                        RestaurantScreen(vm, { nav.popBackStack() }, openDish, signIn, showMessage)
+                        RestaurantScreen(vm, { nav.back() }, openDish, signIn, showMessage)
                     }
                 }
                 composable(Routes.AUTH) {
                     val vm = appViewModel { AuthViewModel(it) }
                     AuthScreen(
                         vm,
-                        onDone = { showMessage("You're signed in."); nav.popBackStack() },
-                        onClose = { app.setPendingAction(null); nav.popBackStack() },
+                        onDone = { showMessage("You're signed in."); nav.back() },
+                        onClose = { app.setPendingAction(null); nav.back() },
                         onOpenTerms = { openUrl(context, "${app.serverUrl.value}/terms") },
                     )
                 }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
-                        onBack = { nav.popBackStack() },
-                        onChangeCity = { nav.navigate(Routes.setup(OnboardingStep.City)) },
-                        onChangeServer = { nav.navigate(Routes.setup(OnboardingStep.Server)) },
-                        onAdmin = { nav.navigate(Routes.ADMIN) },
+                        onBack = { nav.back() },
+                        onChangeCity = { nav.go(Routes.setup(OnboardingStep.City)) },
+                        onChangeServer = { nav.go(Routes.setup(OnboardingStep.Server)) },
+                        onAdmin = { nav.go(Routes.ADMIN) },
                         onSignIn = signIn,
                         showMessage = showMessage,
-                        onEditProfile = { nav.navigate(Routes.EDIT_PROFILE) },
-                        onPassword = { nav.navigate(Routes.PASSWORD) },
-                        onBlocked = { nav.navigate(Routes.BLOCKED) },
+                        onEditProfile = { nav.go(Routes.EDIT_PROFILE) },
+                        onPassword = { nav.go(Routes.PASSWORD) },
+                        onBlocked = { nav.go(Routes.BLOCKED) },
                     )
                 }
                 composable(Routes.ADMIN) {
                     val vm = appViewModel { AdminViewModel(it) }
-                    AdminScreen(vm, { nav.popBackStack() }, openDish, showMessage)
+                    AdminScreen(vm, { nav.back() }, openDish, showMessage)
                 }
             }
             }
             }
         }
     }
+}
+
+/** True while the screen on top has finished arriving (not mid-transition, not leaving). */
+private val NavHostController.settled: Boolean
+    get() = currentBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+
+/**
+ * Opens [route] once. Taps that land while a screen is still sliding in (or out) are
+ * ignored, so a burst of taps can't stack the same page three times or interrupt a
+ * shared-photo transition halfway.
+ */
+private fun NavHostController.go(route: String) {
+    if (settled) navigate(route)
+}
+
+/** Goes back one screen. A double tap on Back can't also pop the screen underneath (or Home). */
+private fun NavHostController.back() {
+    if (settled && previousBackStackEntry != null) popBackStack()
 }
 
 private fun NavHostController.navigateToTab(route: String) {

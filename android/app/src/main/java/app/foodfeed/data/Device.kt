@@ -28,13 +28,14 @@ import kotlin.math.max
 /** Facts about the phone that change how hard the app works it. */
 object Device {
     /**
-     * Low-end: Android's own low-RAM flag, or under 3 GB of memory, or a small per-app heap.
-     * These phones get Lite mode by default.
+     * Low-end: Android's own low-RAM flag, under 3 GB of memory, or a really small per-app
+     * heap. These phones get Lite mode by default. (The per-app heap used to count at 192 MB,
+     * which caught plenty of ordinary mid-range phones and switched their effects off.)
      */
     fun isLowEnd(context: Context): Boolean {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         val info = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
-        return am.isLowRamDevice || info.totalMem < 3L * 1024 * 1024 * 1024 || am.memoryClass <= 192
+        return am.isLowRamDevice || info.totalMem < 3L * 1024 * 1024 * 1024 || am.memoryClass < 128
     }
 }
 
