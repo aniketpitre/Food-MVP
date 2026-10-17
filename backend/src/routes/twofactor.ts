@@ -31,20 +31,20 @@ export async function startChallenge(
   app: FastifyInstance,
   user: { id: string; email: string },
   purpose: CodePurpose,
-  opts: { background?: boolean } = {},
+  opts: { background?: boolean; to?: string; newEmail?: string } = {},
 ): Promise<{ challengeId: string; emailHint: string } | { error: string; message: string }> {
   if (!app.mailer.enabled) return MAIL_OFF;
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
   const id = randomUUID();
   await app.db.query(
-    `insert into auth_codes (id, user_id, purpose, code_hash, expires_at)
-     values ($1, $2, $3, $4, now() + make_interval(mins => $5))`,
-    [id, user.id, purpose, hash(app.config.jwtSecret, id, code), CODE_MINUTES],
+    `insert into auth_codes (id, user_id, purpose, code_hash, expires_at, new_email)
+     values ($1, $2, $3, $4, now() + make_interval(mins => $5), $6)`,
+    [id, user.id, purpose, hash(app.config.jwtSecret, id, code), CODE_MINUTES, opts.newEmail ?? null],
   );
   const send = async () => {
     try {
       const mail = codeEmail(code, purpose);
-      await app.mailer.send(user.email, mail.subject, mail.text, mail.html);
+      await app.mailer.send(opts.to ?? user.email, mail.subject, mail.text, mail.html);
       return true;
     } catch (err) {
       app.log.warn({ err }, 'code email failed');
@@ -55,11 +55,18 @@ export async function startChallenge(
   // In the background, the answer comes back as fast whether or not the account exists.
   if (opts.background) void send();
   else if (!(await send())) return { error: 'mail_failed', message: "We couldn't send the code. Try again in a minute." };
-  return { challengeId: id, emailHint: emailHint(user.email) };
+  return { challengeId: id, emailHint: emailHint(opts.to ?? user.email) };
 }
 
 /** Checks a code; it's spent once right, and after 5 wrong tries. */
-export async function checkCode(app: FastifyInstance, challengeId: string, code: string, purpose: CodePurpose, owner?: string) {
+export async function checkCode(
+  app: FastifyInstance,
+  challengeId: string,
+  code: string,
+  purpose: CodePurpose,
+  owner?: string,
+  opts: { consume?: boolean } = {},
+) {
   const { rows } = await app.db.query<{ user_id: string; code_hash: string; attempts: number; expired: boolean; used: boolean }>(
     `select user_id, code_hash, attempts, expires_at < now() as expired, used_at is not null as used
      from auth_codes where id = $1 and purpose = $2`,
@@ -76,7 +83,8 @@ export async function checkCode(app: FastifyInstance, challengeId: string, code:
     const left = MAX_ATTEMPTS - c.attempts - 1;
     return { ok: false as const, message: left > 0 ? `Wrong code. ${left} ${left === 1 ? 'try' : 'tries'} left.` : 'Too many wrong codes. Ask for a new one.' };
   }
-  await app.db.query('update auth_codes set used_at = now() where id = $1', [challengeId]);
+  // Some flows need two codes right before spending either (see changing the email).
+  if (opts.consume !== false) await app.db.query('update auth_codes set used_at = now() where id = $1', [challengeId]);
   return { ok: true as const, userId: c.user_id };
 }
 

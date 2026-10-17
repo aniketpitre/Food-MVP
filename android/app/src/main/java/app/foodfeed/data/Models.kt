@@ -364,6 +364,18 @@ data class AuthResult(
 )
 
 @Serializable
+data class EmailChangeStart(val newEmail: String, val password: String)
+
+@Serializable
+data class EmailChangeCodes(val oldChallengeId: String, val oldHint: String = "", val newChallengeId: String, val newHint: String = "")
+
+@Serializable
+data class EmailChangeConfirm(val oldChallengeId: String, val oldCode: String, val newChallengeId: String, val newCode: String)
+
+@Serializable
+data class EmailChangeResult(val user: User, val token: String? = null)
+
+@Serializable
 data class PasswordChangeResult(val ok: Boolean = true, val token: String? = null)
 
 /** A device you're signed in on. */

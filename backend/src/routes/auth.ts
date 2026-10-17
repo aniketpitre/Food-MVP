@@ -248,6 +248,101 @@ export async function authRoutes(app: FastifyInstance) {
     return profileJson(rows[0]);
   });
 
+  // ---------- Changing the email ----------
+
+  // Step 1: the password (it's really you), then a code to the old address (you own the
+  // account's mailbox) and one to the new (the new address is real and yours).
+  app.post('/me/email/change/start', { preHandler: requireAuth, ...authLimit }, async (req, reply) => {
+    const b = parse(z.object({ newEmail: z.string().trim().toLowerCase().email('enter a valid email').max(254), password: z.string().max(200) }), req.body, reply);
+    if (!b) return;
+    const uid = userId(req)!;
+    const { rows } = await db.query<{ id: string; email: string; password_hash: string; locked: boolean; recent: boolean }>(
+      `select id, email, password_hash, coalesce(locked_until > now(), false) as locked,
+              exists (select 1 from auth_codes c where c.user_id = profiles.id and c.purpose = 'change_new'
+                        and c.sent_at > now() - interval '30 seconds') as recent
+       from profiles where id = $1`,
+      [uid],
+    );
+    const me = rows[0]!;
+    if (me.locked) return reply.code(429).send({ error: 'locked', message: `Too many wrong passwords. Try again in ${LOCK_MINUTES} minutes.` });
+    if (!(await verifyPassword(b.password, me.password_hash))) {
+      // Wrong passwords here count toward the same lock as signing in.
+      await db.query(
+        `update profiles set failed_logins = failed_logins + 1,
+           locked_until = case when failed_logins + 1 >= $2 then now() + make_interval(mins => $3) else locked_until end
+         where id = $1`,
+        [uid, LOCK_AFTER, LOCK_MINUTES],
+      );
+      return reply.code(400).send({ error: 'bad_credentials', message: 'Your password is wrong.' });
+    }
+    if (b.newEmail === me.email) return reply.code(400).send({ error: 'same_email', message: "That's already your email." });
+    const taken = await db.query('select 1 from profiles where email = $1', [b.newEmail]);
+    if (taken.rowCount) return reply.code(409).send({ error: 'email_taken', message: 'Another account already uses that email.' });
+    if (!app.mailer.enabled) return reply.code(503).send(MAIL_OFF);
+    if (me.recent) return reply.code(429).send({ error: 'too_soon', message: 'Wait a few seconds before asking for new codes.' });
+    // Any earlier unfinished change stops here.
+    await db.query(
+      "update auth_codes set used_at = now() where user_id = $1 and purpose in ('change_old', 'change_new') and used_at is null",
+      [uid],
+    );
+    const old = await startChallenge(app, me, 'change_old', { newEmail: b.newEmail });
+    if ('error' in old) return reply.code(503).send(old);
+    const fresh = await startChallenge(app, me, 'change_new', { to: b.newEmail, newEmail: b.newEmail });
+    if ('error' in fresh) {
+      await db.query('update auth_codes set used_at = now() where id = $1', [old.challengeId]);
+      return reply.code(503).send(fresh);
+    }
+    return { oldChallengeId: old.challengeId, oldHint: old.emailHint, newChallengeId: fresh.challengeId, newHint: fresh.emailHint };
+  });
+
+  // Step 2: both codes right, then the switch. Other devices are signed out and the old
+  // address hears about it.
+  app.post('/me/email/change/confirm', { preHandler: requireAuth, ...authLimit }, async (req, reply) => {
+    const code = z.string().trim().regex(/^\d{6}$/, 'enter the 6-digit code');
+    const b = parse(
+      z.object({ oldChallengeId: z.string().uuid(), oldCode: code, newChallengeId: z.string().uuid(), newCode: code }),
+      req.body,
+      reply,
+    );
+    if (!b) return;
+    const uid = userId(req)!;
+    const { rows: pair } = await db.query<{ purpose: string; new_email: string | null }>(
+      `select purpose, new_email from auth_codes
+       where user_id = $1 and ((id = $2 and purpose = 'change_old') or (id = $3 and purpose = 'change_new'))`,
+      [uid, b.oldChallengeId, b.newChallengeId],
+    );
+    const newEmail = pair.find((p) => p.purpose === 'change_new')?.new_email;
+    if (pair.length !== 2 || !newEmail || pair.some((p) => p.new_email !== newEmail)) {
+      return reply.code(400).send({ error: 'bad_code', message: 'Those codes are not for this change. Start again.' });
+    }
+    const oldOk = await checkCode(app, b.oldChallengeId, b.oldCode, 'change_old', uid, { consume: false });
+    if (!oldOk.ok) return reply.code(400).send({ error: 'bad_code', field: 'old', message: `Current email: ${oldOk.message}` });
+    const newOk = await checkCode(app, b.newChallengeId, b.newCode, 'change_new', uid, { consume: false });
+    if (!newOk.ok) return reply.code(400).send({ error: 'bad_code', field: 'new', message: `New email: ${newOk.message}` });
+    await db.query('update auth_codes set used_at = now() where id = any($1::uuid[])', [[b.oldChallengeId, b.newChallengeId]]);
+    const { rows: before } = await db.query<{ email: string }>('select email from profiles where id = $1', [uid]);
+    let user: ProfileRow;
+    try {
+      const { rows } = await db.query<ProfileRow>(
+        'update profiles set email = $2, email_verified_at = now() where id = $1 returning *',
+        [uid, newEmail],
+      );
+      user = rows[0]!;
+    } catch (err) {
+      if ((err as { code?: string }).code === '23505') {
+        return reply.code(409).send({ error: 'email_taken', message: 'Another account started using that email. Try a different one.' });
+      }
+      throw err;
+    }
+    await endSessions(app, uid, sessionId(req));
+    void sendNotice(before[0]!.email, 'The email on your WorthAbite account was changed', [
+      `The email on @${user.handle} was changed to ${emailHint(newEmail)}, and other devices were signed out.`,
+      `If this wasn't you, write to ${config.contactEmail} right away so we can lock the account.`,
+    ]);
+    // A sign-in from before sessions existed gets a fresh token (old ones just ended).
+    return { user: profileJson(user), token: sessionId(req) ? undefined : await startSession(app, user, req) };
+  });
+
   // ---------- Forgot password, username or email ----------
 
   // A code to the account's email, found by email or username. The answer is the same

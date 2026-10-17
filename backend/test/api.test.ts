@@ -1773,6 +1773,86 @@ describe('accounts: sign in, sessions, recovery', () => {
   });
 });
 
+describe('changing the email', () => {
+  it('needs the password, a code from the old address and one from the new, then switches and tells the old address', async () => {
+    const mails: { to: string; subject: string; text: string }[] = [];
+    const mailer = { enabled: true, send: async (to: string, subject: string, text: string) => { mails.push({ to, subject, text }); } };
+    const app2 = await buildApp(app.config, db, { logger: false, mailer });
+    const codeTo = (to: string) => mails.filter((m) => m.to === to).at(-1)!.subject.match(/^(\d{6}) is your WorthAbite code$/)![1]!;
+    const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+    try {
+      const u = await signUp({ email: 'old.address@example.com' });
+      const other = await signUp({ email: 'taken.address@example.com' });
+      void other;
+      const otherDevice = (await app2.inject({ method: 'POST', url: '/auth/login', payload: { login: u.handle, password: 'correct horse' } })).json().token;
+      const start = (payload: object) => app2.inject({ method: 'POST', url: '/me/email/change/start', headers: u.auth, payload });
+
+      expect((await start({ newEmail: 'new.address@example.com', password: 'wrong one' })).json().error).toBe('bad_credentials');
+      expect((await start({ newEmail: 'old.address@example.com', password: 'correct horse' })).json().error).toBe('same_email');
+      expect((await start({ newEmail: 'Taken.Address@example.com', password: 'correct horse' })).statusCode).toBe(409);
+      expect(mails).toHaveLength(0);
+
+      const c = (await start({ newEmail: 'New.Address@example.com', password: 'correct horse' })).json();
+      expect(c).toMatchObject({ oldHint: 'ol***@example.com', newHint: 'ne***@example.com' });
+      const oldCode = codeTo('old.address@example.com');
+      const newCode = codeTo('new.address@example.com');
+      expect(mails.find((m) => m.to === 'old.address@example.com')!.text).toMatch(/new email address/);
+      // Asking again at once is refused (one change every 30 seconds).
+      expect((await start({ newEmail: 'new.address@example.com', password: 'correct horse' })).statusCode).toBe(429);
+
+      const confirm = (oldC: string, newC: string) => app2.inject({
+        method: 'POST', url: '/me/email/change/confirm', headers: u.auth,
+        payload: { oldChallengeId: c.oldChallengeId, oldCode: oldC, newChallengeId: c.newChallengeId, newCode: newC },
+      });
+      // One wrong code changes nothing and spends neither code.
+      const wrongNew = await confirm(oldCode, newCode === '000000' ? '111111' : '000000');
+      expect(wrongNew.statusCode).toBe(400);
+      expect(wrongNew.json()).toMatchObject({ field: 'new' });
+      expect(wrongNew.json().message).toMatch(/^New email: Wrong code/);
+      // Codes swapped round don't work either.
+      expect((await confirm(newCode, oldCode)).statusCode).toBe(400);
+      // Codes from another person's change can't be used.
+      const someone = await signUp();
+      expect((await app2.inject({
+        method: 'POST', url: '/me/email/change/confirm', headers: someone.auth,
+        payload: { oldChallengeId: c.oldChallengeId, oldCode, newChallengeId: c.newChallengeId, newCode },
+      })).statusCode).toBe(400);
+      expect((await app2.inject({ url: '/me', headers: u.auth })).json().email).toBe('old.address@example.com');
+
+      const ok = await confirm(oldCode, newCode);
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json().user).toMatchObject({ email: 'new.address@example.com', emailVerified: true });
+      // Codes work once.
+      expect((await confirm(oldCode, newCode)).statusCode).toBe(400);
+      // This device stays, the others are signed out; sign-in works with the new address only.
+      expect((await app2.inject({ url: '/me', headers: u.auth })).statusCode).toBe(200);
+      expect((await app2.inject({ url: '/me', headers: bearer(otherDevice) })).statusCode).toBe(401);
+      expect((await app2.inject({ method: 'POST', url: '/auth/login', payload: { login: 'new.address@example.com', password: 'correct horse' } })).statusCode).toBe(200);
+      expect((await app2.inject({ method: 'POST', url: '/auth/login', payload: { login: 'old.address@example.com', password: 'correct horse' } })).statusCode).toBe(401);
+      await new Promise((r) => setTimeout(r, 50));
+      const notice = mails.find((m) => m.to === 'old.address@example.com' && m.subject === 'The email on your WorthAbite account was changed');
+      expect(notice!.text).toContain('ne***@example.com');
+    } finally {
+      await app2.close();
+    }
+  });
+
+  it('wrong passwords here count toward the sign-in lock', async () => {
+    const mailer = { enabled: true, send: async () => {} };
+    const app2 = await buildApp(app.config, db, { logger: false, mailer });
+    try {
+      const u = await signUp();
+      for (let i = 0; i < 10; i++) {
+        await app2.inject({ method: 'POST', url: '/me/email/change/start', headers: u.auth, payload: { newEmail: 'x@example.com', password: 'nope nope' } });
+      }
+      const r = await app2.inject({ method: 'POST', url: '/me/email/change/start', headers: u.auth, payload: { newEmail: 'x@example.com', password: 'correct horse' } });
+      expect(r.json().error).toBe('locked');
+    } finally {
+      await app2.close();
+    }
+  });
+});
+
 async function loginAs(handle: string) {
   const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${handle}@example.com`, password: 'correct horse' } });
   return { auth: { authorization: `Bearer ${res.json().token}` } };

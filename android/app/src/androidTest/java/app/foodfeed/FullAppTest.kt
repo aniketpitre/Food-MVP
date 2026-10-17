@@ -679,6 +679,37 @@ class FullAppTest {
     }
 
     @Test
+    fun changeEmail_passwordThenCodesFromOldAndNewAddress() {
+        val oldEmail = me.user.email
+        val newEmail = "moved_$suffix@example.com"
+        step("Settings › Change email: password, then codes go to both addresses") {
+            waitFor(hasContentDescription("Profile"), 30_000)
+            tab("Profile")
+            compose.onAllNodes(hasContentDescription("Settings")).onFirst().performClick()
+            compose.onNodeWithText("Change email").performScrollTo().performClick()
+            waitFor(hasTestTag("change_email_new"), 15_000)
+            compose.onNodeWithTag("change_email_new").performTextInput(newEmail)
+            compose.onNodeWithTag("change_email_password").performTextInput("correct horse")
+            shot("90_change_email")
+            compose.onNodeWithTag("change_email_send").performClick()
+            waitFor(hasTestTag("change_email_old_code"), 20_000)
+        }
+        step("both codes change it; the old address is told") {
+            val oldCode = emailedCode(oldEmail)
+            val newCode = emailedCode(newEmail)
+            compose.onNodeWithTag("change_email_old_code").performTextInput(oldCode)
+            compose.onNodeWithTag("change_email_new_code").performTextInput(newCode)
+            shot("91_change_email_codes")
+            compose.onNodeWithTag("change_email_confirm").performClick()
+            compose.waitUntil(20_000) { container.session.value?.user?.email == newEmail }
+            assertTrue(container.session.value!!.user.emailVerified)
+            compose.waitUntil(30_000) { emailed(oldEmail, "The email on your WorthAbite account was changed") }
+            waitText("Your email is now", substring = true, timeoutMs = 10_000)
+            shot("92_email_changed")
+        }
+    }
+
+    @Test
     fun accounts_forgotUsernameResetPasswordDevicesAndRemoteSignOut() {
         val email = me.user.email
         val handle = me.user.handle

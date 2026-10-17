@@ -65,6 +65,7 @@ fun SettingsScreen(
     onTwoFactor: () -> Unit = {},
     onSessions: () -> Unit = {},
     onVerifyEmail: () -> Unit = {},
+    onChangeEmail: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -91,7 +92,8 @@ fun SettingsScreen(
                 if (!user.emailVerified) {
                     Item(AppIcons.Bell, "Verify your email", "${user.email}: confirm it so you can always get back in", onClick = onVerifyEmail)
                 }
-                Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
+                Item(AppIcons.Send, "Change email", user.email, onClick = onChangeEmail)
+                Item(Icons.Filled.Lock, "Change password", "Your other devices will be signed out", onClick = onPassword)
                 Item(Icons.Filled.Person, "Where you're signed in", "See your devices and sign any of them out", onClick = onSessions)
                 Item(
                     AppIcons.Shield, "Two-step sign-in",

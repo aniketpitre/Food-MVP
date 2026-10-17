@@ -89,6 +89,8 @@ interface WorthAbiteApi {
     @POST("me/sessions/end-others") suspend fun endOtherSessions(): OkResult
     @GET("auth/handle-available") suspend fun handleAvailable(@Query("handle") handle: String): HandleAvailable
     @POST("me/email/verify/start") suspend fun verifyEmailStart(): CodeChallenge
+    @POST("me/email/change/start") suspend fun startEmailChange(@Body body: EmailChangeStart): EmailChangeCodes
+    @POST("me/email/change/confirm") suspend fun confirmEmailChange(@Body body: EmailChangeConfirm): EmailChangeResult
     @POST("me/email/verify/confirm") suspend fun verifyEmailConfirm(@Body body: CodeBody): User
     @POST("auth/password/forgot") suspend fun forgotPassword(@Body body: ForgotPasswordBody): ForgotResult
     @POST("auth/password/reset") suspend fun resetPassword(@Body body: ResetPasswordBody): AuthResult

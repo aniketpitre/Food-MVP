@@ -5,6 +5,7 @@ import app.foodfeed.ui.map.NavTarget
 import app.foodfeed.ui.profile.TwoFactorScreen
 import app.foodfeed.ui.profile.SessionsScreen
 import app.foodfeed.ui.profile.VerifyEmailScreen
+import app.foodfeed.ui.profile.ChangeEmailScreen
 import app.foodfeed.ui.map.NavigateScreen
 import app.foodfeed.ui.taste.TasteScreen
 import app.foodfeed.ui.taste.TasteViewModel
@@ -187,6 +188,7 @@ object Routes {
     const val SECURITY = "security"
     const val SESSIONS = "sessions"
     const val VERIFY_EMAIL = "verify-email"
+    const val CHANGE_EMAIL = "change-email"
     const val NAVIGATE = "go/{id}?lat={lat}&lng={lng}&name={name}"
     fun navigate(t: NavTarget) =
         "go/${t.placeId}?lat=${t.lat}&lng=${t.lng}&name=${android.net.Uri.encode(t.name)}"
@@ -568,10 +570,14 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         onTwoFactor = { nav.go(Routes.SECURITY) },
                         onSessions = { nav.go(Routes.SESSIONS) },
                         onVerifyEmail = { nav.go(Routes.VERIFY_EMAIL) },
+                        onChangeEmail = { nav.go(Routes.CHANGE_EMAIL) },
                     )
                 }
                 composable(Routes.SESSIONS) {
                     Box(Modifier.statusBarsPadding()) { SessionsScreen({ nav.back() }, showMessage) }
+                }
+                composable(Routes.CHANGE_EMAIL) {
+                    Box(Modifier.statusBarsPadding()) { ChangeEmailScreen({ nav.back() }, showMessage) }
                 }
                 composable(Routes.VERIFY_EMAIL) {
                     Box(Modifier.statusBarsPadding()) { VerifyEmailScreen({ nav.back() }, showMessage) }

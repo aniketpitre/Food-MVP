@@ -56,13 +56,15 @@ export class SmtpMailer implements Mailer {
   }
 }
 
-export type CodePurpose = 'login' | 'enable' | 'reset' | 'verify';
+export type CodePurpose = 'login' | 'enable' | 'reset' | 'verify' | 'change_old' | 'change_new';
 
 const WHY: Record<CodePurpose, string> = {
   login: 'Someone (hopefully you) is signing in to your WorthAbite account.',
   enable: 'You asked to turn on two-step sign-in for your WorthAbite account.',
   reset: 'You asked to reset your WorthAbite password.',
   verify: 'Welcome to WorthAbite! Confirm this is your email address.',
+  change_old: 'You asked to move your WorthAbite account to a new email address. Enter this code to confirm it is you.',
+  change_new: 'You asked to use this address for your WorthAbite account. Enter this code to confirm it is yours.',
 };
 
 function escapeHtml(s: string) {

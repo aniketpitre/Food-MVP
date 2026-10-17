@@ -32,6 +32,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.foodfeed.data.ApiException
 import app.foodfeed.data.CodeBody
+import app.foodfeed.data.EmailChangeCodes
+import app.foodfeed.data.EmailChangeConfirm
+import app.foodfeed.data.EmailChangeStart
+import app.foodfeed.ui.components.PrimaryButton
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.foodfeed.data.SessionItem
 import app.foodfeed.data.apiCall
 import app.foodfeed.ui.Format
@@ -190,4 +201,124 @@ fun VerifyEmailScreen(onBack: () -> Unit, showMessage: (String) -> Unit) {
         onResend = { if (resendIn == 0) start() },
         onBack = onBack,
     )
+}
+
+/**
+ * Settings › Change email. Your password first; then a code to your current email (it's
+ * your account) and one to the new email (it's your address). Both must be right before
+ * anything changes; then your other devices are signed out.
+ */
+@Composable
+fun ChangeEmailScreen(onBack: () -> Unit, showMessage: (String) -> Unit) {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    val session by app.session.collectAsState()
+    var newEmail by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var codes by remember { mutableStateOf<EmailChangeCodes?>(null) }
+    var oldCode by remember { mutableStateOf("") }
+    var newCode by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var resendIn by remember { mutableStateOf(0) }
+
+    fun sendCodes() {
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                codes = apiCall { app.api.startEmailChange(EmailChangeStart(newEmail.trim(), password)) }
+                oldCode = ""
+                newCode = ""
+                launch { for (s in 30 downTo 0) { resendIn = s; delay(1000) } }
+            } catch (e: ApiException) {
+                error = e.message
+            }
+            busy = false
+        }
+    }
+
+    fun confirm() {
+        val c = codes ?: return
+        if (busy || oldCode.length != 6 || newCode.length != 6) return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val r = apiCall { app.api.confirmEmailChange(EmailChangeConfirm(c.oldChallengeId, oldCode, c.newChallengeId, newCode)) }
+                r.token?.let { app.replaceToken(it) }
+                app.updatedMe(r.user)
+                showMessage("Your email is now ${r.user.email}. Other devices were signed out.")
+                onBack()
+            } catch (e: ApiException) {
+                error = e.message
+            }
+            busy = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize().imePadding()) {
+        BackBar("Change email", onBack)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            val c = codes
+            if (c == null) {
+                Text("✉️", fontSize = 40.sp)
+                Text("Now: ${session?.user?.email.orEmpty()}", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "We'll send a code to your current email and one to the new email. Both are needed, so nobody can move your account without access to both.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    newEmail, { newEmail = it.trim(); error = null }, label = { Text("New email") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth().testTag("change_email_new"),
+                )
+                OutlinedTextField(
+                    password, { password = it; error = null }, label = { Text("Your password") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth().testTag("change_email_password"),
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                PrimaryButton(
+                    if (busy) "Sending codes…" else "Send codes", ::sendCodes,
+                    Modifier.fillMaxWidth().testTag("change_email_send"),
+                    enabled = !busy && newEmail.contains('@') && password.isNotEmpty(),
+                )
+            } else {
+                Text("📬📬", fontSize = 40.sp)
+                Text("Enter both codes", style = MaterialTheme.typography.headlineSmall)
+                OutlinedTextField(
+                    oldCode, { oldCode = it.filter(Char::isDigit).take(6); error = null },
+                    label = { Text("Code sent to ${c.oldHint} (current)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth().testTag("change_email_old_code"),
+                )
+                OutlinedTextField(
+                    newCode, { newCode = it.filter(Char::isDigit).take(6); error = null },
+                    label = { Text("Code sent to ${c.newHint} (new)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth().testTag("change_email_new_code"),
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                PrimaryButton(
+                    if (busy) "Checking…" else "Change my email", ::confirm,
+                    Modifier.fillMaxWidth().testTag("change_email_confirm"),
+                    enabled = !busy && oldCode.length == 6 && newCode.length == 6,
+                )
+                TextButton(onClick = { if (resendIn == 0) sendCodes() }, enabled = resendIn == 0, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(if (resendIn > 0) "Send new codes in ${resendIn}s" else "Send new codes")
+                }
+                Text(
+                    "Codes work for 10 minutes. Changing your email signs you out on your other devices.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
