@@ -313,20 +313,32 @@ export async function messageRoutes(app: FastifyInstance) {
   });
 
   // Friends you can share with: people you follow who follow you back (and haven't turned sharing off).
-  app.get('/me/friends', { preHandler: requireAuth }, async (req) => {
+  // Everyone you can share with: your followers and the people you follow, the people you
+  // talked to most recently first. With q, only those whose username or name matches.
+  app.get('/me/friends', { preHandler: requireAuth }, async (req, reply) => {
+    const q = parse(z.object({ q: z.string().trim().max(40).optional() }), req.query, reply);
+    if (!q) return;
     const me = userId(req)!;
+    const term = (q.q ?? '').replace(/^@/, '').toLowerCase();
     const { rows } = await db.query(
-      `select p.handle, p.display_name as "displayName", p.avatar_path as "avatarUrl", true as "isFollowing"
-       from follows mine
-       join follows back on back.follower_id = mine.followee_id and back.followee_id = mine.follower_id
-       join profiles p on p.id = mine.followee_id
+      `with connected as (
+         select followee_id as id from follows where follower_id = $1
+         union
+         select follower_id from follows where followee_id = $1
+       )
+       select p.handle, p.display_name as "displayName", p.avatar_path as "avatarUrl",
+              exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = p.id) as "isFollowing",
+              exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1) as "followsYou"
+       from connected cn
+       join profiles p on p.id = cn.id
        left join conversations c on c.pair_key = least(p.id, $1::uuid)::text || ':' || greatest(p.id, $1::uuid)::text
-       where mine.follower_id = $1 and p.dm_policy <> 'off'
+       where p.dm_policy <> 'off'
          and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.id)
                                                 or (b.blocker_id = p.id and b.blocked_id = $1))
+         and ($2 = '' or p.handle like $2 || '%' or lower(coalesce(p.display_name, '')) like '%' || $2 || '%')
        order by c.last_message_at desc nulls last, p.handle
        limit 200`,
-      [me],
+      [me, term],
     );
     return rows;
   });

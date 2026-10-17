@@ -462,6 +462,7 @@ data class Person(
     val isFollowing: Boolean = false,
     val isMe: Boolean = false,
     val followers: Int = 0,
+    val followsYou: Boolean = false,
 )
 
 @Serializable

@@ -379,6 +379,10 @@ fun ProfileContent(
                         QuietButton("Share", { onShare(profile.handle) }, Modifier.weight(1f), leading = Icons.Outlined.Share)
                     } else {
                         FollowButton(profile.isFollowing, onFollow, Modifier.weight(1f), followsYou = profile.followsYou)
+                        // Followers and people you follow can share dishes with each other.
+                        if (profile.isFollowing || profile.followsYou) {
+                            QuietButton("Message", { onMessage(profile.handle) }, Modifier.weight(1f).testTag("message_button"))
+                        }
                         QuietButton("", { onShare(profile.handle) }, leading = Icons.Outlined.Share)
                     }
                 }

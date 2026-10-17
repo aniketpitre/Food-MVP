@@ -129,7 +129,7 @@ fun FeedHeader(
     cityName: String,
     filterActive: Boolean,
     onCityClick: () -> Unit,
-    onSearch: () -> Unit,
+    onSearch: (() -> Unit)?,
     onFilter: () -> Unit,
     greeting: String = greetingFor(java.time.LocalTime.now().hour),
 ) {
@@ -155,8 +155,10 @@ fun FeedHeader(
                 }
             }
         }
-        RoundIconButton(Icons.Filled.Search, "Search dishes and places", onSearch)
-        Spacer(Modifier.width(8.dp))
+        if (onSearch != null) {
+            RoundIconButton(Icons.Filled.Search, "Search dishes and places", onSearch)
+            Spacer(Modifier.width(8.dp))
+        }
         Box {
             RoundIconButton(AppIcons.Tune, "Filter by dish type", onFilter)
             val dot by animateFloatAsState(if (filterActive) 1f else 0f, Motion.bouncy(), label = "filter-dot")

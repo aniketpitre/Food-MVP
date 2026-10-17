@@ -376,6 +376,7 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                                 onAddStory = { if (app.session.value == null) signIn() else nav.go(Routes.NEW_STORY) },
                                 onInbox = { nav.go(Routes.INBOX) },
                                 onTaste = { nav.go(Routes.taste()) },
+                                onSearch = { nav.go(Routes.SEARCH) },
                             )
                         }
                     }
@@ -413,7 +414,6 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                             FeedScreen(
                                 vm, openDish, openRestaurant,
                                 onChangeCity = { nav.go(Routes.setup(OnboardingStep.City)) },
-                                onSearch = { nav.go(Routes.SEARCH) },
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
                                 onNeedSignIn = signIn,
                                 showMessage = showMessage,
@@ -426,7 +426,7 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val vm = appViewModel { SearchViewModel(it) }
                         Box(Modifier.statusBarsPadding()) {
-                            SearchScreen(vm, openDish, openRestaurant, signIn, showMessage, onOpenUser = openUser, onBack = { nav.back() })
+                            SearchScreen(vm, openDish, openRestaurant, signIn, showMessage, onOpenUser = openUser, onBack = { nav.back() }, onCraving = { nav.go(Routes.craving(it)) })
                         }
                     }
                 }

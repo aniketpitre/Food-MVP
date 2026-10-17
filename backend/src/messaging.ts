@@ -30,7 +30,7 @@ export async function conversationWith(db: Pick<Db, 'query'>, me: string, other:
     [key],
   );
   const id = rows[0]!.id;
-  // Shares only ever go between friends, so they land straight in the inbox.
+  // Shares only ever go between people who follow one another, so they land in the inbox.
   await db.query(
     `insert into conversation_members (conversation_id, user_id, folder)
      values ($1, $2, 'inbox'), ($1, $3, 'inbox')
@@ -44,22 +44,23 @@ export async function conversationWith(db: Pick<Db, 'query'>, me: string, other:
 export const SHARE_KINDS = ['dish', 'post'] as const;
 
 /**
- * Whether [me] may share dishes with [other]: only friends, meaning you follow each other.
- * Blocks always stop it, and so does the other person turning sharing off.
+ * Whether [me] may share dishes with [other]: your friends are your followers and the
+ * people you follow (either way round), like Instagram. Blocks always stop it, and so does
+ * the other person turning sharing off.
  */
 export async function canMessage(db: Pick<Db, 'query'>, me: string, other: string): Promise<boolean> {
   if (me === other) return false;
   if (await blockedEither(db, me, other)) return false;
-  const { rows } = await db.query<{ policy: string; mutual: boolean }>(
+  const { rows } = await db.query<{ policy: string; connected: boolean }>(
     `select p.dm_policy as policy,
-            exists (select 1 from follows where follower_id = $1 and followee_id = $2)
-              and exists (select 1 from follows where follower_id = $2 and followee_id = $1) as mutual
+            exists (select 1 from follows where (follower_id = $1 and followee_id = $2)
+                                              or (follower_id = $2 and followee_id = $1)) as connected
      from profiles p where p.id = $2`,
     [me, other],
   );
   const r = rows[0];
   if (!r) return false;
-  return r.mutual && r.policy !== 'off';
+  return r.connected && r.policy !== 'off';
 }
 
 /** Sends a message from [me] to [other], opening the conversation if needed. Returns its id. */
@@ -83,7 +84,7 @@ export async function sendMessage(
     throw new MessageError(400, 'share_only', 'Only dishes can be shared for now.');
   }
   if (!(await canMessage(db, me, other))) {
-    throw new MessageError(403, 'cannot_message', 'You can share dishes only with friends: people you follow who follow you back.');
+    throw new MessageError(403, 'cannot_message', 'You can share dishes with your followers and the people you follow.');
   }
   const conversationId = await conversationWith(db, me, other);
   const { rows } = await db.query<{ id: string }>(

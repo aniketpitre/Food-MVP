@@ -511,7 +511,7 @@ describe('sharing dishes with friends', () => {
     return { dish, post: (await app.inject(`/dishes/${dish}`)).json().cover.postId };
   }
 
-  it('shares only with friends (you follow each other), never text, and lists who you can share with', async () => {
+  it('shares with followers and people you follow, never text, and lists who you can share with', async () => {
     const a = await signUp();
     const b = await signUp();
     const c = await signUp();
@@ -519,19 +519,24 @@ describe('sharing dishes with friends', () => {
     const share = (handles: string[], payload: object = { dishId: misal }) =>
       app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles, ...payload } });
 
-    // Strangers and one-way follows can't be shared with.
-    expect((await share([b.handle])).json()).toEqual({ sent: [], failed: [b.handle] });
-    await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth });
+    // Strangers can't be shared with.
     expect((await share([b.handle])).json()).toEqual({ sent: [], failed: [b.handle] });
     expect((await app.inject({ url: '/me/friends', headers: a.auth })).json()).toEqual([]);
     expect((await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).statusCode).toBe(403);
 
-    // Once b follows back they are friends.
-    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
-    await friends(a, c);
-    const list = (await app.inject({ url: '/me/friends', headers: a.auth })).json().map((p: { handle: string }) => p.handle).sort();
-    expect(list).toEqual([b.handle, c.handle].sort());
+    // Someone you follow, and someone who follows you: both are friends to share with.
+    await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth });
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: c.auth });
+    const friendsOf = async (q = '') =>
+      (await app.inject({ url: `/me/friends${q ? `?q=${q}` : ''}`, headers: a.auth })).json() as { handle: string; isFollowing: boolean; followsYou: boolean }[];
+    const list = await friendsOf();
+    expect(list.map((p) => p.handle).sort()).toEqual([b.handle, c.handle].sort());
+    expect(list.find((p) => p.handle === b.handle)).toMatchObject({ isFollowing: true, followsYou: false });
+    expect(list.find((p) => p.handle === c.handle)).toMatchObject({ isFollowing: false, followsYou: true });
+    expect((await friendsOf(c.handle)).map((p) => p.handle)).toEqual([c.handle]);
     expect((await share([b.handle, c.handle])).json()).toEqual({ sent: [b.handle, c.handle].sort(), failed: [] });
+    // And they can share back with you.
+    expect((await app.inject({ method: 'POST', url: '/messages', headers: b.auth, payload: { handles: [a.handle], dishId: misal } })).json().sent).toEqual([a.handle]);
 
     // No text, places or photos: only a dish or a post.
     expect((await share([b.handle], { body: 'hello' })).statusCode).toBe(400);
@@ -548,7 +553,7 @@ describe('sharing dishes with friends', () => {
     expect(withNote.json()).toMatchObject({ kind: 'dish', body: null, dish: { name: 'Misal Pav' } });
 
     // Unfollowing ends it; turning sharing off ends it; blocks end it.
-    await app.inject({ method: 'DELETE', url: `/users/${a.handle}/follow`, headers: b.auth });
+    await app.inject({ method: 'DELETE', url: `/users/${b.handle}/follow`, headers: a.auth });
     expect((await share([b.handle])).json().failed).toEqual([b.handle]);
     await app.inject({ method: 'PATCH', url: '/me/profile', headers: c.auth, payload: { dmPolicy: 'off' } });
     expect((await share([c.handle])).json().failed).toEqual([c.handle]);

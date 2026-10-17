@@ -9,6 +9,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Row
@@ -47,6 +49,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -180,6 +183,7 @@ fun HomeScreen(
     onAddStory: () -> Unit = {},
     onInbox: () -> Unit = {},
     onTaste: () -> Unit = {},
+    onSearch: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
@@ -208,6 +212,7 @@ fun HomeScreen(
         onRetry = vm::load,
         onTaste = onTaste,
         onFollowMate = vm::followMate,
+        onSearch = onSearch,
     )
 }
 
@@ -256,6 +261,7 @@ fun HomeContent(
     onInbox: () -> Unit = {},
     onTaste: () -> Unit = {},
     onFollowMate: (String) -> Unit = {},
+    onSearch: () -> Unit = {},
 ) {
     val d = state.data
     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
@@ -268,7 +274,7 @@ fun HomeContent(
                 StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
             }
             item(key = "hero") {
-                CravingHero(state.city?.name ?: "your city", greeting, headline, onChangeCity, onCraving, cyclePlaceholder)
+                CravingHero(state.city?.name ?: "your city", greeting, headline, onChangeCity, onCraving, cyclePlaceholder, onSearch)
             }
             if (d.cravings.isNotEmpty()) {
                 item(key = "chips") {
@@ -351,12 +357,19 @@ fun HomeContent(
 
 /** The big question, a city switch and a search box whose example cravings roll by. */
 @Composable
-private fun CravingHero(city: String, greeting: String, headline: String, onChangeCity: () -> Unit, onCraving: (String) -> Unit, cycle: Boolean) {
-    var text by remember { mutableStateOf("") }
+private fun CravingHero(
+    city: String,
+    greeting: String,
+    headline: String,
+    onChangeCity: () -> Unit,
+    onCraving: (String) -> Unit,
+    cycle: Boolean,
+    onSearch: () -> Unit,
+) {
     var idea by remember { mutableIntStateOf(0) }
     if (cycle) {
-        LaunchedEffect(text.isEmpty()) {
-            while (text.isEmpty()) {
+        LaunchedEffect(Unit) {
+            while (true) {
                 delay(2200)
                 idea = (idea + 1) % Ideas.size
             }
@@ -387,19 +400,25 @@ private fun CravingHero(city: String, greeting: String, headline: String, onChan
         Spacer(Modifier.height(4.dp))
         Text(headline, style = MaterialTheme.typography.displayMedium, lineHeight = 52.sp, modifier = Modifier.testTag("home_headline"))
         Spacer(Modifier.height(16.dp))
-        val submit = { if (text.isNotBlank()) onCraving(text.trim()) }
+        // One search for everything, like Instagram's: dishes, places and people. Tapping the
+        // box opens it; the round button goes straight to the best places for the idea shown.
+        val field = remember { MutableInteractionSource() }
         Row(
             Modifier
                 .fillMaxWidth()
+                .pressScale(field, 0.98f)
                 .clip(RoundedCornerShape(50))
                 .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                .clickable(field, indication = null, role = Role.Button, onClick = onSearch)
+                .semantics { contentDescription = "Search dishes, places and people" }
+                .testTag("craving_input")
                 .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
-                if (text.isEmpty()) {
+                run {
                     AnimatedContent(
                         targetState = idea,
                         transitionSpec = {
@@ -409,22 +428,14 @@ private fun CravingHero(city: String, greeting: String, headline: String, onChan
                         label = "idea",
                     ) { i ->
                         Text(
-                            "Try “${Ideas[i]}”",
+                            "Search “${Ideas[i]}”, a place, a friend…",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
-                BasicTextField(
-                    value = text,
-                    onValueChange = { text = it.take(60) },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { submit() }),
-                    modifier = Modifier.fillMaxWidth().testTag("craving_input"),
-                )
             }
             val go = remember { MutableInteractionSource() }
             Box(
@@ -433,9 +444,7 @@ private fun CravingHero(city: String, greeting: String, headline: String, onChan
                     .pressScale(go, 0.88f)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
-                    .clickable(go, indication = null, role = Role.Button) {
-                        if (text.isBlank()) onCraving(Ideas[idea]) else submit()
-                    },
+                    .clickable(go, indication = null, role = Role.Button) { onCraving(Ideas[idea]) },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Filled.Search, "Find the best", tint = Ink, modifier = Modifier.size(22.dp))
@@ -638,7 +647,7 @@ private fun TastePrompt(onTaste: () -> Unit) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
-        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowForward, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
     }
 }
 
@@ -665,7 +674,7 @@ private fun HomeSkeleton() {
 private fun MessagesButton(unread: Int, onClick: () -> Unit) {
     Box {
         IconButton(onClick = onClick, modifier = Modifier.testTag("messages_button")) {
-            Icon(AppIcons.Send, if (unread > 0) "Shared dishes, $unread new" else "Shared dishes", modifier = Modifier.size(26.dp))
+            Icon(AppIcons.Send, if (unread > 0) "Messages, $unread new" else "Messages", modifier = Modifier.size(26.dp))
         }
         if (unread > 0) {
             Text(

@@ -1,5 +1,11 @@
 package app.foodfeed.ui.search
 
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -126,6 +132,7 @@ fun SearchScreen(
     showMessage: (String) -> Unit,
     onOpenUser: (String) -> Unit = {},
     onBack: (() -> Unit)? = null,
+    onCraving: (String) -> Unit = {},
 ) {
     val app = LocalApp.current
     val state by vm.state.collectAsStateWithLifecycle()
@@ -141,8 +148,12 @@ fun SearchScreen(
         onSave = { actions.toggle(it, Engagement.Save) },
         onOpenUser = onOpenUser,
         onBack = onBack,
+        onCraving = onCraving,
     )
 }
+
+/** What the results show: everything, or only dishes, people or places. */
+enum class SearchTab(val label: String) { Top("Top"), Dishes("Dishes"), People("People"), Places("Places") }
 
 @Composable
 fun SearchContent(
@@ -156,8 +167,10 @@ fun SearchContent(
     autoFocus: Boolean = true,
     onOpenUser: (String) -> Unit = {},
     onBack: (() -> Unit)? = null,
+    onCraving: (String) -> Unit = {},
 ) {
     val focus = remember { FocusRequester() }
+    var tab by remember { mutableStateOf(SearchTab.Top) }
     LaunchedEffect(Unit) { if (autoFocus) runCatching { focus.requestFocus() } }
     Column(Modifier.fillMaxSize()) {
         if (onBack != null) {
@@ -172,7 +185,7 @@ fun SearchContent(
         OutlinedTextField(
             value = state.query,
             onValueChange = onQuery,
-            placeholder = { Text("Misal, dosa, a café…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            placeholder = { Text("Dishes, places, people…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurface) },
             trailingIcon = {
                 if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Clear, "Clear") }
@@ -186,18 +199,101 @@ fun SearchContent(
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
             ),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).focusRequester(focus),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).focusRequester(focus).testTag("search_input"),
         )
+        if (state.result != null) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SearchTab.entries.forEach { t ->
+                    val on = t == tab
+                    Text(
+                        t.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .clickable(role = Role.Tab) { tab = t }
+                            .testTag("search_tab_${t.name.lowercase()}")
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
         val r = state.result
         when {
             state.loading && r == null -> LoadingBox()
             state.error != null -> CenteredMessage("Search failed", state.error)
             r == null -> SearchIdeas(onQuery)
-            r.dishes.isEmpty() && r.restaurants.isEmpty() && state.people.isEmpty() -> CenteredMessage(
+            r.dishes.isEmpty() && r.restaurants.isEmpty() && state.people.isEmpty() && tab == SearchTab.Top -> CenteredMessage(
                 "Nothing found", "Try another spelling or a broader word like \"dosa\".", Icons.Filled.Search,
             )
             else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                if (state.people.isNotEmpty()) {
+                val q = state.query.trim()
+                // The craving question: where's the best of this? (ranked by people who tried it)
+                if ((tab == SearchTab.Top || tab == SearchTab.Dishes) && q.length >= 2 && r.dishes.isNotEmpty()) {
+                    item(key = "craving") {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .clickable { onCraving(q) }
+                                .testTag("search_craving")
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("🏆", style = MaterialTheme.typography.titleLarge)
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                Text("Best “$q” near you", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text(
+                                    "Ranked by people who tried it",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                }
+                if (tab == SearchTab.People) {
+                    if (state.people.isEmpty()) item { SectionTitle("No people found") }
+                    items(state.people, key = { "pu" + it.handle }) { p ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onOpenUser(p.handle) }.padding(horizontal = 16.dp, vertical = 10.dp)
+                                .testTag("search_person_${p.handle}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Avatar(p.handle, p.displayName, 48.dp, photo = p.avatarUrl)
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(p.displayName ?: p.handle, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    listOfNotNull("@${p.handle}", if (p.isFollowing) "Following" else null, if (p.followers > 0) "${p.followers} followers" else null)
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (tab == SearchTab.Places) {
+                    if (r.restaurants.isEmpty()) item { SectionTitle("No places found") }
+                    items(r.restaurants, key = { "pl" + it.id }) { p ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onOpenRestaurant(p.id) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(AppIcons.Restaurant, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(p.name, style = MaterialTheme.typography.titleSmall)
+                                p.locality?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            }
+                        }
+                    }
+                }
+                if (tab == SearchTab.Dishes && r.dishes.isEmpty()) item { SectionTitle("No dishes found") }
+                if (tab == SearchTab.Top && state.people.isNotEmpty()) {
                     item(key = "people-title") { SectionTitle("People") }
                     item(key = "people") {
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -216,7 +312,7 @@ fun SearchContent(
                         }
                     }
                 }
-                if (r.restaurants.isNotEmpty()) {
+                if (tab == SearchTab.Top && r.restaurants.isNotEmpty()) {
                     item(key = "places-title") { SectionTitle("Places") }
                     item(key = "places") {
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -224,8 +320,9 @@ fun SearchContent(
                         }
                     }
                 }
-                if (r.dishes.isNotEmpty()) item { SectionTitle("Dishes") }
-                items(r.dishes, key = { it.id }) { d ->
+                val showDishes = tab == SearchTab.Top || tab == SearchTab.Dishes
+                if (showDishes && r.dishes.isNotEmpty()) item { SectionTitle("Dishes") }
+                if (showDishes) items(r.dishes, key = { it.id }) { d ->
                     DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) }, modifier = Modifier.animateItem())
                 }
             }

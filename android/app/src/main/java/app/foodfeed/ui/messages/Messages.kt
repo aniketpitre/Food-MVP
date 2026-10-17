@@ -1,5 +1,9 @@
 package app.foodfeed.ui.messages
 
+import app.foodfeed.data.DishCard
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.material.icons.filled.Edit
 import app.foodfeed.data.SearchResult
 import app.foodfeed.data.ShareMessage
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -117,6 +121,9 @@ data class InboxUiState(
     val items: List<ChatSummary> = emptyList(),
     val requests: Int = 0,
     val error: String? = null,
+    /** Finding someone to share with: your followers and the people you follow. */
+    val query: String = "",
+    val people: List<Person> = emptyList(),
 )
 
 class InboxViewModel(private val app: AppContainer) : ViewModel() {
@@ -147,11 +154,25 @@ class InboxViewModel(private val app: AppContainer) : ViewModel() {
     }
 
     suspend fun openWith(handle: String): String = apiCall { app.api.openChat(OpenChat(handle)) }.id
+
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    fun search(q: String) {
+        _state.update { it.copy(query = q) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(200)
+            val found = runCatching { apiCall { app.api.friends(q.trim().ifEmpty { null }) } }.getOrDefault(emptyList())
+            _state.update { it.copy(people = found) }
+        }
+    }
 }
 
 /**
- * Shared dishes: one row per friend you've shared dishes with, newest first, with a dot on
- * the unread ones. Sharing happens from the paper plane on any dish; there is no typing.
+ * Messages, like Instagram's: one row per conversation, newest first, with a dot on the
+ * unread ones. Search (or ✎) finds anyone you can share with: your followers and the people
+ * you follow. Conversations hold the dishes and posts you share and your reactions to them;
+ * there is no typing.
  */
 @Composable
 fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit, onOpenChat: (String) -> Unit, onNeedSignIn: () -> Unit, showMessage: (String) -> Unit) {
@@ -169,25 +190,62 @@ fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit, onOpenChat: (String) -> 
         }
     }
     var confirmDelete by remember { mutableStateOf<ChatSummary?>(null) }
+    val scope = rememberCoroutineScope()
+    val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var searching by remember { mutableStateOf(false) }
+    val startChat: (String) -> Unit = { handle ->
+        scope.launch {
+            try {
+                onOpenChat(vm.openWith(handle))
+            } catch (e: ApiException) {
+                showMessage(e.message)
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
-        BackBar("Shared dishes", onBack)
+        BackBar("Messages", onBack) {
+            if (session != null) {
+                IconButton(
+                    onClick = { searching = true; vm.search(state.query); runCatching { searchFocus.requestFocus() } },
+                    modifier = Modifier.testTag("new_chat"),
+                ) { Icon(Icons.Filled.Edit, "New message") }
+            }
+        }
         if (session == null) {
-            CenteredMessage("Shared dishes", "Sign in to share dishes with friends.", null, "Sign in", onNeedSignIn)
+            CenteredMessage("Messages", "Sign in to share dishes with your friends.", null, "Sign in", onNeedSignIn)
             return@Column
         }
-        InboxList(
-            state = state,
-            imageUrl = { app.mediaUrl(it) },
-            onOpen = { onOpenChat(it.id) },
-            onLongPress = { confirmDelete = it },
+        androidx.compose.material3.OutlinedTextField(
+            value = state.query,
+            onValueChange = { searching = true; vm.search(it.take(30)) },
+            placeholder = { Text("Search your followers and following") },
+            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            trailingIcon = {
+                if (searching) IconButton(onClick = { searching = false; vm.search("") }) { Icon(Icons.Filled.Close, "Close search") }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(50),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).focusRequester(searchFocus)
+                .onFocusChanged { if (it.isFocused && !searching) { searching = true; vm.search(state.query) } }
+                .testTag("inbox_search"),
         )
+        if (searching) {
+            PeopleToShareWith(state.people, imageUrl = { app.mediaUrl(it) }, onPick = startChat)
+        } else {
+            InboxList(
+                state = state,
+                imageUrl = { app.mediaUrl(it) },
+                onOpen = { onOpenChat(it.id) },
+                onLongPress = { confirmDelete = it },
+            )
+        }
     }
     confirmDelete?.let { c ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Remove these shares?") },
-            text = { Text("They're removed for you only. @${c.with.handle} still has theirs.") },
+            title = { Text("Delete this conversation?") },
+            text = { Text("It's removed for you only. @${c.with.handle} still has it.") },
             confirmButton = {
                 TextButton(onClick = { vm.delete(c.id); confirmDelete = null }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
             },
@@ -202,8 +260,8 @@ fun InboxList(state: InboxUiState, imageUrl: (String?) -> String?, onOpen: (Chat
     when {
         state.loading -> LoadingBox()
         state.items.isEmpty() -> CenteredMessage(
-            "Nothing shared yet",
-            "Tap the paper plane on any dish to share it with a friend (someone you follow who follows you back).",
+            "No messages yet",
+            "Share dishes with your followers and the people you follow: tap the paper plane on any dish, or ✎ to start a conversation.",
         )
         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             items(state.items, key = { it.id }) { c ->
@@ -232,6 +290,45 @@ fun InboxList(state: InboxUiState, imageUrl: (String?) -> String?, onOpen: (Chat
                         )
                     }
                     if (c.unread) Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                }
+            }
+        }
+    }
+}
+
+/** People you can share with, as found by the inbox search. */
+@Composable
+private fun PeopleToShareWith(people: List<Person>, imageUrl: (String?) -> String?, onPick: (String) -> Unit) {
+    if (people.isEmpty()) {
+        CenteredMessage(
+            "Nobody to share with yet",
+            "You can share dishes with your followers and the people you follow. Follow people to get started.",
+        )
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        items(people, key = { it.handle }) { p ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onPick(p.handle) }.padding(horizontal = 16.dp, vertical = 10.dp)
+                    .testTag("person_${p.handle}"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Avatar(p.handle, p.displayName, 48.dp, photo = imageUrl(p.avatarUrl))
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(p.displayName ?: p.handle, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        listOfNotNull(
+                            "@${p.handle}",
+                            when {
+                                p.isFollowing && p.followsYou -> "Friends"
+                                p.followsYou -> "Follows you"
+                                p.isFollowing -> "Following"
+                                else -> null
+                            },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -317,6 +414,20 @@ class ChatViewModel(private val app: AppContainer, private val id: String) : Vie
         }
     }
 
+    /** Shares a dish into this conversation (there is no typing, only sharing). */
+    fun shareDish(dishId: String, onError: (String) -> Unit) {
+        _state.update { it.copy(sending = true) }
+        viewModelScope.launch {
+            try {
+                val sent = apiCall { app.api.sendMessage(id, NewMessage(dishId = dishId)) }
+                _state.update { s -> s.copy(sending = false, messages = s.messages.filterNot { it.id == sent.id } + sent) }
+            } catch (e: ApiException) {
+                _state.update { it.copy(sending = false) }
+                onError(e.message)
+            }
+        }
+    }
+
     fun unsend(m: Message) {
         _state.update { s -> s.copy(messages = s.messages.filterNot { it.id == m.id }) }
         viewModelScope.launch { runCatching { apiCall { app.api.unsend(m.id) } } }
@@ -373,6 +484,7 @@ fun ChatScreen(
         }
     }
     var reporting by remember { mutableStateOf<String?>(null) }
+    var picking by remember { mutableStateOf(false) }
     ChatContent(
         state = state,
         imageUrl = { app.mediaUrl(it) },
@@ -385,15 +497,23 @@ fun ChatScreen(
         onDelete = { vm.delete(onBack) },
         onBlock = { vm.block { msg -> showMessage(msg); onBack() } },
         onReport = { reporting = it },
+        onShareDish = { picking = true },
     )
+    if (picking) {
+        DishPickerSheet(onDismiss = { picking = false }) { dishId ->
+            picking = false
+            vm.shareDish(dishId, showMessage)
+        }
+    }
     reporting?.let { id ->
         ReportSheet(targetType = "message", targetId = id, targetHandle = null, onDismiss = { reporting = null }, showMessage = showMessage)
     }
 }
 
 /**
- * The dishes you and one friend have shared, oldest at the top. No typing: double-tap a
- * dish for a heart, or long-press it for another reaction (or to unsend / report it).
+ * The dishes you and one friend have shared, oldest at the top. No typing: share a dish from
+ * the bar at the bottom, double-tap a dish for a heart, or long-press it for another
+ * reaction (or to unsend / report it).
  */
 @OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -409,6 +529,7 @@ fun ChatContent(
     onReport: (String) -> Unit,
     onOpenRestaurant: (String) -> Unit = {},
     onReact: (Message, String?) -> Unit = { _, _ -> },
+    onShareDish: () -> Unit = {},
 ) {
     val chat = state.chat
     var menu by remember { mutableStateOf(false) }
@@ -433,7 +554,7 @@ fun ChatContent(
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                     DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text("Remove these shares") }, { menu = false; onDelete() })
+                        DropdownMenuItem({ Text("Delete conversation") }, { menu = false; onDelete() })
                         DropdownMenuItem({ Text("Block @${chat.with.handle}") }, { menu = false; onBlock() })
                     }
                 }
@@ -484,14 +605,34 @@ fun ChatContent(
                         }
                     }
                 }
-                Text(
-                    if (chat.canMessage) "Share a dish with @${chat.with.handle} from the paper plane on any dish."
-                    else "You can share dishes only with friends: people you follow who follow you back.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 14.dp).testTag("share_hint"),
-                )
+                if (chat.canMessage) {
+                    Row(
+                        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Share dishes, react to theirs. No typing here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f).padding(end = 10.dp).testTag("share_hint"),
+                        )
+                        PrimaryButton(
+                            if (state.sending) "Sharing…" else "Share a dish",
+                            onShareDish,
+                            Modifier.testTag("share_dish"),
+                            enabled = !state.sending,
+                            leading = AppIcons.Send,
+                        )
+                    }
+                } else {
+                    Text(
+                        "You can share dishes with your followers and the people you follow.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 14.dp).testTag("share_hint"),
+                    )
+                }
             }
         }
     }
@@ -751,7 +892,7 @@ fun SendToSheet(
     }
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
-            Text("Share with friends", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+            Text("Send to", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
             if (session == null) {
                 Text("Sign in to share dishes with friends in FoodFeed.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
@@ -765,7 +906,7 @@ fun SendToSheet(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it.take(30) },
-                    placeholder = { Text("Search your friends") },
+                    placeholder = { Text("Search followers and following") },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
                     singleLine = true,
                     shape = RoundedCornerShape(50),
@@ -777,7 +918,7 @@ fun SendToSheet(
                     friends == null -> item { LoadingBox(Modifier.fillMaxWidth().height(120.dp)) }
                     friends!!.isEmpty() -> item {
                         Text(
-                            "No friends yet. You can share dishes with people you follow who follow you back.",
+                            "Nobody to share with yet. You can share dishes with your followers and the people you follow.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 24.dp),
@@ -822,6 +963,81 @@ fun SendToSheet(
                     Modifier.weight(1f),
                     enabled = picked.isNotEmpty() && !sending,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Picks a dish to share in a conversation: your saved dishes (or the city's top dishes) to
+ * start with, or search for any dish.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun DishPickerSheet(onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val app = LocalApp.current
+    var query by remember { mutableStateOf("") }
+    var dishes by remember { mutableStateOf<List<DishCard>?>(null) }
+    var title by remember { mutableStateOf("Your saved dishes") }
+    LaunchedEffect(query) {
+        val city = app.city.value
+        val loc = app.location.value
+        if (query.trim().length >= 2 && city != null) {
+            delay(250)
+            title = "Dishes"
+            dishes = runCatching { apiCall { app.api.search(query.trim(), city.id, loc?.lat, loc?.lng) }.dishes }.getOrDefault(emptyList())
+        } else {
+            val saved = runCatching { apiCall { app.api.saved(loc?.lat, loc?.lng) }.items }.getOrDefault(emptyList())
+            if (saved.isNotEmpty() || city == null) {
+                title = "Your saved dishes"
+                dishes = saved
+            } else {
+                title = "Top dishes in ${city.name}"
+                dishes = runCatching { apiCall { app.api.feed(city.id, null, "top", 20, 0, "picker", loc?.lat, loc?.lng) }.items }
+                    .getOrDefault(emptyList())
+            }
+        }
+    }
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+            Text("Share a dish", style = MaterialTheme.typography.titleLarge)
+            androidx.compose.material3.OutlinedTextField(
+                value = query,
+                onValueChange = { query = it.take(60) },
+                placeholder = { Text("Search any dish") },
+                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                singleLine = true,
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("pick_search"),
+            )
+            Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+                val list = dishes
+                when {
+                    list == null -> item { LoadingBox(Modifier.fillMaxWidth().height(120.dp)) }
+                    list.isEmpty() -> item {
+                        Text(
+                            "No dishes found.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 24.dp),
+                        )
+                    }
+                    else -> items(list, key = { it.id }) { d ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPick(d.id) }
+                                .padding(vertical = 8.dp).testTag("pick_dish"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            DishImage(app.mediaUrl(d.cover?.thumbUrl), d.cover?.placeholderColor, d.name, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(d.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(d.restaurant.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                            Icon(AppIcons.Send, "Share ${d.name}", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                        }
+                    }
+                }
             }
         }
     }

@@ -226,8 +226,8 @@ class FullAppTest {
         }
         step("send sheet") {
             visible(hasContentDescription("Send to friends")).performClick()
-            waitText("Share with friends")
-            waitText("No friends yet", substring = true)
+            waitText("Send to")
+            waitText("Nobody to share with yet", substring = true)
             waitText("Share elsewhere")
             shot("13_send_sheet")
             backTo(hasTestTag("feed_pager"))
@@ -277,7 +277,7 @@ class FullAppTest {
         }
         step("send this post") {
             compose.onAllNodes(hasContentDescription("Send to friends")).onFirst().performScrollTo().performClick()
-            waitText("Share with friends")
+            waitText("Send to")
             backTo(hasText("Take me there"))
         }
         step("take me there on a demo place") {
@@ -300,23 +300,40 @@ class FullAppTest {
 
     @Test
     fun cravingSearch_typosChipsAndNothingFound() {
-        step("a misspelt craving") {
+        val someone = friend("q")
+        step("Home's search: a misspelt craving") {
             waitFor(hasTestTag("craving_input"), 30_000)
-            compose.onNodeWithTag("craving_input").performTextInput("wada pav")
-            compose.onNodeWithTag("craving_input").performImeAction()
-            waitText("Best ", substring = true, timeoutMs = 20_000)
+            compose.onNodeWithTag("craving_input").performClick()
+            waitFor(hasTestTag("search_input"), 10_000)
+            compose.onNodeWithTag("search_input").performTextInput("wada pav")
+            waitFor(hasTestTag("search_craving"), 20_000)
             waitText("Vada Pav", substring = true)
+            shot("30_search_wada_pav")
+            compose.onNodeWithTag("search_craving").performClick()
+            waitText("Best ", substring = true, timeoutMs = 20_000)
             Thread.sleep(1500)
-            shot("30_craving_wada_pav")
-            backTo(hasTestTag("craving_input"))
+            shot("31_craving_wada_pav")
+            backTo(hasTestTag("search_input"))
+        }
+        step("people, places and dishes tabs") {
+            compose.onNodeWithTag("search_input").performTextClearance()
+            compose.onNodeWithTag("search_input").performTextInput(someone.user.handle)
+            waitFor(hasTestTag("search_tab_people"), 15_000)
+            compose.onNodeWithTag("search_tab_people").performClick()
+            waitFor(hasTestTag("search_person_${someone.user.handle}"), 15_000)
+            shot("32_search_people")
+            compose.onNodeWithTag("search_input").performTextClearance()
+            compose.onNodeWithTag("search_input").performTextInput("godavari")
+            waitFor(hasTestTag("search_tab_places"), 15_000)
+            compose.onNodeWithTag("search_tab_places").performClick()
+            waitText("Godavari Misal House", timeoutMs = 15_000)
+            compose.onNodeWithTag("search_tab_top").performClick()
         }
         step("nothing found") {
-            compose.onNodeWithTag("craving_input").performTextClearance()
-            compose.onNodeWithTag("craving_input").performTextInput("qqzzxx")
-            compose.onNodeWithTag("craving_input").performImeAction()
-            waitText(" yet", substring = true, timeoutMs = 20_000)
-            waitText("Post a dish")
-            shot("31_craving_nothing_found")
+            compose.onNodeWithTag("search_input").performTextClearance()
+            compose.onNodeWithTag("search_input").performTextInput("qqzzxx")
+            waitText("Nothing found", timeoutMs = 20_000)
+            shot("33_search_nothing_found")
             backTo(hasTestTag("craving_input"))
         }
         step("a craving chip") {
@@ -331,24 +348,25 @@ class FullAppTest {
     fun messages_shareDishesWithFriendsNotificationsAndLinks() {
         val pal = friend("m")
         val palName = pal.user.displayName!!
-        val stranger = friend("s")
-        step("become friends (we follow each other)") {
+        val follower = friend("f")
+        val outsider = friend("o")
+        val dishCount = { compose.onAllNodes(hasTestTag("message_dish"), useUnmergedTree = true).fetchSemanticsNodes().size }
+        step("people I follow and people who follow me are my friends") {
             call("PUT", "/users/${pal.user.handle}/follow", me.token)
-            call("PUT", "/users/${me.user.handle}/follow", pal.token)
-            // Following one way isn't enough to share.
-            call("PUT", "/users/${stranger.user.handle}/follow", me.token)
+            call("PUT", "/users/${me.user.handle}/follow", follower.token)
         }
-        step("share a dish from Explore with the friend") {
+        step("share a dish from Explore") {
             waitFor(hasContentDescription("Explore"), 30_000)
             tab("Explore")
             waitFor(hasTestTag("feed_pager"), 20_000)
             waitFor(hasContentDescription("Send to friends"), 20_000)
             visible(hasContentDescription("Send to friends")).performClick()
-            waitText("Share with friends")
+            waitText("Send to")
             waitFor(hasTestTag("friend_${pal.user.handle}"), 15_000)
+            waitFor(hasTestTag("friend_${follower.user.handle}"), 5_000)
             assertTrue(
-                "one-way follows aren't listed",
-                compose.onAllNodes(hasTestTag("friend_${stranger.user.handle}"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(),
+                "strangers aren't listed",
+                compose.onAllNodes(hasTestTag("friend_${outsider.user.handle}"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(),
             )
             compose.onNodeWithTag("friend_${pal.user.handle}", useUnmergedTree = true).performClick()
             shot("40_share_sheet")
@@ -356,39 +374,72 @@ class FullAppTest {
             waitText("Shared.", timeoutMs = 15_000)
         }
         lateinit var chatId: String
-        step("the shared dish in the inbox and chat, with a reaction") {
+        step("the inbox, the conversation, a reaction, and sharing a dish from inside it") {
             tab("Home")
             waitFor(hasTestTag("messages_button"), 30_000)
             compose.onNodeWithTag("messages_button").performClick()
-            waitText("Shared dishes")
+            waitText("Messages")
             waitFor(hasTestTag("chat_${pal.user.handle}"), 15_000)
-            shot("41_shared_inbox")
+            shot("41_inbox")
             compose.onNodeWithTag("chat_${pal.user.handle}", useUnmergedTree = true).performClick()
             // Explore shares the post (its photo and caption) rather than the bare dish.
             waitFor(hasTestTag("message_post"), 15_000)
             waitFor(hasTestTag("share_hint"))
-            // No typing: there is no message box.
+            // No typing: there is no message box, only sharing.
             assertTrue(compose.onAllNodes(hasTestTag("chat_input"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
             compose.onAllNodes(hasTestTag("message_post")).onLast().performTouchInput { doubleClick() }
             waitFor(hasTestTag("reactions"))
+            compose.onNodeWithTag("share_dish").performClick()
+            waitFor(hasTestTag("pick_dish"), 20_000)
+            shot("42_pick_a_dish")
+            compose.onAllNodes(hasTestTag("pick_dish")).onFirst().performClick()
+            waitFor(hasTestTag("message_dish"), 15_000)
             Thread.sleep(1200)
-            shot("42_shared_chat_reaction")
+            shot("43_chat_reaction_and_shared_dish")
         }
-        step("the friend shares a dish back while the chat is open") {
+        step("the friend shares a dish back while the conversation is open") {
             chatId = call("POST", "/conversations", pal.token, JSONObject().put("handle", me.user.handle)).getString("id")
             val city = container.city.value!!.id
-            val dishId = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.first().id
+            val before = dishCount()
+            val dishId = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items[1].id
             call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("dishId", dishId))
+            compose.waitUntil(15_000) { dishCount() > before }
+            shot("44_chat_live_share")
+        }
+        step("start a conversation with a follower from the inbox search") {
+            backTo(hasTestTag("new_chat"), presses = 3)
+            compose.onNodeWithTag("new_chat").performClick()
+            compose.onNodeWithTag("inbox_search").performTextInput(follower.user.handle)
+            waitFor(hasTestTag("person_${follower.user.handle}"), 15_000)
+            shot("45_inbox_search")
+            compose.onNodeWithTag("person_${follower.user.handle}").performClick()
+            waitFor(hasTestTag("share_dish"), 15_000)
+            compose.onNodeWithTag("share_dish").performClick()
+            waitFor(hasTestTag("pick_dish"), 20_000)
+            compose.onAllNodes(hasTestTag("pick_dish")).onFirst().performClick()
             waitFor(hasTestTag("message_dish"), 15_000)
-            shot("43_chat_live_share")
+        }
+        step("Message from a profile") {
+            open("foodfeed://user/${pal.user.handle}")
+            waitText(palName, timeoutMs = 15_000)
+            waitFor(hasTestTag("message_button"), 10_000)
+            shot("46_profile_message_button")
+            compose.onNodeWithTag("message_button").performClick()
+            waitFor(hasTestTag("share_dish"), 15_000)
+            waitFor(hasTestTag("message_post"), 15_000)
+            // A stranger's profile has no Message button.
+            open("foodfeed://user/${outsider.user.handle}")
+            waitText(outsider.user.displayName!!, timeoutMs = 15_000)
+            Thread.sleep(800)
+            assertTrue(compose.onAllNodes(hasTestTag("message_button")).fetchSemanticsNodes().isEmpty())
         }
         step("notifications when the app is elsewhere") {
-            backTo(hasTestTag("messages_button"), presses = 6)
+            backTo(hasTestTag("messages_button"), presses = 8)
             Thread.sleep(1000)
             val city = container.city.value!!.id
             val other = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.last { it.cover != null }.cover!!.postId
             call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("postId", other))
-            call("PUT", "/users/${me.user.handle}/follow", stranger.token)
+            call("PUT", "/users/${me.user.handle}/follow", outsider.token)
             val nm = context.getSystemService(NotificationManager::class.java)
             val end = System.currentTimeMillis() + 60_000
             var tags = emptyList<String>()
@@ -404,23 +455,21 @@ class FullAppTest {
             device.openNotification()
             Thread.sleep(2000)
             val shade = instrumentation.uiAutomation.takeScreenshot()
-            File(shots, "44_notifications.png").outputStream().use { shade?.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            File(shots, "47_notifications.png").outputStream().use { shade?.compress(Bitmap.CompressFormat.PNG, 100, it) }
             device.pressBack()
             Thread.sleep(800)
         }
-        step("the notification's link opens the chat and clears it") {
+        step("the notification's link opens the conversation and clears it") {
             open("foodfeed://chat/$chatId")
             waitFor(hasTestTag("message_dish"), 15_000)
             val nm = context.getSystemService(NotificationManager::class.java)
             compose.waitUntil(10_000) { nm.activeNotifications.none { it.tag == "chat:$chatId" } }
-            shot("45_chat_from_notification")
+            shot("48_chat_from_notification")
         }
-        step("a profile link and Activity") {
-            open("foodfeed://user/${pal.user.handle}")
-            waitText(palName, timeoutMs = 15_000)
+        step("Activity by link") {
             open("foodfeed://activity")
             waitText("started following you", substring = true, timeoutMs = 15_000)
-            shot("46_activity_from_link")
+            shot("49_activity_from_link")
         }
     }
 

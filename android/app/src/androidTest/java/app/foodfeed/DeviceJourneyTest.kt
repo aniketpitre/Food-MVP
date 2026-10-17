@@ -136,10 +136,10 @@ class DeviceJourneyTest {
         compose.mainClock.advanceTimeBy(1000)
         compose.mainClock.autoAdvance = true
 
-        // Shared dishes: empty for a new tester.
+        // Messages: empty for a new tester.
         compose.waitUntilAtLeastOneExists(hasTestTag("messages_button"), 10_000)
         compose.onNodeWithTag("messages_button").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("Nothing shared yet"), 10_000)
+        compose.waitUntilAtLeastOneExists(hasText("No messages yet"), 10_000)
         shot("03_inbox")
         device.pressBack()
 

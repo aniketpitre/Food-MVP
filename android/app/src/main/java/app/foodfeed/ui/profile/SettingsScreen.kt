@@ -107,7 +107,7 @@ fun SettingsScreen(
                 )
                 Item(
                     AppIcons.Send, "Who can share dishes with you",
-                    if (user.dmPolicy == "off") "Nobody" else "Friends (people you follow who follow you back)",
+                    if (user.dmPolicy == "off") "Nobody" else "Your followers and the people you follow",
                 ) {
                     val next = if (user.dmPolicy == "off") "everyone" else "off"
                     scope.launch {
