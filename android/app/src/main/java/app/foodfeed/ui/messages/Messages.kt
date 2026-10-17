@@ -466,6 +466,8 @@ fun ChatContent(
                             m, imageUrl, onOpenDish, onOpenRestaurant,
                             onOpenPhoto = {},
                             onReactionTap = { onReact(m, m.reactions.firstOrNull { it.mine }?.emoji) },
+                            onDoubleTap = { onReact(m, QuickReactions.first()) },
+                            onLongPress = { actionsFor = m },
                             modifier = Modifier.animateItem().combinedClickable(
                                 onClick = {},
                                 onDoubleClick = { onReact(m, QuickReactions.first()) },
@@ -543,6 +545,14 @@ fun quoteOf(kind: String, body: String?): String = when (kind) {
 }
 
 /**
+ * A shared card opens on a tap, and still takes the bubble's double-tap (heart) and
+ * long-press (reactions and actions), which its own tap handling would otherwise swallow.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.cardTaps(onDoubleTap: () -> Unit, onLongPress: () -> Unit, onTap: () -> Unit): Modifier =
+    combinedClickable(onClick = onTap, onDoubleClick = onDoubleTap, onLongClick = onLongPress)
+
+/**
  * One message: a speech bubble, a dish / place / post card, a photo, or a story reply/like,
  * with the message it answers quoted above it and its reactions underneath.
  */
@@ -555,6 +565,8 @@ private fun Bubble(
     onOpenPhoto: (String) -> Unit,
     onReactionTap: () -> Unit,
     modifier: Modifier = Modifier,
+    onDoubleTap: () -> Unit = {},
+    onLongPress: () -> Unit = {},
 ) {
     val mine = m.mine
     val bg = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -619,7 +631,7 @@ private fun Bubble(
             var showBody = m.kind != "text" && m.kind != "story_reply" && !m.body.isNullOrBlank()
             when {
                 m.kind == "dish" && dish != null -> Column(
-                    Modifier.widthIn(max = 240.dp).clip(cardShape).background(MaterialTheme.colorScheme.surfaceContainer).clickable { onOpenDish(dish.id) },
+                    Modifier.widthIn(max = 240.dp).clip(cardShape).background(MaterialTheme.colorScheme.surfaceContainer).cardTaps(onDoubleTap, onLongPress) { onOpenDish(dish.id) },
                 ) {
                     DishImage(imageUrl(dish.thumbUrl), null, dish.name, Modifier.fillMaxWidth().height(150.dp))
                     Column(Modifier.padding(12.dp)) {
@@ -633,7 +645,7 @@ private fun Bubble(
                     }
                 }
                 m.kind == "place" && place != null -> Column(
-                    Modifier.widthIn(max = 240.dp).clip(cardShape).background(MaterialTheme.colorScheme.surfaceContainer).clickable { onOpenRestaurant(place.id) },
+                    Modifier.widthIn(max = 240.dp).clip(cardShape).background(MaterialTheme.colorScheme.surfaceContainer).cardTaps(onDoubleTap, onLongPress) { onOpenRestaurant(place.id) },
                 ) {
                     if (place.thumbUrl != null) DishImage(imageUrl(place.thumbUrl), null, place.name, Modifier.fillMaxWidth().height(120.dp))
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -651,7 +663,7 @@ private fun Bubble(
                 }
                 m.kind == "post" && post != null -> Column(
                     Modifier.width(220.dp).clip(cardShape).background(MaterialTheme.colorScheme.surfaceContainer)
-                        .clickable { post.dishId?.let(onOpenDish) },
+                        .cardTaps(onDoubleTap, onLongPress) { post.dishId?.let(onOpenDish) },
                 ) {
                     post.author?.let {
                         Text("@$it", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
@@ -666,7 +678,7 @@ private fun Bubble(
                 }
                 m.kind == "photo" && photo != null -> DishImage(
                     imageUrl(photo.thumbUrl ?: photo.imageUrl), null, "Photo",
-                    Modifier.size(200.dp, 250.dp).clip(cardShape).clickable { onOpenPhoto(photo.imageUrl) },
+                    Modifier.size(200.dp, 250.dp).clip(cardShape).cardTaps(onDoubleTap, onLongPress) { onOpenPhoto(photo.imageUrl) },
                 )
                 m.kind in setOf("dish", "place", "post", "photo") -> Text(
                     "This is no longer on FoodFeed", style = MaterialTheme.typography.labelMedium,
