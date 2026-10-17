@@ -60,18 +60,22 @@ Never paste the key in chat or commit it; it only goes in `.env` on the server.
 
 ## 3. The demo dishes
 
-The invented demo places (marked **DEMO** in the app) come with drawn pictures. To give
-each demo dish a real photo of that dish (a burger looks like a burger), run on the server:
+The invented demo places (marked **DEMO** in the app) show real photos of each dish (a
+burger is a burger). They were picked by hand from Wikimedia Commons, only files under
+CC0, public domain, CC BY or CC BY-SA (free to use, including commercially, as long as the
+author is credited), and they ship with the server in `backend/seed/images/` with their
+authors and licences in `backend/seed/images/credits.json`. The app shows "Photo: author,
+licence, via Wikimedia Commons" under each one. No internet access is needed on the server.
 
-```
-docker compose exec api node dist/cli.js seed-demo
-```
+- New server: `seed` puts them in.
+- Server seeded earlier (with the drawn demo pictures): run
+  `docker compose exec api node dist/cli.js seed-demo`. It restores any removed demo places
+  and demo accounts and swaps in the real photos. `demo-photos` does only the photo swap.
+- Remove everything demo: `remove-demo --all`.
 
-It puts the demo places, dishes and demo accounts back if you removed them, then takes the
-lead photo of each dish's Wikipedia article, only when it lives on Wikimedia Commons (free
-licence), and shows its author and licence under the photo. `demo-photos` does only the
-photo step; add `--force` to fetch them again. Remove everything demo with
-`remove-demo --all`. Take me there on a demo place explains that it isn't a real business.
+To change a photo: run the **Demo dish photos** workflow in GitHub Actions with mode
+`candidates` (and the dish key), look at `backend/demo-candidates/<dish>.jpg`, put the
+chosen file in `backend/scripts/demo-picks.json`, then run it with mode `pick`.
 
 ## 4. Owners and users
 
