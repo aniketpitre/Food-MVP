@@ -97,3 +97,45 @@ a change re-ranks everything at once. The SQL is in
 `backend/migrations/007_fair_ranking.sql`: a vote re-rates its dish at once, and trust,
 standing and lockstep partners are rebuilt a few seconds after a burst of votes and on
 the ranking timer.
+
+## People like you: Taste Match and For You
+
+FoodFeed recommends through **people**, not just through the crowd.
+
+**Your taste.** A short profile (dish types you love, veg / egg / non-veg, spice 1 to 5),
+asked once after signing in and editable in Settings. Your votes teach the rest: per dish
+type, a love counts +1, a save +0.5, a "not for me" −1, and each type you picked +1.
+
+**Taste Match** (0 to 100 %, on every profile) blends three signals, each only when there's
+something to go on:
+
+| Signal | Score | Weight |
+|---|---|---|
+| Votes on the same dishes | (agreed + 1) / (shared + 2) | 3 × min(shared, 10) / 10 |
+| Dish types you both like | cosine of the two taste vectors | 1.5 × min(1, the smaller voting record / 8) |
+| What you both told us | ½ type overlap + 0.3 diet + 0.2 spice closeness | 1 |
+
+Someone with less than one unit of weight gets no score yet. **People with your taste**
+(Home) lists people at 50 %+ with full standing that you don't follow yet, surest first
+(a close match on lots of evidence beats a perfect match on a little).
+
+**For You** (Home and an Explore tab) ranks the dishes that your closest taste matches
+(50 at most, 55 %+) and the people you follow loved:
+
+```
+score = Σ (their weight × their standing × fade over 90 days × (+1 love, +0.5 save, −1 not for me))
+their weight = taste match (+0.25 if you also follow them), or 0.7 for someone you only follow
+```
+
+Dishes you've already loved, passed or tried are left out, a dish they mostly passed on is
+left out, and vegetarians never see non-veg dishes. Each card says why ("Loved by @diya ·
+92 % taste match"). With nobody to go on yet, the best-rated dishes of the types you like
+fill in ("Because you like Thali").
+
+**The map** can show only the places your friends (people you follow) or your taste matches
+loved, with who loved each one. **Food on the way**: choose a city (or long-press the map)
+and the server finds a driving route (an OSRM server, `ROUTING_URL`; a straight line if it
+can't reach one), then the best dish at every place within 3 km of the road, in the order
+you reach them. "Stop on the way" opens your maps app with that place as a stop.
+
+The SQL is in `backend/migrations/008_taste.sql` (`taste_matches()`, `for_you()`).
