@@ -14,6 +14,8 @@ import app.foodfeed.data.apiCall
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -313,7 +315,9 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                 val signIn: () -> Unit = { nav.navigate(Routes.AUTH) }
                 val openChatWith: suspend (String) -> Unit = { handle ->
                     try {
-                        nav.navigate(Routes.chat(apiCall { app.api.openChat(OpenChat(handle)) }.id))
+                        val id = apiCall { app.api.openChat(OpenChat(handle)) }.id
+                        // Navigation must happen on the main thread, whatever thread the reply came on.
+                        withContext(Dispatchers.Main) { nav.navigate(Routes.chat(id)) }
                     } catch (e: ApiException) {
                         showMessage(e.message)
                     }

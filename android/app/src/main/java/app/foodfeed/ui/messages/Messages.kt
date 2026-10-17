@@ -99,7 +99,9 @@ import app.foodfeed.ui.components.QuietButton
 import app.foodfeed.ui.components.ReportSheet
 import app.foodfeed.ui.profile.BackBar
 import app.foodfeed.ui.profile.Segmented
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -199,8 +201,12 @@ fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit, onOpenChat: (String) -> 
                         Modifier.fillMaxWidth().clickable {
                             scope.launch {
                                 try {
-                                    onOpenChat(vm.openWith(p.handle))
-                                    query = ""
+                                    val id = vm.openWith(p.handle)
+                                    // Back on the main thread before navigating, whatever thread the reply came on.
+                                    withContext(Dispatchers.Main) {
+                                        onOpenChat(id)
+                                        query = ""
+                                    }
                                 } catch (e: ApiException) {
                                     showMessage(e.message)
                                 }
