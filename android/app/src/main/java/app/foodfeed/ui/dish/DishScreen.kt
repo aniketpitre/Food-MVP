@@ -58,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -167,7 +168,7 @@ fun DishScreen(
         )
         else -> {
             val dish = state.dish!!
-            val card = dish.toCard()
+            val card = remember(dish) { dish.toCard() }
             DishContent(
                 dish = dish,
                 engagement = overrides[dish.id] ?: EngagementState(dish.stats, dish.me, dish.rating),
@@ -249,7 +250,6 @@ fun DishContent(
     val pager = rememberPagerState { photos.size.coerceAtLeast(1) }
     val currentPost = photos.getOrNull(pager.currentPage)
     val scroll = rememberScrollState()
-    var menu by remember { mutableStateOf(false) }
     var photoHeight by remember { mutableStateOf(1) }
 
     Box(Modifier.fillMaxSize()) {
@@ -478,48 +478,68 @@ fun DishContent(
             }
         }
 
-        // Slim title bar that fades in once the photo has scrolled away.
-        val barAlpha = ((scroll.value - photoHeight * 0.7f) / (photoHeight * 0.2f)).coerceIn(0f, 1f)
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .graphicsLayer { alpha = barAlpha }
-                .background(MaterialTheme.colorScheme.background)
-                .statusBarsPadding()
-                .height(56.dp),
-        ) {
-            Text(
-                dish.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.align(Alignment.Center).padding(horizontal = 64.dp),
-            )
-        }
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            GlassIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", barAlpha, onBack)
-            Box {
-                GlassIcon(Icons.Filled.MoreVert, "More options", barAlpha) { menu = true }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    if (currentPost != null) {
-                        DropdownMenuItem(
-                            text = { Text("Report this photo") },
-                            leadingIcon = { Icon(AppIcons.Flag, null) },
-                            onClick = { menu = false; onReport("post", currentPost.id) },
-                        )
-                    }
+        // Slim title bar that fades in once the photo has scrolled away. Its own composable,
+        // so scrolling only redraws this bar (and only while it fades), not the whole page.
+        DishTopBar(dish.name, scroll, { photoHeight }, currentPost, onBack, { onReport("dish", dish.id) }, onReport, onBlock)
+    }
+}
+
+/** The back / menu buttons and the title bar that fades in over the page as you scroll. */
+@Composable
+private fun DishTopBar(
+    title: String,
+    scroll: androidx.compose.foundation.ScrollState,
+    photoHeight: () -> Int,
+    currentPost: Post?,
+    onBack: () -> Unit,
+    onReportDish: () -> Unit,
+    onReport: (type: String, id: String) -> Unit,
+    onBlock: (String) -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    // Only changes while the bar is fading, so the rest of the time scrolling recomposes nothing.
+    val barAlpha by remember {
+        derivedStateOf { ((scroll.value - photoHeight() * 0.7f) / (photoHeight() * 0.2f)).coerceIn(0f, 1f) }
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = barAlpha }
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .height(56.dp),
+    ) {
+        Text(
+            title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.Center).padding(horizontal = 64.dp),
+        )
+    }
+    Row(
+        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        GlassIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", barAlpha, onBack)
+        Box {
+            GlassIcon(Icons.Filled.MoreVert, "More options", barAlpha) { menu = true }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (currentPost != null) {
                     DropdownMenuItem(
-                        text = { Text("Report this dish") },
+                        text = { Text("Report this photo") },
                         leadingIcon = { Icon(AppIcons.Flag, null) },
-                        onClick = { menu = false; onReport("dish", dish.id) },
+                        onClick = { menu = false; onReport("post", currentPost.id) },
                     )
-                    currentPost?.authorHandle?.let { handle ->
-                        DropdownMenuItem(
-                            text = { Text("Block @$handle") },
-                            leadingIcon = { Icon(AppIcons.Block, null) },
-                            onClick = { menu = false; onBlock(handle) },
-                        )
-                    }
+                }
+                DropdownMenuItem(
+                    text = { Text("Report this dish") },
+                    leadingIcon = { Icon(AppIcons.Flag, null) },
+                    onClick = { menu = false; onReportDish() },
+                )
+                currentPost?.authorHandle?.let { handle ->
+                    DropdownMenuItem(
+                        text = { Text("Block @$handle") },
+                        leadingIcon = { Icon(AppIcons.Block, null) },
+                        onClick = { menu = false; onBlock(handle) },
+                    )
                 }
             }
         }

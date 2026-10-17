@@ -273,32 +273,32 @@ fun HomeContent(
                 }
                 else -> {
                     if (d.peoplesPicks.isNotEmpty()) {
-                        item(key = "picks-title") {
+                        item(key = "picks-title", contentType = "header") {
                             SectionHeader("People's Pick", "Loved most by people who tried them", onMore = onExplore)
                         }
-                        item(key = "picks") { CardCarousel(d.peoplesPicks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true, section = "home:picks") }
+                        item(key = "picks", contentType = "carousel") { CardCarousel(d.peoplesPicks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true, section = "home:picks") }
                     }
                     if (d.nearby.isNotEmpty()) {
-                        item(key = "near-title") { SectionHeader("Good near you", "Within 5 km") }
-                        item(key = "near") { CardCarousel(d.nearby, imageUrl, onOpenDish, onOpenUser, section = "home:near") }
+                        item(key = "near-title", contentType = "header") { SectionHeader("Good near you", "Within 5 km") }
+                        item(key = "near", contentType = "carousel") { CardCarousel(d.nearby, imageUrl, onOpenDish, onOpenUser, section = "home:near") }
                     }
                     if (d.following.isNotEmpty()) {
-                        item(key = "follow-title") { SectionHeader("From people you follow", null) }
-                        item(key = "follow") {
+                        item(key = "follow-title", contentType = "header") { SectionHeader("From people you follow", null) }
+                        item(key = "follow", contentType = "carousel") {
                             CardCarousel(d.following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = d.following.map { it.lovedBy }, section = "home:following")
                         }
                     }
                     if (d.tasters.isNotEmpty()) {
-                        item(key = "tasters-title") { SectionHeader("Tastemakers", "Their picks were backed by the most people") }
-                        item(key = "tasters") { TasterRow(d.tasters, onOpenUser) }
+                        item(key = "tasters-title", contentType = "header") { SectionHeader("Tastemakers", "Their picks were backed by the most people") }
+                        item(key = "tasters", contentType = "tasters") { TasterRow(d.tasters, onOpenUser) }
                     }
                     if (d.trending.isNotEmpty()) {
-                        item(key = "trend-title") { SectionHeader("Trending this week", null) }
-                        item(key = "trend") { CardCarousel(d.trending, imageUrl, onOpenDish, onOpenUser, section = "home:trend") }
+                        item(key = "trend-title", contentType = "header") { SectionHeader("Trending this week", null) }
+                        item(key = "trend", contentType = "carousel") { CardCarousel(d.trending, imageUrl, onOpenDish, onOpenUser, section = "home:trend") }
                     }
                     if (d.fresh.isNotEmpty()) {
-                        item(key = "fresh-title") { SectionHeader("Just posted", "Help decide: tried any of these?") }
-                        item(key = "fresh") { CardCarousel(d.fresh, imageUrl, onOpenDish, onOpenUser, section = "home:fresh") }
+                        item(key = "fresh-title", contentType = "header") { SectionHeader("Just posted", "Help decide: tried any of these?") }
+                        item(key = "fresh", contentType = "carousel") { CardCarousel(d.fresh, imageUrl, onOpenDish, onOpenUser, section = "home:fresh") }
                     }
                 }
             }
@@ -466,6 +466,10 @@ private fun CardCarousel(
     }
 }
 
+// Made once, not for every card on every recomposition.
+private val CardShape = RoundedCornerShape(24.dp)
+private val CardShade = Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f))
+
 /** A dish as a tall card: photo with its verdict on it, name, place, and whose top pick it is. */
 @Composable
 fun PickCard(
@@ -488,12 +492,10 @@ fun PickCard(
         Box {
             DishImage(
                 thumb, card.cover?.placeholderColor, card.name,
-                Modifier.fillMaxWidth().aspectRatio(0.82f).dishHero(card.id, 24.dp, heroSource).clip(RoundedCornerShape(24.dp)),
+                Modifier.fillMaxWidth().aspectRatio(0.82f).dishHero(card.id, 24.dp, heroSource).clip(CardShape),
             )
             Box(
-                Modifier.matchParentSize().clip(RoundedCornerShape(24.dp)).background(
-                    Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f)),
-                ),
+                Modifier.matchParentSize().clip(CardShape).background(CardShade),
             )
             if (rank != null) {
                 Sticker(

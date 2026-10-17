@@ -579,10 +579,13 @@ data class Message(
 data class Conversation(
     val id: String,
     val folder: String = "inbox",
-    val with: UserRef,
+    val with: UserRef = UserRef(""),
     val canMessage: Boolean = true,
     val theirLastReadAt: String? = null,
     val messages: List<Message> = emptyList(),
+    /** Fingerprint of the chat; polling with it returns just [unchanged] when nothing moved. */
+    val state: String? = null,
+    val unchanged: Boolean = false,
 )
 
 @Serializable

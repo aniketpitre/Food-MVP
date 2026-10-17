@@ -256,7 +256,7 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
 
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-    val showBottomBar = currentRoute in tabs.map { it.route }
+    val showBottomBar = currentRoute in tabRoutes
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },

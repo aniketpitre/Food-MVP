@@ -116,6 +116,10 @@ export async function messageRoutes(app: FastifyInstance) {
       `select count(*) filter (where mine.folder = 'inbox')::int as chats,
               count(*) filter (where mine.folder = 'request')::int as requests
        from conversation_members mine
+       -- Cheap first cut: chats with no message since you last read them are skipped
+       -- without looking at their messages at all.
+       join conversations c on c.id = mine.conversation_id
+                           and c.last_message_at > greatest(mine.last_read_at, mine.cleared_at)
        where mine.user_id = $1
          and exists (select 1 from messages m where m.conversation_id = mine.conversation_id
                        and m.sender_id <> $1 and m.created_at > greatest(mine.last_read_at, mine.cleared_at))
@@ -199,19 +203,37 @@ export async function messageRoutes(app: FastifyInstance) {
   });
 
   // One chat: the person, whether you can write, and a page of messages (oldest first).
-  // ?after=<time> returns only newer messages (polling); ?before=<time> pages back.
+  // ?after=<time> returns only newer messages; ?before=<time> pages back. The reply has a
+  // `state`; an open chat polls with ?state=<last state> and gets just {unchanged: true}
+  // while nothing (messages, reactions, unsends, their "seen") has changed.
   app.get('/conversations/:id', { preHandler: requireAuth }, async (req, reply) => {
     const p = parse(z.object({ id: uuid }), req.params, reply);
-    const q = parse(z.object({ after: z.string().datetime().optional(), before: z.string().datetime().optional() }), req.query, reply);
+    const q = parse(
+      z.object({ after: z.string().datetime().optional(), before: z.string().datetime().optional(), state: z.string().max(200).optional() }),
+      req.query,
+      reply,
+    );
     if (!p || !q) return;
     const me = userId(req)!;
     const m = await membership(p.id, me);
     if (!m) return reply.code(404).send({ error: 'not_found', message: 'Chat not found.' });
+    const { rows: f } = await db.query<{ last: string | null; n: number; rn: number; rlast: string | null }>(
+      `select (select max(created_at)::text from messages where conversation_id = $1 and created_at > $2) as last,
+              (select count(*)::int from messages where conversation_id = $1 and created_at > $2) as n,
+              (select count(*)::int from message_reactions x join messages mm on mm.id = x.message_id
+                where mm.conversation_id = $1 and mm.created_at > $2) as rn,
+              (select max(x.created_at)::text from message_reactions x join messages mm on mm.id = x.message_id
+                where mm.conversation_id = $1 and mm.created_at > $2) as rlast`,
+      [p.id, m.cleared_at],
+    );
+    const state = [f[0]!.last, f[0]!.n, f[0]!.rn, f[0]!.rlast, m.their_read.toISOString(), m.folder].join('|');
+    if (q.state && q.state === state && !q.after && !q.before) return { id: p.id, unchanged: true, state };
+    // The truncated comparisons keep millisecond cursors exact; the plain ones let the index help.
     const { rows } = await db.query(
       `select * from (${messageSql}
          where m.conversation_id = $1 and m.created_at > $3
-           and ($4::timestamptz is null or date_trunc('milliseconds', m.created_at) > $4)
-           and ($5::timestamptz is null or date_trunc('milliseconds', m.created_at) < $5)
+           and ($4::timestamptz is null or (m.created_at > $4 and date_trunc('milliseconds', m.created_at) > $4))
+           and ($5::timestamptz is null or (m.created_at < $5 + interval '1 millisecond' and date_trunc('milliseconds', m.created_at) < $5))
          order by m.created_at desc limit 50) page order by "createdAt"`,
       [p.id, me, m.cleared_at, q.after ?? null, q.before ?? null],
     );
@@ -222,6 +244,7 @@ export async function messageRoutes(app: FastifyInstance) {
       canMessage: await canMessage(db, me, m.other_id),
       theirLastReadAt: m.their_read,
       messages: rows,
+      state,
     };
   });
 

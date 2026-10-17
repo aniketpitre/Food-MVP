@@ -309,7 +309,7 @@ private fun PlacePhotos(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(photos.size) { i ->
+            items(photos.size, key = { "p$it" }) { i ->
                 val p = photos[i]
                 Column(Modifier.width(220.dp)) {
                     DishImage(
@@ -325,7 +325,7 @@ private fun PlacePhotos(
                     )
                 }
             }
-            items(google.size) { i ->
+            items(google.size, key = { "g$it" }) { i ->
                 val g = google[i]
                 Column(Modifier.width(220.dp)) {
                     DishImage(

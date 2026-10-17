@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -674,8 +675,10 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
     val tilt = if (trigger % 2 == 0) 12f else -12f
     val density = LocalDensity.current
     val heart = with(density) { 110.dp.toPx() }
-    val burstColors = listOf(Chili, Turmeric, Saffron, Color.White)
+    val burstColors = remember { listOf(Chili, Turmeric, Saffron, Color.White) }
     val lite = LocalLiteMode.current
+    // Read the fade in a derived state, so the heart's frames don't recompose the card.
+    val showHeart by remember { derivedStateOf { alpha.value > 0.01f } }
     Box(
         modifier.drawBehind {
             if (lite) return@drawBehind
@@ -683,7 +686,7 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
             drawSpiceBurst(c, spray.value, burstColors, radius = heart * 1.05f, count = 14, seed = trigger)
         },
     ) {
-        if (alpha.value > 0.01f) {
+        if (showHeart) {
             Box(
                 Modifier
                     .offset {

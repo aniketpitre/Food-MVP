@@ -153,7 +153,12 @@ interface FoodFeedApi {
     @POST("conversations") suspend fun openChat(@Body body: OpenChat): ConversationId
 
     @GET("conversations/{id}")
-    suspend fun conversation(@Path("id") id: String, @Query("after") after: String? = null, @Query("before") before: String? = null): Conversation
+    suspend fun conversation(
+        @Path("id") id: String,
+        @Query("after") after: String? = null,
+        @Query("before") before: String? = null,
+        @Query("state") state: String? = null,
+    ): Conversation
 
     @POST("conversations/{id}/messages") suspend fun sendMessage(@Path("id") id: String, @Body body: NewMessage): Message
 

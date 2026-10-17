@@ -119,63 +119,65 @@ export async function discoverRoutes(app: FastifyInstance) {
                   and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = p.author_id)))
       and exists (select 1 from restaurants r where r.id = d.restaurant_id and r.status = 'active')`;
 
-    const picks = await db.query<{ id: string }>(
-      `select d.id from dishes d join dish_rating dr on dr.dish_id = d.id
-       where ${visible} and dr.loves > 0
-       order by dr.confidence desc, dr.loves desc limit 10`,
-      [q.city, viewer],
-    );
-    const trending = await db.query<{ id: string }>(
-      `select d.id from dishes d join dish_stats s on s.dish_id = d.id
-       where ${visible} and s.score_7d > 0 order by s.score_7d desc limit 10`,
-      [q.city, viewer],
-    );
-    const fresh = await db.query<{ id: string }>(
-      `select d.id from dishes d where ${visible} order by d.created_at desc limit 10`,
-      [q.city, viewer],
-    );
-    const following = viewer
-      ? await db.query<{ id: string; handle: string }>(
-          `select distinct on (d.id) d.id, pr.handle, e.created_at from engagements e
-           join follows f on f.followee_id = e.user_id and f.follower_id = $2
-           join dishes d on d.id = e.dish_id join profiles pr on pr.id = e.user_id
-           where ${visible} and e.kind = 'recommend' and e.created_at > now() - interval '60 days'
-           order by d.id, e.created_at desc`,
-          [q.city, viewer],
-        )
-      : { rows: [] as { id: string; handle: string }[] };
-    const nearby = q.lat !== undefined && q.lng !== undefined
-      ? await db.query<{ id: string }>(
-          `select d.id from dishes d join restaurants r on r.id = d.restaurant_id
-           left join dish_rating dr on dr.dish_id = d.id
-           where ${visible} and st_dwithin(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography, 5000)
-           order by coalesce(dr.confidence, 0) desc limit 10`,
-          [q.city, viewer, q.lat, q.lng],
-        )
-      : { rows: [] as { id: string }[] };
-    // Cravings to tap: dish types people here actually post, most loved first.
-    const { rows: cravings } = await db.query(
-      `select c.name as label, c.emoji, count(distinct d.id)::int as dishes
-       from dish_categories c join dishes d on d.category_id = c.id
-       left join dish_rating dr on dr.dish_id = d.id
-       where ${visible}
-       group by c.id, c.name, c.emoji order by coalesce(sum(dr.loves), 0) desc, c.sort
-       limit 12`,
-      [q.city, viewer],
-    );
-    const { rows: cityDishes } = await db.query<{ id: string }>(`select d.id from dishes d where ${visible}`, [q.city, viewer]);
-
-    const cards = (ids: { id: string }[]) => loadDishCards(db, ids.map((r) => r.id), viewer, q.lat, q.lng);
-    const followedRows = following.rows.slice(0, 10);
-    const followedCards = await cards(followedRows);
+    // The sections are independent, so they're fetched side by side, then all their cards
+    // are built in one go (a dish in several sections is loaded once).
+    const ids = (sql: string, params: unknown[] = [q.city, viewer]) => db.query<{ id: string }>(sql, params).then((r) => r.rows);
+    const [picks, trending, fresh, following, nearby, cravingsRes, cityDishes] = await Promise.all([
+      ids(`select d.id from dishes d join dish_rating dr on dr.dish_id = d.id
+           where ${visible} and dr.loves > 0
+           order by dr.confidence desc, dr.loves desc limit 10`),
+      ids(`select d.id from dishes d join dish_stats s on s.dish_id = d.id
+           where ${visible} and s.score_7d > 0 order by s.score_7d desc limit 10`),
+      ids(`select d.id from dishes d where ${visible} order by d.created_at desc limit 10`),
+      viewer
+        ? db.query<{ id: string; handle: string }>(
+            `select distinct on (d.id) d.id, pr.handle, e.created_at from engagements e
+             join follows f on f.followee_id = e.user_id and f.follower_id = $2
+             join dishes d on d.id = e.dish_id join profiles pr on pr.id = e.user_id
+             where ${visible} and e.kind = 'recommend' and e.created_at > now() - interval '60 days'
+             order by d.id, e.created_at desc`,
+            [q.city, viewer],
+          ).then((r) => r.rows)
+        : Promise.resolve([] as { id: string; handle: string }[]),
+      q.lat !== undefined && q.lng !== undefined
+        ? ids(
+            `select d.id from dishes d join restaurants r on r.id = d.restaurant_id
+             left join dish_rating dr on dr.dish_id = d.id
+             where ${visible} and st_dwithin(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography, 5000)
+             order by coalesce(dr.confidence, 0) desc limit 10`,
+            [q.city, viewer, q.lat, q.lng],
+          )
+        : Promise.resolve([] as { id: string }[]),
+      // Cravings to tap: dish types people here actually post, most loved first.
+      db.query(
+        `select c.name as label, c.emoji, count(distinct d.id)::int as dishes
+         from dish_categories c join dishes d on d.category_id = c.id
+         left join dish_rating dr on dr.dish_id = d.id
+         where ${visible}
+         group by c.id, c.name, c.emoji order by coalesce(sum(dr.loves), 0) desc, c.sort
+         limit 12`,
+        [q.city, viewer],
+      ),
+      ids(`select d.id from dishes d where ${visible}`),
+    ]);
+    const followedRows = following.slice(0, 10);
+    const sections = [picks, nearby, followedRows, trending, fresh];
+    const unique = [...new Set(sections.flatMap((rows) => rows.map((r) => r.id)))];
+    const [all, tasters] = await Promise.all([
+      loadDishCards(db, unique, viewer, q.lat, q.lng),
+      tastersFor(app, cityDishes.map((d) => d.id), viewer, 10),
+    ]);
+    const byId = new Map(all.map((c) => [c.id, c]));
+    const cards = (rows: { id: string }[]) => rows.map((r) => byId.get(r.id)!).filter(Boolean);
+    const followedCards = cards(followedRows);
     return {
-      cravings,
-      peoplesPicks: await cards(picks.rows),
-      nearby: await cards(nearby.rows),
-      following: followedCards.map((c, i) => ({ card: c, lovedBy: followedRows[i]!.handle })),
-      trending: await cards(trending.rows),
-      fresh: await cards(fresh.rows),
-      tasters: await tastersFor(app, cityDishes.map((d) => d.id), viewer, 10),
+      cravings: cravingsRes.rows,
+      peoplesPicks: cards(picks),
+      nearby: cards(nearby),
+      following: followedCards.map((c) => ({ card: c, lovedBy: followedRows.find((r) => r.id === c.id)!.handle })),
+      trending: cards(trending),
+      fresh: cards(fresh),
+      tasters,
     };
   });
 

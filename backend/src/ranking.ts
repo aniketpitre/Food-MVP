@@ -12,3 +12,28 @@ export function startRankingRefresh(db: Db, everySeconds: number, onError: (err:
   timer.unref();
   return () => clearInterval(timer);
 }
+
+/**
+ * After a vote, everyone's trust (who to trust for what) is rebuilt once things go quiet
+ * for a few seconds: a burst of votes shares one rebuild instead of each vote waiting for
+ * its own. Under a steady stream of votes the ranking timer still rebuilds it regularly.
+ */
+export function scheduleTrustRefresh(db: Db, delayMs = 3000, onError: (err: unknown) => void = () => {}): void {
+  lastVote = Date.now();
+  if (pendingTrust) return;
+  const fire = () => {
+    const quietFor = Date.now() - lastVote;
+    if (quietFor < delayMs) {
+      pendingTrust = setTimeout(fire, delayMs - quietFor);
+      pendingTrust.unref();
+      return;
+    }
+    pendingTrust = null;
+    db.query('select refresh_people_pick()').catch(onError);
+  };
+  pendingTrust = setTimeout(fire, delayMs);
+  pendingTrust.unref();
+}
+
+let pendingTrust: NodeJS.Timeout | null = null;
+let lastVote = 0;

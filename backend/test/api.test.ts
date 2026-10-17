@@ -559,6 +559,41 @@ describe('rich messages and notifications', () => {
 });
 
 describe('message edge cases', () => {
+  it('answers an open chat\'s poll cheaply while nothing changed, and notices every change', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
+    const say = (auth: Record<string, string>, body: string) =>
+      app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: auth, payload: { body } });
+    const poll = async (state: string) => (await app.inject({ url: `/conversations/${conv.id}?state=${encodeURIComponent(state)}`, headers: a.auth })).json();
+    const m1 = (await say(a.auth, 'one')).json();
+    let state = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().state;
+    expect(await poll(state)).toEqual({ id: conv.id, unchanged: true, state });
+    const changed = async (what: string) => {
+      const r = await poll(state);
+      expect(r.unchanged, what).toBeUndefined();
+      expect(r.messages, what).toBeDefined();
+      state = r.state;
+      expect(await poll(state), what).toMatchObject({ unchanged: true });
+    };
+    await say(b.auth, 'two');
+    await changed('a new message');
+    await app.inject({ method: 'PUT', url: `/messages/${m1.id}/reaction`, headers: b.auth, payload: { emoji: '🔥' } });
+    await changed('a reaction');
+    await app.inject({ method: 'PUT', url: `/messages/${m1.id}/reaction`, headers: b.auth, payload: { emoji: '❤️' } });
+    await changed('a changed reaction');
+    await app.inject({ method: 'DELETE', url: `/messages/${m1.id}/reaction`, headers: b.auth });
+    await changed('a removed reaction');
+    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/read`, headers: b.auth });
+    await changed('they saw it');
+    await app.inject({ method: 'DELETE', url: `/messages/${m1.id}`, headers: a.auth });
+    await changed('an unsend');
+    // ?after still pages exactly, to the millisecond.
+    const all = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().messages;
+    const after = (await app.inject({ url: `/conversations/${conv.id}?after=${encodeURIComponent(all[0].createdAt)}`, headers: a.auth })).json();
+    expect(after.messages.map((x: { id: string }) => x.id)).toEqual(all.slice(1).map((x: { id: string }) => x.id));
+  });
+
   it('rejects empty, too long, foreign and broken input, and never leaks other chats', async () => {
     const a = await signUp();
     const b = await signUp();
@@ -840,6 +875,8 @@ describe("People's Pick", () => {
     for (let i = 0; i < 5; i++) await vote(await signUp({ established: true }), first, 'recommend');
     for (let i = 0; i < 6; i++) await vote(await signUp({ established: true }), first, 'pass');
 
+    // Trust is rebuilt a moment after the votes (once for the whole burst).
+    await new Promise((r) => setTimeout(r, 3500));
     const res = (await app.inject(`/craving?q=paav%20bhaji&city=${cityId}`)).json();
     expect(res.label).toBe('Pav Bhaji');
     const order = res.results.map((c: { id: string }) => c.id);

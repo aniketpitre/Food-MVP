@@ -27,6 +27,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -130,9 +131,13 @@ fun FeedScreen(
         onSettled = { card, next ->
             app.recordImpression(card.id)
             // Prefetch the next few photos so the next swipe is instant.
+            // Screen-sized (not original-sized) so the memory cache keeps more photos.
             val loader = SingletonImageLoader.get(context)
+            val screen = context.resources.displayMetrics
             next.forEach { c ->
-                app.mediaUrl(c.cover?.imageUrl)?.let { loader.enqueue(ImageRequest.Builder(context).data(it).build()) }
+                app.mediaUrl(c.cover?.imageUrl)?.let {
+                    loader.enqueue(ImageRequest.Builder(context).data(it).size(screen.widthPixels, screen.heightPixels).build())
+                }
             }
         },
     )
@@ -325,7 +330,7 @@ private fun DishPager(
             // Signed distance of this page from the centre, read during draw only.
             pageOffset = { (pager.currentPage - page) + pager.currentPageOffsetFraction },
             // Start the landing choreography as soon as the swipe commits to this card.
-            active = pager.targetPage == page,
+            active = remember(page) { derivedStateOf { pager.targetPage == page } }.value,
             commentCount = commentCountOf(card),
             onComments = { onComments(card) },
         )

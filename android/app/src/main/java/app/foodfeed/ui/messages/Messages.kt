@@ -337,10 +337,15 @@ class ChatViewModel(private val app: AppContainer, private val id: String) : Vie
         }
     }
 
-    /** Reloads the latest page, so new messages and new reactions both show up. */
+    /**
+     * Reloads the latest page when anything changed (new messages, reactions, unsends,
+     * "seen"). The server answers a tiny "unchanged" otherwise, and nothing on screen redraws.
+     */
     suspend fun poll() {
         if (_state.value.sending) return
-        runCatching { apiCall { app.api.conversation(id) } }.onSuccess { c ->
+        val last = _state.value.chat?.state
+        runCatching { apiCall { app.api.conversation(id, state = last) } }.onSuccess { c ->
+            if (c.unchanged) return@onSuccess
             val known = _state.value.messages.map { it.id }.toSet()
             val fresh = c.messages.filterNot { it.id in known }
             _state.update { it.copy(chat = c.copy(messages = emptyList()), messages = c.messages) }
@@ -358,7 +363,11 @@ class ChatViewModel(private val app: AppContainer, private val id: String) : Vie
         viewModelScope.launch {
             try {
                 val m = call()
-                _state.update { it.copy(sending = false, messages = it.messages + m, chat = it.chat?.copy(folder = "inbox")) }
+                // A poll that started before this send may already have brought the message.
+                _state.update {
+                    val messages = if (it.messages.any { x -> x.id == m.id }) it.messages else it.messages + m
+                    it.copy(sending = false, messages = messages, chat = it.chat?.copy(folder = "inbox"))
+                }
             } catch (e: ApiException) {
                 _state.update { it.copy(sending = false) }
                 onError(e.message)
@@ -582,7 +591,7 @@ fun ChatContent(
                             modifier = Modifier.fillMaxWidth().padding(end = 6.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End,
                         )
                     }
-                    items(state.messages.asReversed(), key = { it.id }) { m ->
+                    items(state.messages.asReversed(), key = { it.id }, contentType = { it.kind }) { m ->
                         Bubble(
                             m, imageUrl, onOpenDish, onOpenRestaurant,
                             onOpenPhoto = { viewing = it },

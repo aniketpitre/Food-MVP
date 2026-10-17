@@ -28,6 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
@@ -94,7 +98,17 @@ fun DishImage(
         if (override != null) {
             Image(override, contentDescription, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else if (url != null) {
-            if (thumbUrl != null && thumbUrl != url) {
+            // Once the full photo has arrived and finished fading in, the preview under it
+            // goes away, so the screen doesn't keep drawing two photos on top of each other.
+            var loaded by remember(url) { mutableStateOf(false) }
+            var previewGone by remember(url) { mutableStateOf(false) }
+            LaunchedEffect(loaded) {
+                if (loaded) {
+                    delay(400)
+                    previewGone = true
+                }
+            }
+            if (thumbUrl != null && thumbUrl != url && !previewGone) {
                 AsyncImage(
                     model = thumbUrl,
                     contentDescription = null,
@@ -103,6 +117,7 @@ fun DishImage(
                 )
             }
             AsyncImage(
+                onSuccess = { loaded = true },
                 model = url,
                 contentDescription = contentDescription,
                 contentScale = ContentScale.Crop,

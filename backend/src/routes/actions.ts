@@ -4,6 +4,7 @@ import { parse } from '../app.js';
 import { optionalAuth, requireAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
 import { notify } from '../notify.js';
+import { scheduleTrustRefresh } from '../ranking.js';
 
 const uuid = z.string().uuid();
 const actionLimit = { rateLimit: { max: 60, timeWindow: '1 minute' } };
@@ -18,7 +19,10 @@ export async function actionRoutes(app: FastifyInstance) {
 
   async function counts(dishId: string, viewer: string) {
     await db.query('select refresh_dish_stats($1)', [dishId]);
-    await db.query('select refresh_people_pick()');
+    // Re-rate just this dish now; everyone's trust is rebuilt a few seconds later, once for
+    // a whole burst of votes (and on the ranking timer).
+    await db.query('select refresh_people_pick($1)', [dishId]);
+    scheduleTrustRefresh(db, 3000, (err) => app.log.error(err));
     const [card] = await loadDishCards(db, [dishId], viewer);
     return { stats: card!.stats, me: card!.me, rating: card!.rating };
   }
