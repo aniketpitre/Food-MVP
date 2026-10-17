@@ -83,6 +83,17 @@ interface WorthAbiteApi {
 
     @POST("auth/login") suspend fun login(@Body body: LoginBody): LoginResult
     @POST("auth/login/verify") suspend fun verifyLogin(@Body body: CodeBody): AuthResult
+    @POST("auth/logout") suspend fun logout(): OkResult
+    @GET("me/sessions") suspend fun sessions(): SessionList
+    @DELETE("me/sessions/{id}") suspend fun endSession(@Path("id") id: String): OkResult
+    @POST("me/sessions/end-others") suspend fun endOtherSessions(): OkResult
+    @GET("auth/handle-available") suspend fun handleAvailable(@Query("handle") handle: String): HandleAvailable
+    @POST("me/email/verify/start") suspend fun verifyEmailStart(): CodeChallenge
+    @POST("me/email/verify/confirm") suspend fun verifyEmailConfirm(@Body body: CodeBody): User
+    @POST("auth/password/forgot") suspend fun forgotPassword(@Body body: ForgotPasswordBody): ForgotResult
+    @POST("auth/password/reset") suspend fun resetPassword(@Body body: ResetPasswordBody): AuthResult
+    @POST("auth/username/forgot") suspend fun forgotUsername(@Body body: EmailBody): MessageResult
+    @POST("auth/email/forgot") suspend fun forgotEmail(@Body body: HandleBody): EmailHintResult
     @POST("auth/login/resend") suspend fun resendLogin(@Body body: ChallengeBody): CodeChallenge
     @POST("me/2fa/start") suspend fun startTwoFactor(): CodeChallenge
     @POST("me/2fa/confirm") suspend fun confirmTwoFactor(@Body body: CodeBody): User
@@ -118,7 +129,7 @@ interface WorthAbiteApi {
 
     @DELETE("me/avatar") suspend fun deleteAvatar(): User
 
-    @POST("me/password") suspend fun changePassword(@Body body: PasswordChange): OkResult
+    @POST("me/password") suspend fun changePassword(@Body body: PasswordChange): PasswordChangeResult
 
     @GET("me/blocked") suspend fun blocked(): List<Person>
 

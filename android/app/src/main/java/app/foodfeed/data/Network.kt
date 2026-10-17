@@ -49,7 +49,22 @@ fun normaliseServerUrl(raw: String): String {
     return url
 }
 
-class NetworkFactory(private val tokenProvider: () -> String?, private val serverUrl: () -> String = { "" }) {
+/** "Google Pixel 6 - Android 14": how this phone shows in the list of signed-in devices. */
+fun deviceName(): String {
+    val maker = android.os.Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+    val model = android.os.Build.MODEL.orEmpty()
+    val name = if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model"
+    // Header values must be plain ASCII.
+    return "$name - Android ${android.os.Build.VERSION.RELEASE}".filter { it.code in 32..126 }.trim().take(80)
+}
+
+class NetworkFactory(
+    private val tokenProvider: () -> String?,
+    private val serverUrl: () -> String = { "" },
+    /** Our server said this sign-in has ended (signed out elsewhere, password changed). */
+    private val onSessionEnded: (token: String) -> Unit = {},
+    private val device: String? = null,
+) {
     val okHttp: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -64,8 +79,14 @@ class NetworkFactory(private val tokenProvider: () -> String?, private val serve
             val req = request.newBuilder().apply {
                 if (token != null) header("Authorization", "Bearer $token")
                 if (request.header("Accept") == null) header("Accept", "application/json")
+                device?.let { header("X-Device-Name", it) }
             }.build()
-            chain.proceed(req)
+            val response = chain.proceed(req)
+            if (token != null && response.code == 401) {
+                val body = runCatching { response.peekBody(2048).string() }.getOrDefault("")
+                if ("\"session_ended\"" in body || "\"sign_in_required\"" in body) onSessionEnded(token)
+            }
+            response
         })
         .build()
 

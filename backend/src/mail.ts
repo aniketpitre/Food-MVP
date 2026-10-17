@@ -56,18 +56,41 @@ export class SmtpMailer implements Mailer {
   }
 }
 
-/** The email with a sign-in or verification code. */
-export function codeEmail(code: string, purpose: 'login' | 'enable'): { subject: string; text: string; html: string } {
-  const why = purpose === 'login'
-    ? 'Someone (hopefully you) is signing in to your WorthAbite account.'
-    : 'You asked to turn on two-step sign-in for your WorthAbite account.';
-  const text = `${why}\n\nYour code is ${code}\n\nIt works for 10 minutes. If this wasn't you, change your password; nobody can sign in without this code.`;
-  const html = `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;background:#FBF6EF;border-radius:16px;color:#2B2B2B">
+export type CodePurpose = 'login' | 'enable' | 'reset' | 'verify';
+
+const WHY: Record<CodePurpose, string> = {
+  login: 'Someone (hopefully you) is signing in to your WorthAbite account.',
+  enable: 'You asked to turn on two-step sign-in for your WorthAbite account.',
+  reset: 'You asked to reset your WorthAbite password.',
+  verify: 'Welcome to WorthAbite! Confirm this is your email address.',
+};
+
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+/** An email in WorthAbite's colours: the wordmark, the lines, an optional big code. */
+function branded(lines: string[], big?: string) {
+  return `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;background:#FBF6EF;border-radius:16px;color:#2B2B2B">
 <p style="font-size:20px;font-weight:bold;margin:0 0 12px">Worth<span style="color:#F04E23">Abite</span></p>
-<p>${why}</p>
-<p style="font-size:32px;letter-spacing:8px;font-weight:bold;margin:20px 0">${code}</p>
-<p style="color:#666">It works for 10 minutes. If this wasn't you, change your password; nobody can sign in without this code.</p>
+${lines.slice(0, 1).map((l) => `<p>${escapeHtml(l)}</p>`).join('')}
+${big ? `<p style="font-size:32px;letter-spacing:8px;font-weight:bold;margin:20px 0">${escapeHtml(big)}</p>` : ''}
+${lines.slice(1).map((l) => `<p style="color:#666">${escapeHtml(l)}</p>`).join('\n')}
 </div>`;
+}
+
+/** The email with a sign-in, verification or reset code. */
+export function codeEmail(code: string, purpose: CodePurpose): { subject: string; text: string; html: string } {
+  const why = WHY[purpose];
+  const after = purpose === 'verify'
+    ? 'It works for 10 minutes. If you didn\'t create a WorthAbite account, ignore this email.'
+    : 'It works for 10 minutes. If this wasn\'t you, ignore this email and consider changing your password.';
+  const text = `${why}\n\nYour code is ${code}\n\n${after}`;
   // The code goes in the subject too, so it shows in the phone's notification.
-  return { subject: `${code} is your WorthAbite code`, text, html };
+  return { subject: `${code} is your WorthAbite code`, text, html: branded([why, after], code) };
+}
+
+/** A plain notice (password changed, your username) in the same style. */
+export function noticeEmail(subject: string, lines: string[]): { subject: string; text: string; html: string } {
+  return { subject, text: lines.join('\n\n'), html: branded(lines) };
 }

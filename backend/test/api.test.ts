@@ -1630,6 +1630,149 @@ describe('two-step sign-in by email code', () => {
   });
 });
 
+describe('accounts: sign in, sessions, recovery', () => {
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+  async function login(a: FastifyInstance, loginName: string, password = 'correct horse', field = 'login') {
+    return a.inject({ method: 'POST', url: '/auth/login', payload: { [field]: loginName, password } });
+  }
+
+  it('signs in by email or username, the same answer for a wrong user or password, and locks after 10 misses', async () => {
+    const u = await signUp({ email: 'Lock.Me@Example.com' });
+    expect((await login(app, 'lock.me@example.com')).statusCode).toBe(200);
+    expect((await login(app, u.handle)).statusCode).toBe(200);
+    expect((await login(app, `@${u.handle.toUpperCase()}`)).statusCode).toBe(200);
+    expect((await login(app, 'lock.me@example.com', 'correct horse', 'email')).statusCode).toBe(200); // older apps
+    const noUser = await login(app, 'nobody_here_123');
+    const badPw = await login(app, u.handle, 'wrong password');
+    expect(noUser.statusCode).toBe(401);
+    expect(noUser.json()).toEqual(badPw.json());
+    for (let i = 0; i < 9; i++) await login(app, u.handle, 'wrong password');
+    const locked = await login(app, u.handle); // right password, but locked now
+    expect(locked.statusCode).toBe(429);
+    expect(locked.json().error).toBe('locked');
+    await db.query("update profiles set locked_until = now() - interval '1 second' where id = $1", [u.id]);
+    expect((await login(app, u.handle)).statusCode).toBe(200);
+    expect((await db.query('select failed_logins from profiles where id = $1', [u.id])).rows[0].failed_logins).toBe(0);
+  });
+
+  it('refuses easy passwords and says whether a username is free', async () => {
+    for (const password of ['password123', '12345678', 'aaaaaaaa', 'short']) {
+      const r = await app.inject({ method: 'POST', url: '/auth/register', payload: { email: `weak${password.length}x@example.com`, password, handle: `weak_${password.length}x`, acceptTerms: true } });
+      expect(r.statusCode).toBe(400);
+    }
+    const sameAsName = await app.inject({ method: 'POST', url: '/auth/register', payload: { email: 'rahul@example.com', password: 'rahulkumar99', handle: 'rahul_k', acceptTerms: true } });
+    expect(sameAsName.json().message).toMatch(/username or email/);
+    const u = await signUp();
+    expect((await app.inject(`/auth/handle-available?handle=${u.handle}`)).json()).toMatchObject({ available: false });
+    expect((await app.inject('/auth/handle-available?handle=Fresh_Name_9')).json()).toEqual({ available: true });
+    expect((await app.inject('/auth/handle-available?handle=no')).json().available).toBe(false);
+  });
+
+  it('signs out on the server, lists devices, ends one or all others', async () => {
+    const u = await signUp();
+    const phone = (await app.inject({ method: 'POST', url: '/auth/login', headers: { 'x-device-name': 'Pixel 6 · Android 14' }, payload: { login: u.handle, password: 'correct horse' } })).json().token;
+    const tablet = (await login(app, u.handle)).json().token;
+    const list = (await app.inject({ url: '/me/sessions', headers: bearer(phone) })).json().items;
+    expect(list).toHaveLength(3);
+    expect(list[0]).toMatchObject({ current: true, device: 'Pixel 6 · Android 14' });
+
+    // Signing out ends that token for good.
+    expect((await app.inject({ method: 'POST', url: '/auth/logout', headers: bearer(tablet) })).statusCode).toBe(200);
+    const after = await app.inject({ url: '/me', headers: bearer(tablet) });
+    expect(after.statusCode).toBe(401);
+    expect(after.json().error).toBe('session_ended');
+    expect((await app.inject({ url: '/me', headers: bearer(phone) })).statusCode).toBe(200);
+
+    // End one device from another, then everything but this one.
+    const now = (await app.inject({ url: '/me/sessions', headers: bearer(phone) })).json().items;
+    expect(now).toHaveLength(2);
+    const firstId = now.find((x: { current: boolean }) => !x.current).id;
+    expect((await app.inject({ method: 'DELETE', url: `/me/sessions/${firstId}`, headers: bearer(phone) })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/me', headers: u.auth })).statusCode).toBe(401);
+    const laptop = (await login(app, u.handle)).json().token;
+    // A token from before sessions existed works until "sign out everywhere".
+    const old = app.jwt.sign({ sub: u.id, role: 'user' });
+    expect((await app.inject({ url: '/me', headers: bearer(old) })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/me/sessions/end-others', headers: bearer(phone) })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/me', headers: bearer(laptop) })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/me', headers: bearer(old) })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/me', headers: bearer(phone) })).statusCode).toBe(200);
+    // Guests' pages still load with an ended token (it's treated as no token).
+    expect((await app.inject({ url: `/feed?city=${cityId}&tab=top`, headers: bearer(laptop) })).statusCode).toBe(200);
+  });
+
+  it('changing the password signs out the other devices; deleting the account ends its tokens', async () => {
+    const u = await signUp();
+    const other = (await login(app, u.handle)).json().token;
+    const weak = await app.inject({ method: 'POST', url: '/me/password', headers: u.auth, payload: { current: 'correct horse', next: '11111111' } });
+    expect(weak.statusCode).toBe(400);
+    const ok = await app.inject({ method: 'POST', url: '/me/password', headers: u.auth, payload: { current: 'correct horse', next: 'new tasty secret' } });
+    expect(ok.json()).toEqual({ ok: true });
+    expect((await app.inject({ url: '/me', headers: u.auth })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/me', headers: bearer(other) })).statusCode).toBe(401);
+    expect((await login(app, u.handle, 'new tasty secret')).statusCode).toBe(200);
+    expect((await app.inject({ method: 'DELETE', url: '/me', headers: u.auth })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/me', headers: u.auth })).statusCode).toBe(401);
+  });
+
+  it('recovers accounts by email: verify on sign-up, forgot password, forgot username, forgot email', async () => {
+    const mails: { to: string; subject: string; text: string }[] = [];
+    const mailer = { enabled: true, send: async (to: string, subject: string, text: string) => { mails.push({ to, subject, text }); } };
+    const app2 = await buildApp(app.config, db, { logger: false, mailer });
+    const lastCode = (to: string) => mails.filter((m) => m.to === to).at(-1)!.subject.match(/^(\d{6}) is your WorthAbite code$/)![1]!;
+    const settle = () => new Promise((r) => setTimeout(r, 50)); // background emails
+    try {
+      // Sign-up sends a code to confirm the email.
+      const reg = (await app2.inject({ method: 'POST', url: '/auth/register', payload: { email: 'recover@example.com', password: 'correct horse', handle: 'recover_me', acceptTerms: true } })).json();
+      expect(reg.verify.emailHint).toBe('re***@example.com');
+      await settle();
+      const v = await app2.inject({ method: 'POST', url: '/me/email/verify/confirm', headers: bearer(reg.token), payload: { challengeId: reg.verify.challengeId, code: lastCode('recover@example.com') } });
+      expect(v.json()).toMatchObject({ emailVerified: true });
+
+      // Forgot password: same answer for an unknown account, a code for a real one.
+      const unknown = (await app2.inject({ method: 'POST', url: '/auth/password/forgot', payload: { login: 'no_such_person' } })).json();
+      const known = (await app2.inject({ method: 'POST', url: '/auth/password/forgot', payload: { login: 'recover_me' } })).json();
+      expect(Object.keys(unknown).sort()).toEqual(Object.keys(known).sort());
+      expect(unknown.message).toBe(known.message);
+      await settle();
+      const code = lastCode('recover@example.com');
+      const otherDevice = (await login(app2, 'recover_me')).json().token;
+      // A weak new password is refused without using up the code.
+      expect((await app2.inject({ method: 'POST', url: '/auth/password/reset', payload: { challengeId: known.challengeId, code, password: 'password1' } })).statusCode).toBe(400);
+      expect((await app2.inject({ method: 'POST', url: '/auth/password/reset', payload: { challengeId: unknown.challengeId, code, password: 'brand new pass' } })).statusCode).toBe(401);
+      const reset = await app2.inject({ method: 'POST', url: '/auth/password/reset', payload: { challengeId: known.challengeId, code, password: 'brand new pass' } });
+      expect(reset.statusCode).toBe(200);
+      expect(reset.json().user.handle).toBe('recover_me');
+      expect((await app2.inject({ url: '/me', headers: bearer(reset.json().token) })).statusCode).toBe(200);
+      expect((await app2.inject({ url: '/me', headers: bearer(otherDevice) })).statusCode).toBe(401);
+      expect((await app2.inject({ url: '/me', headers: bearer(reg.token) })).statusCode).toBe(401);
+      expect((await login(app2, 'recover@example.com', 'correct horse')).statusCode).toBe(401);
+      expect((await login(app2, 'recover@example.com', 'brand new pass')).statusCode).toBe(200);
+      await settle();
+      expect(mails.some((m) => m.to === 'recover@example.com' && m.subject === 'Your WorthAbite password was changed')).toBe(true);
+      // The code works once.
+      expect((await app2.inject({ method: 'POST', url: '/auth/password/reset', payload: { challengeId: known.challengeId, code, password: 'another new one' } })).statusCode).toBe(401);
+
+      // Forgot username: emailed to the address, never shown on screen.
+      const fu = (await app2.inject({ method: 'POST', url: '/auth/username/forgot', payload: { email: 'recover@example.com' } })).json();
+      const fuNone = (await app2.inject({ method: 'POST', url: '/auth/username/forgot', payload: { email: 'nobody@example.com' } })).json();
+      expect(fu).toEqual(fuNone);
+      await settle();
+      expect(mails.at(-1)).toMatchObject({ to: 'recover@example.com', subject: 'Your WorthAbite username' });
+      expect(mails.at(-1)!.text).toContain('@recover_me');
+      expect(mails.some((m) => m.to === 'nobody@example.com')).toBe(false);
+
+      // Forgot email: a hint of the address on a username.
+      expect((await app2.inject({ method: 'POST', url: '/auth/email/forgot', payload: { handle: '@recover_me' } })).json()).toEqual({ emailHint: 're***@example.com' });
+      expect((await app2.inject({ method: 'POST', url: '/auth/email/forgot', payload: { handle: 'no_such_person' } })).statusCode).toBe(404);
+    } finally {
+      await app2.close();
+    }
+    // Without email on the server, recovery says so.
+    expect((await app.inject({ method: 'POST', url: '/auth/password/forgot', payload: { login: 'recover_me' } })).json().error).toBe('mail_off');
+  });
+});
+
 async function loginAs(handle: string) {
   const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${handle}@example.com`, password: 'correct horse' } });
   return { auth: { authorization: `Bearer ${res.json().token}` } };

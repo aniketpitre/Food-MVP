@@ -1,10 +1,10 @@
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { requireAuth, userId, verifyPassword } from '../auth.js';
-import { codeEmail } from '../mail.js';
-import { profileJson } from './auth.js';
+import { type CodePurpose, codeEmail } from '../mail.js';
+import { profileJson, startSession } from './auth.js';
 
 const CODE_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
@@ -25,35 +25,41 @@ function hash(secret: string, id: string, code: string) {
  * A new 6-digit code for [user], emailed to them. Returns the challenge to send back with
  * the code, or an error if the email couldn't go out.
  */
+export const MAIL_OFF = { error: 'mail_off', message: "Email isn't set up on this server yet, so codes can't be sent." };
+
 export async function startChallenge(
   app: FastifyInstance,
   user: { id: string; email: string },
-  purpose: 'login' | 'enable',
+  purpose: CodePurpose,
+  opts: { background?: boolean } = {},
 ): Promise<{ challengeId: string; emailHint: string } | { error: string; message: string }> {
-  if (!app.mailer.enabled) {
-    return { error: 'mail_off', message: "Email isn't set up on this server yet, so codes can't be sent." };
-  }
+  if (!app.mailer.enabled) return MAIL_OFF;
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-  const { rows } = await app.db.query<{ id: string }>(
-    `insert into auth_codes (user_id, purpose, code_hash, expires_at)
-     values ($1, $2, 'pending', now() + make_interval(mins => $3)) returning id`,
-    [user.id, purpose, CODE_MINUTES],
+  const id = randomUUID();
+  await app.db.query(
+    `insert into auth_codes (id, user_id, purpose, code_hash, expires_at)
+     values ($1, $2, $3, $4, now() + make_interval(mins => $5))`,
+    [id, user.id, purpose, hash(app.config.jwtSecret, id, code), CODE_MINUTES],
   );
-  const id = rows[0]!.id;
-  await app.db.query('update auth_codes set code_hash = $2 where id = $1', [id, hash(app.config.jwtSecret, id, code)]);
-  try {
-    const mail = codeEmail(code, purpose);
-    await app.mailer.send(user.email, mail.subject, mail.text, mail.html);
-  } catch (err) {
-    app.log.warn({ err }, 'code email failed');
-    await app.db.query('delete from auth_codes where id = $1', [id]);
-    return { error: 'mail_failed', message: "We couldn't send the code. Try again in a minute." };
-  }
+  const send = async () => {
+    try {
+      const mail = codeEmail(code, purpose);
+      await app.mailer.send(user.email, mail.subject, mail.text, mail.html);
+      return true;
+    } catch (err) {
+      app.log.warn({ err }, 'code email failed');
+      await app.db.query('delete from auth_codes where id = $1', [id]).catch(() => {});
+      return false;
+    }
+  };
+  // In the background, the answer comes back as fast whether or not the account exists.
+  if (opts.background) void send();
+  else if (!(await send())) return { error: 'mail_failed', message: "We couldn't send the code. Try again in a minute." };
   return { challengeId: id, emailHint: emailHint(user.email) };
 }
 
 /** Checks a code; it's spent once right, and after 5 wrong tries. */
-async function checkCode(app: FastifyInstance, challengeId: string, code: string, purpose: 'login' | 'enable', owner?: string) {
+export async function checkCode(app: FastifyInstance, challengeId: string, code: string, purpose: CodePurpose, owner?: string) {
   const { rows } = await app.db.query<{ user_id: string; code_hash: string; attempts: number; expired: boolean; used: boolean }>(
     `select user_id, code_hash, attempts, expires_at < now() as expired, used_at is not null as used
      from auth_codes where id = $1 and purpose = $2`,
@@ -91,7 +97,7 @@ export async function twoFactorRoutes(app: FastifyInstance) {
     const { rows } = await db.query('select * from profiles where id = $1', [r.userId]);
     const user = rows[0];
     if (!user) return reply.code(401).send({ error: 'bad_code', message: 'Account not found.' });
-    return { token: app.jwt.sign({ sub: user.id, role: user.role }), user: profileJson(user) };
+    return { token: await startSession(app, user, req), user: profileJson(user) };
   });
 
   app.post('/auth/login/resend', limit, async (req, reply) => {

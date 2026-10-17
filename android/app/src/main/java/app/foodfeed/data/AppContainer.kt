@@ -118,7 +118,15 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
 
     /** Chats with something new plus waiting message requests: the badge on the messages button. */
     val unreadMessages = MutableStateFlow(0)
-    private val network = NetworkFactory({ session.value?.token }, { normaliseServerUrl(_serverUrl.value) })
+    private val network = NetworkFactory(
+        { session.value?.token },
+        { normaliseServerUrl(_serverUrl.value) },
+        onSessionEnded = { token -> scope.launch { sessionEnded(token) } },
+        device = runCatching { deviceName() }.getOrNull(),
+    )
+
+    /** Set when the server ended this sign-in, for a message on screen. */
+    val signedOutNotice = MutableStateFlow<String?>(null)
     val okHttp get() = network.okHttp
 
     private val _ready = MutableStateFlow(false)
@@ -343,9 +351,31 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         if (action != null) runCatching { action() }
     }
 
+    /** The server says this sign-in is over (signed out from another device, new password). */
+    private suspend fun sessionEnded(token: String) {
+        if (_session.value?.token != token) return
+        clearSession()
+        signedOutNotice.value = "You were signed out. Please sign in again."
+    }
+
+    /** A fresh token for the same account (after changing the password on an old sign-in). */
+    suspend fun replaceToken(token: String) {
+        val user = _session.value?.user ?: return
+        _session.value = Session(token, user)
+        prefs.saveSession(token, user)
+    }
+
     suspend fun signOut() {
-        // This phone stops getting the account's notifications (a few seconds at most).
-        if (_session.value != null) kotlinx.coroutines.withTimeoutOrNull(4_000) { PushSetup.unregister(this@AppContainer) }
+        if (_session.value != null) {
+            // This phone stops getting the account's notifications, and the sign-in ends on
+            // the server too, so the token can't be used again (a few seconds at most).
+            kotlinx.coroutines.withTimeoutOrNull(4_000) { PushSetup.unregister(this@AppContainer) }
+            kotlinx.coroutines.withTimeoutOrNull(4_000) { runCatching { api.logout() } }
+        }
+        clearSession()
+    }
+
+    private suspend fun clearSession() {
         _session.value = null
         unreadActivity.value = 0
         unreadMessages.value = 0

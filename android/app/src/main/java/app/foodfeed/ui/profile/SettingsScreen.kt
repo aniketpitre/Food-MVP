@@ -63,6 +63,8 @@ fun SettingsScreen(
     onBlocked: () -> Unit = {},
     onTaste: () -> Unit = {},
     onTwoFactor: () -> Unit = {},
+    onSessions: () -> Unit = {},
+    onVerifyEmail: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -86,7 +88,11 @@ fun SettingsScreen(
                 Group("Account")
                 Item(Icons.Filled.Person, "Edit profile", "Photo, name, username, bio", onClick = onEditProfile)
                 Item(AppIcons.Heart, "Your taste", "What you love, veg or not, and how spicy", onClick = onTaste)
+                if (!user.emailVerified) {
+                    Item(AppIcons.Bell, "Verify your email", "${user.email}: confirm it so you can always get back in", onClick = onVerifyEmail)
+                }
                 Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
+                Item(Icons.Filled.Person, "Where you're signed in", "See your devices and sign any of them out", onClick = onSessions)
                 Item(
                     AppIcons.Shield, "Two-step sign-in",
                     if (user.twoFactor) "On: a code by email each time you sign in" else "Off. Turn on to protect your account",

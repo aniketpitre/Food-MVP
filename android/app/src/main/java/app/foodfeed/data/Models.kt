@@ -356,7 +356,52 @@ data class User(
 )
 
 @Serializable
-data class AuthResult(val token: String, val user: User)
+data class AuthResult(
+    val token: String,
+    val user: User,
+    /** After signing up: the code we emailed to confirm the address. */
+    val verify: CodeChallenge? = null,
+)
+
+@Serializable
+data class PasswordChangeResult(val ok: Boolean = true, val token: String? = null)
+
+/** A device you're signed in on. */
+@Serializable
+data class SessionItem(
+    val id: String,
+    val device: String? = null,
+    val createdAt: String = "",
+    val lastSeenAt: String = "",
+    val current: Boolean = false,
+)
+
+@Serializable
+data class SessionList(val items: List<SessionItem> = emptyList())
+
+@Serializable
+data class ForgotPasswordBody(val login: String)
+
+@Serializable
+data class ForgotResult(val challengeId: String, val message: String = "")
+
+@Serializable
+data class ResetPasswordBody(val challengeId: String, val code: String, val password: String)
+
+@Serializable
+data class EmailBody(val email: String)
+
+@Serializable
+data class HandleBody(val handle: String)
+
+@Serializable
+data class EmailHintResult(val emailHint: String)
+
+@Serializable
+data class HandleAvailable(val available: Boolean, val reason: String? = null)
+
+@Serializable
+data class MessageResult(val ok: Boolean = true, val message: String = "")
 
 /** Signing in: a session straight away, or (two-step sign-in on) a code to enter first. */
 @Serializable
@@ -390,7 +435,8 @@ data class RegisterBody(
 )
 
 @Serializable
-data class LoginBody(val email: String, val password: String)
+/** [login] is an email or a username. */
+data class LoginBody(val login: String, val password: String)
 
 @Serializable
 data class EngagementResult(val stats: DishStats, val me: MyActions, val rating: Rating? = null)

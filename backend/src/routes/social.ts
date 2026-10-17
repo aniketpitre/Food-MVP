@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
-import { hashPassword, optionalAuth, requireAuth, userId, verifyPassword } from '../auth.js';
+import { hashPassword, optionalAuth, passwordProblem, requireAuth, sessionId, userId, verifyPassword } from '../auth.js';
+import { noticeEmail } from '../mail.js';
+import { endSessions, startSession } from './auth.js';
 import { loadDishCards, wholePicks } from '../cards.js';
 import { tasteMatch } from './taste.js';
 import { deleteAvatar, storeAvatar } from '../media.js';
@@ -160,18 +162,33 @@ export async function socialRoutes(app: FastifyInstance) {
 
   app.post('/me/password', { preHandler: requireAuth, config: { rateLimit: { max: 10, timeWindow: '1 hour' } } }, async (req, reply) => {
     const body = parse(
-      z.object({ current: z.string().max(200), next: z.string().min(8, 'use at least 8 characters').max(200) }),
+      z.object({ current: z.string().max(200), next: z.string().max(200) }),
       req.body,
       reply,
     );
     if (!body) return;
     const me = userId(req)!;
-    const { rows } = await db.query<{ password_hash: string }>('select password_hash from profiles where id = $1', [me]);
+    const { rows } = await db.query<{ password_hash: string; handle: string; email: string; role: string }>(
+      'select password_hash, handle, email, role from profiles where id = $1',
+      [me],
+    );
     if (!rows[0] || !(await verifyPassword(body.current, rows[0].password_hash))) {
       return reply.code(400).send({ error: 'bad_credentials', message: 'Your current password is wrong.' });
     }
+    const weak = passwordProblem(body.next, [rows[0].handle, rows[0].email]);
+    if (weak) return reply.code(400).send({ error: 'weak_password', message: weak });
     await db.query('update profiles set password_hash = $2 where id = $1', [me, await hashPassword(body.next)]);
-    return { ok: true };
+    // Every other device is signed out; this one stays (with a fresh token if it was an old one).
+    const sid = sessionId(req);
+    await endSessions(app, me, sid);
+    if (app.mailer.enabled) {
+      const m = noticeEmail('Your WorthAbite password was changed', [
+        `The password for @${rows[0].handle} was just changed, and your other devices were signed out.`,
+        "If this wasn't you, reset your password right away from the sign-in screen.",
+      ]);
+      void app.mailer.send(rows[0].email, m.subject, m.text, m.html).catch((err) => app.log.warn({ err }, 'notice email failed'));
+    }
+    return { ok: true, token: sid ? undefined : await startSession(app, { id: me, role: rows[0].role }, req) };
   });
 
   app.get('/me/blocked', { preHandler: requireAuth }, async (req) => {

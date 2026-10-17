@@ -654,6 +654,117 @@ class FullAppTest {
         throw AssertionError("no code emailed to $to")
     }
 
+    /** Whether the test inbox has an email to [to] with this subject. */
+    private fun emailed(to: String, subject: String): Boolean {
+        val inbox = server.replace(Regex(":\\d+$"), ":8025")
+        val req = Request.Builder().url("$inbox/api/v1/messages?limit=50").build()
+        return runCatching {
+            http.newCall(req).execute().use { res ->
+                val list = JSONObject(res.body!!.string()).getJSONArray("messages")
+                (0 until list.length()).map { list.getJSONObject(it) }.any { m ->
+                    m.getString("Subject") == subject &&
+                        (0 until m.getJSONArray("To").length()).any { m.getJSONArray("To").getJSONObject(it).getString("Address") == to }
+                }
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun openSignIn() {
+        backTo(hasContentDescription("Profile"), presses = 4)
+        tab("Profile")
+        compose.onAllNodes(hasText("Sign in") and hasClickAction()).onFirst().performClick()
+        waitFor(hasText("Welcome back"), 15_000)
+        compose.waitForIdle()
+        Thread.sleep(800)
+    }
+
+    @Test
+    fun accounts_forgotUsernameResetPasswordDevicesAndRemoteSignOut() {
+        val email = me.user.email
+        val handle = me.user.handle
+        step("sign out on the server, then forgot username") {
+            waitFor(hasTestTag("home_list"), 30_000)
+            runBlocking { container.signOut() }
+            openSignIn()
+            compose.onNodeWithTag("forgot_username").performClick()
+            waitText("Find your account")
+            compose.onNodeWithTag("recover_input").performTextInput(email)
+            compose.onNodeWithTag("recover_send").performClick()
+            waitFor(hasTestTag("recover_info"), 15_000)
+            shot("86_forgot_username")
+            compose.waitUntil(30_000) { emailed(email, "Your WorthAbite username") }
+        }
+        step("forgot email shows a hint for the username") {
+            compose.onNodeWithText("I forgot my email").performClick()
+            compose.onNodeWithTag("recover_input").performTextInput(handle)
+            compose.onNodeWithTag("recover_send").performClick()
+            waitText("This account uses", substring = true, timeoutMs = 15_000)
+        }
+        step("forgot password: a code by email and a new password") {
+            compose.onNodeWithText("Forgot the password too? Reset it").performClick()
+            waitText("Forgot your password?")
+            compose.onNodeWithTag("recover_input").performTextClearance()
+            compose.onNodeWithTag("recover_input").performTextInput(handle)
+            compose.onNodeWithTag("recover_send").performClick()
+            waitFor(hasTestTag("reset_code"), 15_000)
+            val code = emailedCode(email)
+            compose.onNodeWithTag("reset_code").performTextInput(code)
+            compose.onNodeWithTag("reset_password").performTextInput("a fresh tasty pass")
+            shot("87_reset_password")
+            compose.onNodeWithTag("reset_submit").performClick()
+            compose.waitUntil(20_000) { container.session.value != null }
+            compose.waitUntil(20_000) { emailed(email, "Your WorthAbite password was changed") }
+        }
+        step("sign in with the username and the new password") {
+            // First sign-in asks for taste; skip it if it shows.
+            runCatching { waitText("Your taste", timeoutMs = 8_000); compose.waitForIdle(); Thread.sleep(1500); compose.onNodeWithText("Skip").performClick() }
+            runBlocking { container.signOut() }
+            openSignIn()
+            compose.onNodeWithTag("auth_login").performTextInput(handle)
+            compose.onNodeWithTag("auth_password").performTextInput("a fresh tasty pass")
+            compose.onNodeWithTag("auth_submit").performClick()
+            compose.waitUntil(20_000) { container.session.value != null }
+        }
+        step("devices: this phone and another sign-in, then sign the other out") {
+            val other = JSONObject(
+                http.newCall(
+                    Request.Builder().url("$server/auth/login")
+                        .post(JSONObject().put("login", handle).put("password", "a fresh tasty pass").toString().toRequestBody("application/json".toMediaType()))
+                        .build(),
+                ).execute().use { it.body!!.string() },
+            ).getString("token")
+            backTo(hasContentDescription("Profile"), presses = 4)
+            tab("Profile")
+            compose.onAllNodes(hasContentDescription("Settings")).onFirst().performClick()
+            compose.onNodeWithText("Where you're signed in").performScrollTo().performClick()
+            waitFor(hasTestTag("sessions_list"), 15_000)
+            waitText("This phone")
+            shot("88_devices")
+            compose.onNodeWithTag("end_other_sessions").performScrollTo().performClick()
+            waitText("Signed out everywhere else.", timeoutMs = 15_000)
+            // The other sign-in can't be used any more.
+            val code = http.newCall(Request.Builder().url("$server/me").header("Authorization", "Bearer $other").build()).execute().use { it.code }
+            assertTrue("the other device was signed out ($code)", code == 401)
+        }
+        step("signed out from elsewhere: this phone notices and says so") {
+            val elsewhere = JSONObject(
+                http.newCall(
+                    Request.Builder().url("$server/auth/login")
+                        .post(JSONObject().put("login", email).put("password", "a fresh tasty pass").toString().toRequestBody("application/json".toMediaType()))
+                        .build(),
+                ).execute().use { it.body!!.string() },
+            ).getString("token")
+            call("POST", "/me/sessions/end-others", elsewhere)
+            // The next thing the app asks the server for finds the sign-in has ended (cached up to 30 s).
+            compose.waitUntil(60_000) {
+                runBlocking { runCatching { container.api.me() } }
+                container.session.value == null
+            }
+            waitText("You were signed out", substring = true, timeoutMs = 10_000)
+            shot("89_signed_out_elsewhere")
+        }
+    }
+
     @Test
     fun twoStepSignIn_turnOnSignInWithCodeTurnOffAndDailyReminder() {
         val email = me.user.email
@@ -694,9 +805,9 @@ class FullAppTest {
             tab("Profile")
             compose.onAllNodes(hasText("Sign in") and hasClickAction()).onFirst().performClick()
             waitFor(hasText("Welcome back"), 15_000)
-            compose.onNodeWithText("Email").performTextInput(email)
-            compose.onNodeWithText("Password").performTextInput("correct horse")
-            compose.onAllNodes(hasText("Sign in") and hasClickAction()).onLast().performClick()
+            compose.onNodeWithTag("auth_login").performTextInput(email)
+            compose.onNodeWithTag("auth_password").performTextInput("correct horse")
+            compose.onNodeWithTag("auth_submit").performClick()
             waitFor(hasTestTag("code_input"), 20_000)
             waitText("Check your email")
             shot("84_sign_in_code")

@@ -376,8 +376,9 @@ fun ChangePasswordScreen(onBack: () -> Unit, showMessage: (String) -> Unit) {
                     busy = true
                     scope.launch {
                         try {
-                            apiCall { app.api.changePassword(PasswordChange(current, next)) }
-                            showMessage("Password changed.")
+                            val r = apiCall { app.api.changePassword(PasswordChange(current, next)) }
+                            r.token?.let { app.replaceToken(it) }
+                            showMessage("Password changed. Your other devices were signed out.")
                             onBack()
                         } catch (e: ApiException) {
                             error = e.message

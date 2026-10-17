@@ -3,6 +3,8 @@ package app.foodfeed.ui
 import app.foodfeed.ui.components.LocalNavigateTo
 import app.foodfeed.ui.map.NavTarget
 import app.foodfeed.ui.profile.TwoFactorScreen
+import app.foodfeed.ui.profile.SessionsScreen
+import app.foodfeed.ui.profile.VerifyEmailScreen
 import app.foodfeed.ui.map.NavigateScreen
 import app.foodfeed.ui.taste.TasteScreen
 import app.foodfeed.ui.taste.TasteViewModel
@@ -183,6 +185,8 @@ object Routes {
     const val NEW_STORY = "new-story"
     const val TASTE = "taste?first={first}"
     const val SECURITY = "security"
+    const val SESSIONS = "sessions"
+    const val VERIFY_EMAIL = "verify-email"
     const val NAVIGATE = "go/{id}?lat={lat}&lng={lng}&name={name}"
     fun navigate(t: NavTarget) =
         "go/${t.placeId}?lat=${t.lat}&lng=${t.lng}&name=${android.net.Uri.encode(t.name)}"
@@ -231,6 +235,14 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val showMessage: (String) -> Unit = { msg -> scope.launch { snackbar.showSnackbar(msg) } }
+    // The server ended this sign-in (signed out elsewhere, a new password): say so once.
+    val endedNotice by app.signedOutNotice.collectAsState()
+    LaunchedEffect(endedNotice) {
+        endedNotice?.let {
+            app.signedOutNotice.value = null
+            snackbar.showSnackbar(it)
+        }
+    }
     val needsSetup = server.isBlank() || city == null
     // Decided once: changing the start destination later would reset navigation.
     val startRoute = remember { if (needsSetup) Routes.SETUP else Routes.HOME }
@@ -551,7 +563,15 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         onBlocked = { nav.go(Routes.BLOCKED) },
                         onTaste = { nav.go(Routes.taste()) },
                         onTwoFactor = { nav.go(Routes.SECURITY) },
+                        onSessions = { nav.go(Routes.SESSIONS) },
+                        onVerifyEmail = { nav.go(Routes.VERIFY_EMAIL) },
                     )
+                }
+                composable(Routes.SESSIONS) {
+                    Box(Modifier.statusBarsPadding()) { SessionsScreen({ nav.back() }, showMessage) }
+                }
+                composable(Routes.VERIFY_EMAIL) {
+                    Box(Modifier.statusBarsPadding()) { VerifyEmailScreen({ nav.back() }, showMessage) }
                 }
                 composable(Routes.SECURITY) {
                     Box(Modifier.statusBarsPadding()) {

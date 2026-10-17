@@ -12,7 +12,10 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 FROM ${NODE_IMAGE}
+# Password checks (scrypt) and image work run on libuv's thread pool; 4 threads (the
+# default) queue sign-ins under load.
 ENV NODE_ENV=production \
+    UV_THREADPOOL_SIZE=16 \
     PORT=8080 \
     MEDIA_DIR=/data/media
 WORKDIR /app
