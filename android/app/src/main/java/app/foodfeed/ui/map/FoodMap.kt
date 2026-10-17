@@ -515,6 +515,8 @@ fun FoodMap(
             )
         }
     }
+    // A new set of places (a filter, a route) starts the strip from its first card.
+    LaunchedEffect(withDishes.firstOrNull()?.id) { if (withDishes.isNotEmpty()) strip.scrollToItem(0) }
     // Swiping the strip selects the card that settles in front.
     LaunchedEffect(strip, withDishes) {
         snapshotFlow { strip.isScrollInProgress to strip.firstVisibleItemIndex }

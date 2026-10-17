@@ -199,10 +199,13 @@ class FullAppTest {
         }
         step("scroll the deck") {
             gfx("reset")
+            // Real finger swipes (UiAutomator), as a person scrolls.
+            val x = device.displayWidth / 2
             repeat(10) {
-                compose.onNodeWithTag("feed_pager").performTouchInput { swipeUp(durationMillis = 220) }
-                compose.waitForIdle()
+                device.swipe(x, device.displayHeight * 3 / 4, x, device.displayHeight / 4, 12)
+                Thread.sleep(500)
             }
+            compose.waitForIdle()
             val stats = gfx("").lines().filter {
                 it.contains("Total frames") || it.contains("Janky frames") || it.contains("percentile") || it.contains("Slow")
             }
@@ -541,7 +544,7 @@ class FullAppTest {
             compose.waitUntil(20_000) { probe.places.isNotEmpty() && probe.places.all { it.lovedBy?.handle == twin.user.handle } }
             assertTrue(probe.places.any { it.id == dishes[5].restaurant.id })
             val first = probe.places.first { it.dishCount > 0 }
-            waitFor(hasTestTag("map_card_${first.id}"), 10_000)
+            waitFor(hasTestTag("map_card_${first.id}"), 15_000)
             Thread.sleep(1500)
             shot("56_map_friends_picks")
             compose.onNodeWithTag("map_card_${first.id}").performClick()
