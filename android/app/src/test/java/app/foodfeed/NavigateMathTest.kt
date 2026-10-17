@@ -6,7 +6,7 @@ import app.foodfeed.data.NavStep
 import app.foodfeed.ui.map.NavTarget
 import app.foodfeed.ui.map.RouteProgress
 import app.foodfeed.ui.map.bearing
-import app.foodfeed.ui.map.metres
+import app.foodfeed.ui.map.geoMetres
 import app.foodfeed.ui.map.progressOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -29,7 +29,7 @@ class NavigateMathTest {
 
     @Test
     fun distancesAndBearings() {
-        assertEquals(1112.0, metres(20.0, 73.78, 20.01, 73.78), 5.0)
+        assertEquals(1112.0, geoMetres(20.0, 73.78, 20.01, 73.78), 5.0)
         assertEquals(0.0, bearing(20.0, 73.78, 20.01, 73.78), 0.5)
         assertEquals(90.0, bearing(20.0, 73.78, 20.0, 73.79), 0.5)
     }
@@ -65,6 +65,6 @@ class NavigateMathTest {
     fun withoutRoadDirectionsItPointsStraightThere() {
         val p = progressOf(Directions(coordinates = line.take(2), source = "straight"), Coords(20.0, 73.78), target)
         assertEquals("Head towards Sadhana", p.nextInstruction)
-        assertEquals(metres(20.0, 73.78, 20.01, 73.7905), p.remainingM, 0.1)
+        assertEquals(geoMetres(20.0, 73.78, 20.01, 73.7905), p.remainingM, 0.1)
     }
 }

@@ -1,5 +1,7 @@
 package app.foodfeed.ui.feed
 
+import app.foodfeed.ui.explore.PlacesScreen
+import app.foodfeed.ui.explore.PlacesViewModel
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -120,8 +122,8 @@ fun FeedScreen(
         onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
         commentCountOf = { card -> card.cover?.let { commentCounts[it.postId] ?: it.commentCount } ?: 0 },
         placesContent = {
-            val placesVm = appViewModel { app.foodfeed.ui.explore.PlacesViewModel(it) }
-            app.foodfeed.ui.explore.PlacesScreen(
+            val placesVm = appViewModel { PlacesViewModel(it) }
+            PlacesScreen(
                 placesVm, onOpenRestaurant,
                 onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
                 onAddDish = onAddDish,

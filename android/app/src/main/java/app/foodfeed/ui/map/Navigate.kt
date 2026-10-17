@@ -104,7 +104,7 @@ private const val ARRIVED_M = 40.0
 private const val OFF_ROUTE_M = 70.0
 
 /** Distance in metres between two points on the earth. */
-internal fun metres(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Double {
+internal fun geoMetres(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Double {
     val r = 6_371_000.0
     val dLat = Math.toRadians(bLat - aLat)
     val dLng = Math.toRadians(bLng - aLng)
@@ -129,7 +129,7 @@ internal class RouteProgress(line: List<List<Double>>) {
     private val pts = line.filter { it.size >= 2 }.map { it[1] to it[0] }
     /** Distance from the start to each point. */
     private val cum = DoubleArray(pts.size).also { c ->
-        for (i in 1 until pts.size) c[i] = c[i - 1] + metres(pts[i - 1].first, pts[i - 1].second, pts[i].first, pts[i].second)
+        for (i in 1 until pts.size) c[i] = c[i - 1] + geoMetres(pts[i - 1].first, pts[i - 1].second, pts[i].first, pts[i].second)
     }
     val length: Double get() = cum.lastOrNull() ?: 0.0
 
@@ -170,7 +170,7 @@ internal data class NavProgress(
 )
 
 internal fun progressOf(route: Directions?, here: Coords, target: NavTarget): NavProgress {
-    val straight = metres(here.lat, here.lng, target.lat, target.lng)
+    val straight = geoMetres(here.lat, here.lng, target.lat, target.lng)
     if (straight <= ARRIVED_M) return NavProgress("You have arrived", null, 0.0, 0.0, 0.0, true)
     if (route == null || route.coordinates.size < 2 || route.source != "osrm") {
         return NavProgress("Head towards ${target.name}", null, straight, route?.durationS?.toDouble(), 0.0, false)
@@ -284,8 +284,8 @@ fun NavigateScreen(target: NavTarget, onBack: () -> Unit, onOpenPlace: (String) 
     // First route as soon as we know where you are; a new one when you leave it.
     LaunchedEffect(here) {
         val h = here ?: return@LaunchedEffect
-        prev?.let { p -> if (metres(p.lat, p.lng, h.lat, h.lng) > 8) heading = bearing(p.lat, p.lng, h.lat, h.lng) }
-        if (prev == null || metres(prev!!.lat, prev!!.lng, h.lat, h.lng) > 8) prev = h
+        prev?.let { p -> if (geoMetres(p.lat, p.lng, h.lat, h.lng) > 8) heading = bearing(p.lat, p.lng, h.lat, h.lng) }
+        if (prev == null || geoMetres(prev!!.lat, prev!!.lng, h.lat, h.lng) > 8) prev = h
         val now = System.currentTimeMillis()
         val off = progress?.offRouteM ?: 0.0
         if (route == null && routeError == null) fetchRoute(h)

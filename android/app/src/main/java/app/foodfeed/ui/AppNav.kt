@@ -1,5 +1,8 @@
 package app.foodfeed.ui
 
+import app.foodfeed.ui.components.LocalNavigateTo
+import app.foodfeed.ui.map.NavTarget
+import app.foodfeed.ui.map.NavigateScreen
 import app.foodfeed.ui.taste.TasteScreen
 import app.foodfeed.ui.taste.TasteViewModel
 import app.foodfeed.ui.messages.InboxScreen
@@ -179,7 +182,7 @@ object Routes {
     const val NEW_STORY = "new-story"
     const val TASTE = "taste?first={first}"
     const val NAVIGATE = "go/{id}?lat={lat}&lng={lng}&name={name}"
-    fun navigate(t: app.foodfeed.ui.map.NavTarget) =
+    fun navigate(t: NavTarget) =
         "go/${t.placeId}?lat=${t.lat}&lng=${t.lng}&name=${android.net.Uri.encode(t.name)}"
     fun taste(first: Boolean = false) = "taste?first=$first"
     fun chat(id: String) = "chat/$id"
@@ -283,7 +286,7 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
             SharedTransitionLayout(Modifier.fillMaxSize()) {
             CompositionLocalProvider(
                 LocalSharedScope provides this,
-                app.foodfeed.ui.components.LocalNavigateTo provides { t -> nav.go(Routes.navigate(t)) },
+                LocalNavigateTo provides { t -> nav.go(Routes.navigate(t)) },
             ) {
             NavHost(
                 nav,
@@ -499,13 +502,13 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     ),
                 ) { entry ->
                     val a = entry.arguments
-                    val target = app.foodfeed.ui.map.NavTarget(
+                    val target = NavTarget(
                         placeId = a?.getString("id").orEmpty(),
                         lat = a?.getString("lat")?.toDoubleOrNull() ?: 0.0,
                         lng = a?.getString("lng")?.toDoubleOrNull() ?: 0.0,
                         name = a?.getString("name").orEmpty(),
                     )
-                    app.foodfeed.ui.map.NavigateScreen(target, onBack = { nav.back() }, onOpenPlace = openRestaurant)
+                    NavigateScreen(target, onBack = { nav.back() }, onOpenPlace = openRestaurant)
                 }
                 composable(Routes.RESTAURANT) { entry ->
                     NavScoped {
