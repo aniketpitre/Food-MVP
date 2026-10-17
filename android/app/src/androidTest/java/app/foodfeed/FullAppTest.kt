@@ -706,6 +706,10 @@ class FullAppTest {
             compose.onNodeWithTag("code_input").performTextInput(code)
             compose.waitUntil(20_000) { container.session.value != null }
             assertTrue(container.session.value!!.user.twoFactor)
+            // A first sign-in asks for your taste; skip it.
+            waitText("Your taste", timeoutMs = 15_000)
+            compose.onNodeWithText("Skip").performClick()
+            gone(hasText("Your taste"))
         }
         step("turn it off with my password") {
             open("foodfeed://security")
@@ -805,21 +809,21 @@ class FullAppTest {
             waitText("Theme")
         }
         step("theme: light, dark, back to the phone's") {
-            compose.onNodeWithText("Theme").performClick()
+            compose.onNodeWithText("Theme").performScrollTo().performClick()
             waitText("Light")
-            compose.onNodeWithText("Theme").performClick()
+            compose.onNodeWithText("Theme").performScrollTo().performClick()
             waitText("Dark")
             shot("51_settings_dark")
-            compose.onNodeWithText("Theme").performClick()
+            compose.onNodeWithText("Theme").performScrollTo().performClick()
             waitText("Same as phone")
         }
         step("lite mode: on, off, automatic") {
-            compose.onNodeWithText("Lite mode").performClick()
+            compose.onNodeWithText("Lite mode").performScrollTo().performClick()
             waitText("On: fewer effects", substring = true)
             shot("52_settings_lite_on")
-            compose.onNodeWithText("Lite mode").performClick()
+            compose.onNodeWithText("Lite mode").performScrollTo().performClick()
             waitText("Off: full effects")
-            compose.onNodeWithText("Lite mode").performClick()
+            compose.onNodeWithText("Lite mode").performScrollTo().performClick()
             waitText("Automatic", substring = true)
         }
         step("notifications and the rest are there") {
