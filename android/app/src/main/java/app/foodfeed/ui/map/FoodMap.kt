@@ -1017,7 +1017,7 @@ private fun metres(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Int 
     return (sqrt(x * x + y * y) * 6_371_000).roundToInt()
 }
 
-private fun styleJson(context: Context, dark: Boolean): String =
+internal fun styleJson(context: Context, dark: Boolean): String =
     context.assets.open(if (dark) "map/dark.json" else "map/light.json").bufferedReader().use { it.readText() }
 
 private fun logoId(emoji: String, selected: Boolean) = "logo-${if (selected) "on" else "off"}-$emoji"
@@ -1139,7 +1139,7 @@ private fun addLayers(style: Style) {
 
 /** Forwards the screen's lifecycle to the MapView (it needs start/resume/pause/stop/destroy). */
 @Composable
-private fun MapLifecycle(view: MapView) {
+internal fun MapLifecycle(view: MapView) {
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, view) {
         val observer = LifecycleEventObserver { _, e ->

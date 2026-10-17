@@ -131,6 +131,9 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     /** Approximate location, kept in memory only for distances and Nearby. */
     val location = MutableStateFlow<Coords?>(null)
 
+    /** An Explore tab another screen asked for (e.g. Home's "Explore places"); Explore takes it once. */
+    val pendingExploreTab = MutableStateFlow<String?>(null)
+
     private val _overrides = MutableStateFlow<Map<String, EngagementState>>(emptyMap())
     val overrides: StateFlow<Map<String, EngagementState>> = _overrides.asStateFlow()
 

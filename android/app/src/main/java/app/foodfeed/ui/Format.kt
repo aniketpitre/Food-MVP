@@ -12,6 +12,17 @@ object Format {
         else -> "${meters / 1000} km"
     }
 
+    /** "4 min", "1 h 05 min". */
+    fun duration(seconds: Int?): String? = when {
+        seconds == null -> null
+        seconds < 60 -> "1 min"
+        seconds < 3600 -> "${(seconds + 30) / 60} min"
+        else -> String.format(Locale.US, "%d h %02d min", seconds / 3600, (seconds % 3600 + 30) / 60)
+    }
+
+    /** A rough drive time across town (about 25 km/h with traffic), for lists. */
+    fun driveTime(meters: Int?): String? = meters?.let { duration(maxOf(60, (it / 25_000.0 * 3600).toInt())) }
+
     fun price(inr: Int?): String? = inr?.let { "₹$it" }
 
     /** Instagram-style age: "now", "5m", "3h", "2d", "4w", then a date. */

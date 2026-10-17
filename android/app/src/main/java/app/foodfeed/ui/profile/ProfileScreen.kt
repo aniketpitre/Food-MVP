@@ -221,6 +221,7 @@ fun ProfileScreen(
     onFollows: (handle: String, followers: Boolean) -> Unit = { _, _ -> },
     onMessage: (String) -> Unit = {},
     onOpenStory: (String) -> Unit = {},
+    onAddDish: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -258,6 +259,7 @@ fun ProfileScreen(
             onReport = { if (session == null) onSignIn() else reporting = true },
             onMessage = { if (session == null) onSignIn() else onMessage(it) },
             onOpenStory = onOpenStory,
+            onAddDish = onAddDish,
             onShare = { handle ->
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
@@ -293,6 +295,7 @@ fun ProfileContent(
     onShare: (String) -> Unit,
     onMessage: (String) -> Unit = {},
     onOpenStory: (String) -> Unit = {},
+    onAddDish: () -> Unit = {},
 ) {
     val profile = state.profile ?: return
     var menu by remember { mutableStateOf(false) }
@@ -386,6 +389,7 @@ fun ProfileContent(
                         QuietButton("", { onShare(profile.handle) }, leading = Icons.Outlined.Share)
                     }
                 }
+                if (profile.isMe) CompleteProfileCard(profile, onEditProfile, onAddDish)
                 ProfileTabs(tabs, state.tab, onTab)
             }
         }
@@ -584,6 +588,54 @@ private fun DishTile(c: DishCard, thumb: String?, index: Int, onClick: () -> Uni
  * How alike your taste and theirs are, with what it's based on. Tap for the details:
  * how many dishes you both voted on and agreed about, and the dish types you share.
  */
+/** "Complete your profile 1/3": a photo, a bio and a first dish. Gone once all three are done. */
+@Composable
+private fun CompleteProfileCard(profile: app.foodfeed.data.UserProfile, onEditProfile: () -> Unit, onAddDish: () -> Unit) {
+    val steps = listOf(
+        Triple("Add a profile photo", profile.avatarUrl != null, onEditProfile),
+        Triple("Write a short bio", !profile.bio.isNullOrBlank(), onEditProfile),
+        Triple("Post your first dish", profile.posts.isNotEmpty(), onAddDish),
+    )
+    val done = steps.count { it.second }
+    if (done == steps.size) return
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(20.dp))
+            .testTag("complete_profile")
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Complete your profile", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("$done/${steps.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { done / steps.size.toFloat() },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        )
+        steps.forEach { (label, ok, action) ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(enabled = !ok, onClick = action)
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(if (ok) "✅" else "⬜", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    textDecoration = if (ok) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun TasteMatchPill(m: app.foodfeed.data.TasteMatch, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }

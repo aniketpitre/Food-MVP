@@ -317,6 +317,20 @@ data class RouteLine(
     val source: String = "straight",
 )
 
+/** One turn of the in-app directions: what to do there, and how far it is to the next one. */
+@Serializable
+data class NavStep(val instruction: String, val distanceM: Int = 0, val lng: Double, val lat: Double)
+
+@Serializable
+data class Directions(
+    /** [lng, lat] pairs along the road. */
+    val coordinates: List<List<Double>> = emptyList(),
+    val distanceM: Int? = null,
+    val durationS: Int? = null,
+    val source: String = "straight",
+    val steps: List<NavStep> = emptyList(),
+)
+
 @Serializable
 data class RouteStop(val card: DishCard, val along: Double = 0.0, val offRouteM: Int = 0)
 
@@ -576,6 +590,43 @@ data class MapPlace(
 
 @Serializable
 data class LovedBy(val handle: String, val displayName: String? = null, val avatarUrl: String? = null, val match: Int? = null)
+
+/** A place in Explore › Places: a map place plus how far it is and its best few dishes. */
+@Serializable
+data class PlaceItem(
+    val id: String,
+    val name: String,
+    val locality: String? = null,
+    val cuisine: String? = null,
+    val address: String? = null,
+    val lat: Double,
+    val lng: Double,
+    val dishCount: Int = 0,
+    val lovers: Int = 0,
+    val distanceM: Int? = null,
+    val pureVeg: Boolean = false,
+    val photoUrl: String? = null,
+    val demo: Boolean = false,
+    val emoji: String = "🍽️",
+    val topDish: MapTopDish? = null,
+    val dishNames: List<String> = emptyList(),
+)
+
+@Serializable
+data class PlacePage(val items: List<PlaceItem> = emptyList(), val nextOffset: Int? = null)
+
+@Serializable
+data class Facet(val name: String, val places: Int = 0, val withDishes: Int = 0)
+
+@Serializable
+data class CategoryFacet(val id: Int, val name: String, val emoji: String? = null, val dishes: Int = 0, val places: Int = 0)
+
+@Serializable
+data class PlaceFacets(
+    val areas: List<Facet> = emptyList(),
+    val cuisines: List<Facet> = emptyList(),
+    val categories: List<CategoryFacet> = emptyList(),
+)
 
 @Serializable
 data class MapPlaces(val places: List<MapPlace> = emptyList())

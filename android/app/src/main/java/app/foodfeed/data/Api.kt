@@ -158,6 +158,33 @@ interface WorthAbiteApi {
         @Query("corridorKm") corridorKm: Double = 3.0,
     ): RouteStops
 
+    /** Directions for the in-app Take me there: the road line and its turns. */
+    @GET("route")
+    suspend fun directions(
+        @Query("fromLat") fromLat: Double,
+        @Query("fromLng") fromLng: Double,
+        @Query("toLat") toLat: Double,
+        @Query("toLng") toLng: Double,
+    ): Directions
+
+    // ---------- Explore by places ----------
+    @GET("places")
+    suspend fun places(
+        @Query("city") city: Int,
+        @Query("lat") lat: Double?,
+        @Query("lng") lng: Double?,
+        @Query("sort") sort: String,
+        @Query("area") area: String?,
+        @Query("cuisine") cuisine: String?,
+        @Query("category") category: Int?,
+        @Query("veg") veg: Boolean,
+        @Query("maxKm") maxKm: Double?,
+        @Query("offset") offset: Int = 0,
+        @Query("limit") limit: Int = 20,
+    ): PlacePage
+
+    @GET("places/facets") suspend fun placeFacets(@Query("city") city: Int): PlaceFacets
+
     @GET("restaurants/{id}/google-photos") suspend fun googlePhotos(@Path("id") id: String): GooglePhotos
 
     @GET("restaurants/{id}/maps") suspend fun mapsLink(@Path("id") id: String): MapsLink

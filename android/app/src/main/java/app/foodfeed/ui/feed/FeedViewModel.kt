@@ -25,6 +25,8 @@ enum class FeedTab(val api: String, val label: String) {
     Trending("trending", "Trending"),
     Gems("gems", "Gems"),
     Nearby("nearby", "Nearby"),
+    /** Places, with filters: shown by its own screen (ui/explore), not the dish pager. */
+    Places("places", "Places"),
 }
 
 data class FeedUiState(
@@ -55,6 +57,13 @@ class FeedViewModel(private val app: AppContainer) : ViewModel() {
     private var loadJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            app.pendingExploreTab.collect { api ->
+                val tab = FeedTab.entries.firstOrNull { it.api == api } ?: return@collect
+                app.pendingExploreTab.value = null
+                selectTab(tab)
+            }
+        }
         viewModelScope.launch {
             app.session.collect { s ->
                 val signedIn = s != null
@@ -131,6 +140,10 @@ class FeedViewModel(private val app: AppContainer) : ViewModel() {
         val s = _state.value
         val city = s.city ?: return
         val loc = app.location.value
+        if (s.tab == FeedTab.Places) {
+            _state.update { it.copy(loading = false, refreshing = false, items = emptyList()) }
+            return
+        }
         if (s.tab == FeedTab.Nearby && loc == null) {
             _state.update { it.copy(loading = false, refreshing = false, needsLocation = true, items = emptyList()) }
             return

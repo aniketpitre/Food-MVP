@@ -119,6 +119,14 @@ fun FeedScreen(
         onAddDish = onAddDish,
         onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
         commentCountOf = { card -> card.cover?.let { commentCounts[it.postId] ?: it.commentCount } ?: 0 },
+        placesContent = {
+            val placesVm = appViewModel { app.foodfeed.ui.explore.PlacesViewModel(it) }
+            app.foodfeed.ui.explore.PlacesScreen(
+                placesVm, onOpenRestaurant,
+                onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
+                onAddDish = onAddDish,
+            )
+        },
         nearbyContent = {
             val mapVm = appViewModel { MapViewModel(it) }
             val location by app.location.collectAsState()
@@ -158,7 +166,7 @@ fun FeedScreen(
     }
 }
 
-private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards, Map }
+private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards, Map, Places }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -183,6 +191,7 @@ fun FeedContent(
     commentCountOf: (DishCard) -> Int = { it.cover?.commentCount ?: 0 },
     onComments: (DishCard) -> Unit = {},
     nearbyContent: (@Composable () -> Unit)? = null,
+    placesContent: (@Composable () -> Unit)? = null,
 ) {
     var showFilter by remember { mutableStateOf(false) }
     val selectedCategory = state.categories.firstOrNull { it.id == state.selectedCategory }
@@ -196,10 +205,11 @@ fun FeedContent(
             onFilter = { showFilter = true },
         )
         FeedTabs(state.tab, state.tabs, onTab)
-        ActiveFilterChip(selectedCategory) { onCategory(null) }
+        if (state.tab != FeedTab.Places) ActiveFilterChip(selectedCategory) { onCategory(null) }
 
         val body = when {
             state.tab == FeedTab.Nearby && nearbyContent != null -> FeedBody.Map
+            state.tab == FeedTab.Places && placesContent != null -> FeedBody.Places
             state.loading && state.items.isEmpty() -> FeedBody.Loading
             state.error != null && state.items.isEmpty() -> FeedBody.Error
             state.needsLocation -> FeedBody.NeedsLocation
@@ -219,6 +229,7 @@ fun FeedContent(
         ) { b ->
             when (b) {
                 FeedBody.Map -> nearbyContent?.invoke()
+                FeedBody.Places -> placesContent?.invoke()
                 FeedBody.Loading -> FeedSkeleton()
                 FeedBody.Error -> CenteredMessage("Couldn't load dishes", state.error, Icons.Filled.Refresh, "Try again", onRetry)
                 FeedBody.NeedsLocation -> CenteredMessage(

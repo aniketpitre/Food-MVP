@@ -184,6 +184,7 @@ fun HomeScreen(
     onInbox: () -> Unit = {},
     onTaste: () -> Unit = {},
     onSearch: () -> Unit = {},
+    onExplorePlaces: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
@@ -213,6 +214,7 @@ fun HomeScreen(
         onTaste = onTaste,
         onFollowMate = vm::followMate,
         onSearch = onSearch,
+        onExplorePlaces = onExplorePlaces,
     )
 }
 
@@ -262,6 +264,7 @@ fun HomeContent(
     onTaste: () -> Unit = {},
     onFollowMate: (String) -> Unit = {},
     onSearch: () -> Unit = {},
+    onExplorePlaces: () -> Unit = {},
 ) {
     val d = state.data
     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
@@ -304,6 +307,15 @@ fun HomeContent(
                     }
                 }
                 else -> {
+                    item(key = "shortcuts", contentType = "shortcuts") {
+                        // Can't decide? One of the dishes people loved most, picked at random.
+                        val pool = remember(d) { (d.forYou + d.peoplesPicks + d.nearby).distinctBy { it.id } }
+                        Shortcuts(
+                            onSurprise = if (pool.isEmpty()) null else ({ onOpenDish(pool.random().id) }),
+                            onPlaces = onExplorePlaces,
+                            city = state.city?.name ?: "your city",
+                        )
+                    }
                     if (d.forYou.isNotEmpty()) {
                         item(key = "foryou-title", contentType = "header") {
                             SectionHeader("For you", "Loved by people whose taste matches yours")
@@ -474,6 +486,39 @@ private fun CravingChip(label: String, index: Int, onClick: () -> Unit) {
             .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     )
+}
+
+/** Two big buttons under the search: a random great dish, and Explore › Places. */
+@Composable
+private fun Shortcuts(onSurprise: (() -> Unit)?, onPlaces: () -> Unit, city: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (onSurprise != null) {
+            ShortcutCard("🎲", "Pick something for me", "One of the most loved, at random", "pick_for_me", Modifier.weight(1f), onSurprise)
+        }
+        ShortcutCard("📍", "Explore places", "Areas, veg, cuisines in $city", "explore_places", Modifier.weight(1f), onPlaces)
+    }
+}
+
+@Composable
+private fun ShortcutCard(emoji: String, title: String, body: String, tag: String, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier
+            .pressScale(interaction, 0.96f)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .testTag(tag)
+            .padding(14.dp),
+    ) {
+        Text(emoji, fontSize = 26.sp)
+        Spacer(Modifier.height(6.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 @Composable

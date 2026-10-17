@@ -1353,6 +1353,69 @@ describe('real places from OpenStreetMap', () => {
   });
 });
 
+describe('explore places and in-app directions', () => {
+  async function place(name: string, locality: string, cuisine: string, dishes: { veg: boolean }[], lng = 73.78, lat = 20.0) {
+    const r = await db.query(
+      `insert into restaurants (city_id, name, name_norm, locality, cuisine, geo, status)
+       values ($1, $2, norm_name($2), $3, $4, st_setsrid(st_makepoint($5, $6), 4326)::geography, 'active') returning id`,
+      [cityId, name, locality, cuisine, lng, lat],
+    );
+    for (const [i, d] of dishes.entries()) {
+      const dish = await db.query(
+        `insert into dishes (restaurant_id, city_id, name, name_norm, is_veg) values ($1, $2, $3, norm_name($3), $4) returning id`,
+        [r.rows[0].id, cityId, `${name} dish ${i}`, d.veg],
+      );
+      await db.query(`insert into posts (dish_id, image_path, thumb_path) values ($1, '/media/t.webp', '/media/t.webp')`, [dish.rows[0].id]);
+    }
+    return r.rows[0].id as string;
+  }
+
+  it('lists places with filters, sorts and facets, without touching scores', async () => {
+    const veg = await place('Explore Veg House', 'Explore Nagar', 'south_indian', [{ veg: true }, { veg: true }], 73.781, 20.001);
+    const mixed = await place('Explore Mixed Grill', 'Explore Nagar', 'indian;bbq', [{ veg: true }, { veg: false }], 73.9, 20.1);
+    const before = (await db.query('select dish_id, score from dish_stats order by dish_id')).rows;
+
+    const list = (await app.inject(`/places?city=${cityId}&area=Explore%20Nagar`)).json();
+    expect(list.items.map((p: { id: string }) => p.id).sort()).toEqual([veg, mixed].sort());
+    const vegOnly = (await app.inject(`/places?city=${cityId}&area=Explore%20Nagar&veg=true`)).json();
+    expect(vegOnly.items.map((p: { id: string }) => p.id)).toEqual([veg]);
+    expect(vegOnly.items[0]).toMatchObject({ pureVeg: true, dishCount: 2 });
+    expect(vegOnly.items[0].dishNames).toHaveLength(2);
+    const byCuisine = (await app.inject(`/places?city=${cityId}&cuisine=south%20indian`)).json();
+    expect(byCuisine.items.map((p: { id: string }) => p.id)).toContain(veg);
+    expect(byCuisine.items.map((p: { id: string }) => p.id)).not.toContain(mixed);
+
+    // Nearest first, and a distance limit; both need a location.
+    expect((await app.inject(`/places?city=${cityId}&sort=nearest`)).statusCode).toBe(400);
+    const near = (await app.inject(`/places?city=${cityId}&area=Explore%20Nagar&sort=nearest&lat=20.0&lng=73.78`)).json();
+    expect(near.items.map((p: { id: string }) => p.id)).toEqual([veg, mixed]);
+    expect(near.items[0].distanceM).toBeLessThan(near.items[1].distanceM);
+    const close = (await app.inject(`/places?city=${cityId}&area=Explore%20Nagar&lat=20.0&lng=73.78&maxKm=2`)).json();
+    expect(close.items.map((p: { id: string }) => p.id)).toEqual([veg]);
+
+    const facets = (await app.inject(`/places/facets?city=${cityId}`)).json();
+    expect(facets.areas).toContainEqual({ name: 'Explore Nagar', places: 2, withDishes: 2 });
+    expect(facets.cuisines.map((c: { name: string }) => c.name)).toEqual(expect.arrayContaining(['South Indian', 'Indian', 'Bbq']));
+    expect(Array.isArray(facets.categories)).toBe(true);
+
+    // Read only: no score moved.
+    expect((await db.query('select dish_id, score from dish_stats order by dish_id')).rows).toEqual(before);
+  });
+
+  it('gives directions as a straight line with no routing server, and turns into sentences', async () => {
+    const res = (await app.inject('/route?fromLat=20.0&fromLng=73.78&toLat=20.01&toLng=73.79')).json();
+    expect(res).toMatchObject({ source: 'straight', steps: [] });
+    expect(res.coordinates).toEqual([[73.78, 20.0], [73.79, 20.01]]);
+    expect((await app.inject('/route?fromLat=200&fromLng=73.78&toLat=20.01&toLng=73.79')).statusCode).toBe(400);
+    const { stepText } = await import('../src/routes/taste.js');
+    const at: [number, number] = [0, 0];
+    expect(stepText({ name: 'MG Road', distance: 10, maneuver: { type: 'turn', modifier: 'left', location: at } })).toBe('Turn left onto MG Road');
+    expect(stepText({ distance: 10, maneuver: { type: 'arrive', location: at } })).toBe('You have arrived');
+    expect(stepText({ name: '', distance: 10, maneuver: { type: 'turn', modifier: 'uturn', location: at } })).toBe('Make a U-turn');
+    expect(stepText({ name: 'Ring Rd', distance: 10, maneuver: { type: 'roundabout', location: at } })).toBe('At the roundabout, take the exit onto Ring Rd');
+  });
+});
+
 async function loginAs(handle: string) {
   const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${handle}@example.com`, password: 'correct horse' } });
   return { auth: { authorization: `Bearer ${res.json().token}` } };

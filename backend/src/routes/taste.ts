@@ -87,28 +87,81 @@ export async function tasteMatch(db: Db, viewer: string, other: string) {
   return { percent: Math.round(100 * m.match), coVotes: m.co_votes, agreed: m.agreed, shared };
 }
 
+interface Step {
+  instruction: string;
+  distanceM: number; // from this turn to the next one
+  lng: number;
+  lat: number;
+}
+
 interface Route {
   coordinates: [number, number][]; // [lng, lat]
   distanceM: number | null;
   durationS: number | null;
   source: 'osrm' | 'straight';
+  steps?: Step[];
 }
 
-/** Driving route between two points, from an OSRM server, or a straight line without one. */
-async function route(base: string, from: [number, number], to: [number, number]): Promise<Route> {
-  const straight: Route = { coordinates: [[from[1], from[0]], [to[1], to[0]]], distanceM: null, durationS: null, source: 'straight' };
+interface OsrmStep {
+  name?: string;
+  distance: number;
+  maneuver: { type: string; modifier?: string; location: [number, number] };
+}
+
+/** A turn as a short sentence: "Turn left onto MG Road". */
+export function stepText(s: OsrmStep): string {
+  const { type, modifier } = s.maneuver;
+  const onto = s.name ? ` onto ${s.name}` : '';
+  const dir = modifier ? modifier.replace('uturn', 'U-turn') : '';
+  switch (type) {
+    case 'depart': return `Head out${onto}`;
+    case 'arrive': return 'You have arrived';
+    case 'roundabout':
+    case 'rotary': return `At the roundabout, take the exit${onto}`;
+    case 'merge': return `Merge${dir ? ' ' + dir : ''}${onto}`;
+    case 'fork': return `Keep ${dir || 'straight'} at the fork${onto}`;
+    case 'end of road': return `At the end of the road, turn ${dir || 'ahead'}${onto}`;
+    case 'continue':
+    case 'new name': return `Continue${dir && dir !== 'straight' ? ' ' + dir : ''}${onto}`;
+    default:
+      if (!dir || dir === 'straight') return `Go straight${onto}`;
+      if (dir === 'U-turn') return `Make a U-turn${onto}`;
+      return `Turn ${dir}${onto}`;
+  }
+}
+
+/**
+ * Driving route between two points, from an OSRM server, or a straight line without one.
+ * [detailed] asks for the full line and the turns (for in-app directions).
+ */
+async function route(base: string, from: [number, number], to: [number, number], detailed = false): Promise<Route> {
+  const straight: Route = {
+    coordinates: [[from[1], from[0]], [to[1], to[0]]], distanceM: null, durationS: null, source: 'straight',
+    ...(detailed ? { steps: [] } : {}),
+  };
   if (!base) return straight;
-  const key = [from, to].flat().map((n) => n.toFixed(4)).join(',');
+  const key = [from, to].flat().map((n) => n.toFixed(4)).join(',') + (detailed ? ':d' : '');
   const cached = routeCache.get(key);
   if (cached) return cached;
   try {
-    const url = `${base.replace(/\/+$/, '')}/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=simplified&geometries=geojson`;
+    const opts = detailed ? 'overview=full&geometries=geojson&steps=true' : 'overview=simplified&geometries=geojson';
+    const url = `${base.replace(/\/+$/, '')}/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?${opts}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'WorthAbite/1.0' } });
     if (!res.ok) return straight;
-    const body = (await res.json()) as { routes?: { geometry: { coordinates: [number, number][] }; distance: number; duration: number }[] };
+    const body = (await res.json()) as {
+      routes?: { geometry: { coordinates: [number, number][] }; distance: number; duration: number; legs?: { steps?: OsrmStep[] }[] }[];
+    };
     const r = body.routes?.[0];
     if (!r || r.geometry.coordinates.length < 2) return straight;
     const found: Route = { coordinates: r.geometry.coordinates, distanceM: Math.round(r.distance), durationS: Math.round(r.duration), source: 'osrm' };
+    if (detailed) {
+      found.steps = (r.legs ?? []).flatMap((l) => l.steps ?? []).map((s) => ({
+        instruction: stepText(s),
+        distanceM: Math.round(s.distance),
+        lng: s.maneuver.location[0],
+        lat: s.maneuver.location[1],
+      }));
+    }
     routeCache.set(key, found);
     if (routeCache.size > 200) routeCache.delete(routeCache.keys().next().value!);
     return found;
@@ -123,7 +176,8 @@ const routeCache = new Map<string, Route>();
  *  - /me/taste: the taste profile (what you said, and what your votes taught us);
  *  - /people/taste: people whose taste matches yours, to follow;
  *  - /foryou: dishes from the people whose taste matches yours and the people you follow;
- *  - /route/stops: the best dishes along a drive.
+ *  - /route/stops: the best dishes along a drive;
+ *  - /route: directions to a place, for the in-app Take me there.
  */
 export async function tasteRoutes(app: FastifyInstance) {
   const { db, config } = app;
@@ -204,6 +258,22 @@ export async function tasteRoutes(app: FastifyInstance) {
     );
     if (!q) return;
     return forYouCards(db, userId(req)!, q.city, q.limit, q.offset, q.lat, q.lng);
+  });
+
+  // Directions for the in-app Take me there: the road line, its length and time, and the turns.
+  app.get('/route', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const q = parse(
+      z.object({
+        fromLat: z.coerce.number().min(-90).max(90),
+        fromLng: z.coerce.number().min(-180).max(180),
+        toLat: z.coerce.number().min(-90).max(90),
+        toLng: z.coerce.number().min(-180).max(180),
+      }),
+      req.query,
+      reply,
+    );
+    if (!q) return;
+    return route(config.routingUrl, [q.fromLat, q.fromLng], [q.toLat, q.toLng], true);
   });
 
   // The best dish at each place along a drive, in the order you reach them.

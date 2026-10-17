@@ -22,6 +22,7 @@ import { messageRoutes } from './routes/messages.js';
 import { storyRoutes } from './routes/stories.js';
 import { pageRoutes } from './routes/pages.js';
 import { tasteRoutes } from './routes/taste.js';
+import { exploreRoutes } from './routes/explore.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -108,6 +109,7 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean 
   await app.register(socialRoutes);
   await app.register(discoverRoutes);
   await app.register(tasteRoutes);
+  await app.register(exploreRoutes);
   await app.register(messageRoutes);
   await app.register(storyRoutes);
   await app.register(adminRoutes);

@@ -183,7 +183,7 @@ fun RestaurantContent(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             KickerText(
-                                listOfNotNull(place.locality, Format.distance(place.distanceM)).joinToString("  ·  ").ifEmpty { "Place" },
+                                listOfNotNull(place.locality, Format.distance(place.distanceM), Format.driveTime(place.distanceM)?.let { "$it drive" }).joinToString("  ·  ").ifEmpty { "Place" },
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                             )
                             Text(

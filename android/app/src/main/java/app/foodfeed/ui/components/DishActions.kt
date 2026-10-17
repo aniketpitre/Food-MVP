@@ -33,6 +33,9 @@ import kotlinx.coroutines.launch
 
 val LocalApp = staticCompositionLocalOf<AppContainer> { error("AppContainer not provided") }
 
+/** Opens WorthAbite's own directions screen; null where there is none (previews), then Maps opens. */
+val LocalNavigateTo = staticCompositionLocalOf<((app.foodfeed.ui.map.NavTarget) -> Unit)?> { null }
+
 /** Recommend / save / tried / share / maps, shared by every screen that shows a dish. */
 class DishActions(
     private val app: AppContainer,
@@ -133,11 +136,20 @@ fun rememberDishActions(onNeedSignIn: () -> Unit, showMessage: (String) -> Unit)
  * Take me there that knows about demo places: the invented demo places aren't real
  * businesses, so instead of silently opening Maps on an empty spot it says so first.
  */
-class TakeMeThere(private val app: AppContainer, private val scope: CoroutineScope, private val context: Context) {
+class TakeMeThere(
+    private val app: AppContainer,
+    private val scope: CoroutineScope,
+    private val context: Context,
+    private val inApp: ((app.foodfeed.ui.map.NavTarget) -> Unit)?,
+) {
     internal var pendingDemo by mutableStateOf<(() -> Unit)?>(null)
 
+    /** Directions inside WorthAbite (the drive on our map, following you), else Google Maps. */
     fun go(restaurantId: String, lat: Double, lng: Double, name: String, demo: Boolean) {
-        val run = { directionsTo(scope, app.api, context, restaurantId, lat, lng, name) }
+        val run = {
+            if (inApp != null) inApp(app.foodfeed.ui.map.NavTarget(restaurantId, lat, lng, name))
+            else directionsTo(scope, app.api, context, restaurantId, lat, lng, name)
+        }
         if (demo) pendingDemo = run else run()
     }
 }
@@ -147,7 +159,8 @@ fun rememberTakeMeThere(): TakeMeThere {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val t = remember(app, scope, context) { TakeMeThere(app, scope, context) }
+    val inApp = LocalNavigateTo.current
+    val t = remember(app, scope, context, inApp) { TakeMeThere(app, scope, context, inApp) }
     t.pendingDemo?.let { run ->
         AlertDialog(
             onDismissRequest = { t.pendingDemo = null },

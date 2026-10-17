@@ -178,6 +178,9 @@ object Routes {
     const val USER_STORIES = "user-stories/{handle}"
     const val NEW_STORY = "new-story"
     const val TASTE = "taste?first={first}"
+    const val NAVIGATE = "go/{id}?lat={lat}&lng={lng}&name={name}"
+    fun navigate(t: app.foodfeed.ui.map.NavTarget) =
+        "go/${t.placeId}?lat=${t.lat}&lng=${t.lng}&name=${android.net.Uri.encode(t.name)}"
     fun taste(first: Boolean = false) = "taste?first=$first"
     fun chat(id: String) = "chat/$id"
     fun stories(start: Int) = "stories/$start"
@@ -278,7 +281,10 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).then(if (showBottomBar) Modifier else Modifier.navigationBarsPadding())) {
             SharedTransitionLayout(Modifier.fillMaxSize()) {
-            CompositionLocalProvider(LocalSharedScope provides this) {
+            CompositionLocalProvider(
+                LocalSharedScope provides this,
+                app.foodfeed.ui.components.LocalNavigateTo provides { t -> nav.go(Routes.navigate(t)) },
+            ) {
             NavHost(
                 nav,
                 startDestination = startRoute,
@@ -377,6 +383,10 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                                 onInbox = { nav.go(Routes.INBOX) },
                                 onTaste = { nav.go(Routes.taste()) },
                                 onSearch = { nav.go(Routes.SEARCH) },
+                                onExplorePlaces = {
+                                    app.pendingExploreTab.value = "places"
+                                    nav.navigateToTab(Routes.FEED)
+                                },
                             )
                         }
                     }
@@ -452,6 +462,7 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                                 onFollows = { h, f -> nav.go(Routes.follows(h, f)) },
                                 onMessage = { h -> scope.launch { openChatWith(h) } },
                                 onOpenStory = { h -> nav.go(Routes.userStories(h)) },
+                                onAddDish = { nav.navigateToTab(Routes.ADD) },
                             )
                         }
                     }
@@ -477,6 +488,24 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         val vm = appViewModel(key = "dish-$id") { DishViewModel(it, id) }
                         DishScreen(vm, { nav.back() }, openDish, openRestaurant, openUser, signIn, showMessage)
                     }
+                }
+                composable(
+                    Routes.NAVIGATE,
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("lat") { type = NavType.StringType; defaultValue = "0" },
+                        navArgument("lng") { type = NavType.StringType; defaultValue = "0" },
+                        navArgument("name") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) { entry ->
+                    val a = entry.arguments
+                    val target = app.foodfeed.ui.map.NavTarget(
+                        placeId = a?.getString("id").orEmpty(),
+                        lat = a?.getString("lat")?.toDoubleOrNull() ?: 0.0,
+                        lng = a?.getString("lng")?.toDoubleOrNull() ?: 0.0,
+                        name = a?.getString("name").orEmpty(),
+                    )
+                    app.foodfeed.ui.map.NavigateScreen(target, onBack = { nav.back() }, onOpenPlace = openRestaurant)
                 }
                 composable(Routes.RESTAURANT) { entry ->
                     NavScoped {

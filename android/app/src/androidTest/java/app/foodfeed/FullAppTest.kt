@@ -566,6 +566,82 @@ class FullAppTest {
     }
 
     @Test
+    fun placesFiltersAndInAppDirections() {
+        val probe = app.foodfeed.ui.map.NavigateProbe
+        probe.testLocation = true
+        probe.route = null
+        lateinit var first: app.foodfeed.data.PlaceItem
+        step("Home: pick something for me, and Explore places") {
+            waitFor(hasTestTag("home_list"), 30_000)
+            waitFor(hasTestTag("pick_for_me"), 20_000)
+            shot("60_home_shortcuts")
+            compose.onNodeWithTag("explore_places").performClick()
+            waitFor(hasTestTag("places_list"), 20_000)
+            Thread.sleep(1200)
+            shot("61_explore_places")
+        }
+        step("filters: veg, sort, the sheet and areas") {
+            compose.onNodeWithTag("places_veg").performClick()
+            compose.waitUntil(15_000) {
+                compose.onAllNodes(hasTestTag("places_list"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodes(hasText("No places match"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            shot("62_places_veg")
+            compose.onNodeWithTag("places_veg").performClick()
+            compose.onNodeWithTag("places_filters").performClick()
+            waitFor(hasTestTag("places_sheet"))
+            compose.onNodeWithTag("sheet_sort_nearest").performClick()
+            Thread.sleep(600)
+            shot("63_places_filter_sheet")
+            compose.onNodeWithTag("places_apply").performClick()
+            gone(hasTestTag("places_sheet"))
+            waitFor(hasTestTag("places_list"), 20_000)
+            compose.onNodeWithTag("places_area").performClick()
+            waitFor(hasTestTag("area_sheet"))
+            Thread.sleep(600)
+            shot("64_places_areas")
+            compose.onNodeWithTag("area_All areas").performClick()
+            gone(hasTestTag("area_sheet"))
+            // Nearest first, with distances.
+            val page = runBlocking {
+                container.api.places(container.city.value!!.id, 19.9975, 73.7898, "nearest", null, null, null, false, null)
+            }
+            first = page.items.first()
+            assertTrue(page.items.zipWithNext().all { (a, b) -> (a.distanceM ?: 0) <= (b.distanceM ?: 0) })
+            waitFor(hasTestTag("place_${first.id}"), 15_000)
+        }
+        step("take me there, inside the app") {
+            compose.onNodeWithTag("place_go_${first.id}").performClick()
+            if (first.demo) {
+                waitText("This is a demo place")
+                compose.onNodeWithText("Open the map anyway").performClick()
+            }
+            waitFor(hasTestTag("nav_banner"), 20_000)
+            compose.waitUntil(40_000) { probe.route != null }
+            waitFor(hasTestTag("nav_eta"), 10_000)
+            Thread.sleep(2500)
+            shot("65_navigate")
+            assertTrue(compose.onAllNodes(hasTestTag("nav_google")).fetchSemanticsNodes().isNotEmpty())
+        }
+        step("arrive") {
+            container.location.value = Coords(first.lat, first.lng)
+            waitFor(hasTestTag("nav_arrived"), 15_000)
+            Thread.sleep(1200)
+            shot("66_navigate_arrived")
+            compose.onNodeWithTag("nav_open_place").performClick()
+            waitText("Most recommended here", timeoutMs = 15_000)
+            container.location.value = Coords(19.9975, 73.7898)
+        }
+        step("complete your profile") {
+            backTo(hasContentDescription("Profile"), presses = 5)
+            tab("Profile")
+            waitFor(hasTestTag("complete_profile"), 15_000)
+            shot("67_complete_profile")
+        }
+        probe.testLocation = false
+    }
+
+    @Test
     fun profileSettingsSignOutAndGuest() {
         step("profile") {
             waitFor(hasContentDescription("Profile"), 30_000)
