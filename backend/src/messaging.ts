@@ -30,40 +30,36 @@ export async function conversationWith(db: Pick<Db, 'query'>, me: string, other:
     [key],
   );
   const id = rows[0]!.id;
-  // The other person sees it under Requests unless they follow you, like Instagram.
+  // Shares only ever go between friends, so they land straight in the inbox.
   await db.query(
     `insert into conversation_members (conversation_id, user_id, folder)
-     values ($1, $2, 'inbox'),
-            ($1, $3, case when exists (select 1 from follows where follower_id = $3 and followee_id = $2)
-                          then 'inbox' else 'request' end)
-     on conflict do nothing`,
+     values ($1, $2, 'inbox'), ($1, $3, 'inbox')
+     on conflict (conversation_id, user_id) do update set folder = 'inbox'`,
     [id, me, other],
   );
   return id;
 }
 
+/** What can be shared in messages for now: a dish, or a post (a photo of a dish). */
+export const SHARE_KINDS = ['dish', 'post'] as const;
+
 /**
- * Whether [me] may write to [other]. Blocks always stop it. Otherwise the other person's
- * setting decides (everyone, only people they follow, or nobody), except that a conversation
- * they have already written in stays open, the way a chat you started yourself would.
+ * Whether [me] may share dishes with [other]: only friends, meaning you follow each other.
+ * Blocks always stop it, and so does the other person turning sharing off.
  */
 export async function canMessage(db: Pick<Db, 'query'>, me: string, other: string): Promise<boolean> {
   if (me === other) return false;
   if (await blockedEither(db, me, other)) return false;
-  const { rows } = await db.query<{ policy: string; follows: boolean; replied: boolean }>(
+  const { rows } = await db.query<{ policy: string; mutual: boolean }>(
     `select p.dm_policy as policy,
-            exists (select 1 from follows where follower_id = $2 and followee_id = $1) as follows,
-            exists (select 1 from conversations c join messages m on m.conversation_id = c.id
-                    where c.pair_key = $3 and m.sender_id = $2) as replied
+            exists (select 1 from follows where follower_id = $1 and followee_id = $2)
+              and exists (select 1 from follows where follower_id = $2 and followee_id = $1) as mutual
      from profiles p where p.id = $2`,
-    [me, other, [me, other].sort().join(':')],
+    [me, other],
   );
   const r = rows[0];
   if (!r) return false;
-  if (r.replied) return true;
-  if (r.policy === 'off') return false;
-  if (r.policy === 'following') return r.follows;
-  return true;
+  return r.mutual && r.policy !== 'off';
 }
 
 /** Sends a message from [me] to [other], opening the conversation if needed. Returns its id. */
@@ -83,8 +79,11 @@ export async function sendMessage(
     replyTo?: string | null;
   },
 ): Promise<{ conversationId: string; messageId: string }> {
+  if (!(SHARE_KINDS as readonly string[]).includes(m.kind)) {
+    throw new MessageError(400, 'share_only', 'Only dishes can be shared for now.');
+  }
   if (!(await canMessage(db, me, other))) {
-    throw new MessageError(403, 'cannot_message', "You can't message this person.");
+    throw new MessageError(403, 'cannot_message', 'You can share dishes only with friends: people you follow who follow you back.');
   }
   const conversationId = await conversationWith(db, me, other);
   const { rows } = await db.query<{ id: string }>(

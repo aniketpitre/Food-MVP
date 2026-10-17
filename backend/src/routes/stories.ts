@@ -5,7 +5,6 @@ import { parse } from '../app.js';
 import { optionalAuth, requireAuth, userId } from '../auth.js';
 import type { Db } from '../db.js';
 import { deleteImages, storeImage } from '../media.js';
-import { MessageError, sendMessage } from '../messaging.js';
 
 const uuid = z.string().uuid();
 
@@ -153,50 +152,29 @@ export async function storyRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // A heart on a story. The first like also lands in the owner's messages.
+  // A heart on a story. The owner sees it in the list of who watched (messages are only
+  // for sharing dishes for now, so likes and replies don't go there).
   app.put('/stories/:id/like', { preHandler: requireAuth }, async (req, reply) => {
     const p = parse(z.object({ id: uuid }), req.params, reply);
     const b = parse(z.object({ liked: z.boolean() }), req.body ?? {}, reply);
     if (!p || !b) return;
     const me = userId(req)!;
-    const { rows } = await db.query<{ owner: string; told: boolean }>(
-      `select s.user_id as owner,
-              exists (select 1 from messages m where m.story_id = s.id and m.sender_id = $2 and m.kind = 'story_like') as told
-       from stories s where s.id = $1 and s.expires_at > now()`,
-      [p.id, me],
+    const { rows } = await db.query<{ owner: string }>(
+      'select s.user_id as owner from stories s where s.id = $1 and s.expires_at > now()',
+      [p.id],
     );
-    const s = rows[0];
-    if (!s) return reply.code(404).send({ error: 'not_found', message: 'This story has ended.' });
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'This story has ended.' });
     await db.query(
       `insert into story_views (story_id, viewer_id, liked) values ($1, $2, $3)
        on conflict (story_id, viewer_id) do update set liked = excluded.liked`,
       [p.id, me, b.liked],
     );
-    if (b.liked && !s.told && s.owner !== me) {
-      await sendMessage(db, me, s.owner, { kind: 'story_like', storyId: p.id }).catch((err) => {
-        if (!(err instanceof MessageError)) throw err;
-      });
-    }
     return { liked: b.liked };
   });
 
-  app.post('/stories/:id/reply', { preHandler: requireAuth, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
-    const p = parse(z.object({ id: uuid }), req.params, reply);
-    const b = parse(z.object({ body: z.string().trim().min(1).max(1000) }), req.body, reply);
-    if (!p || !b) return;
-    const me = userId(req)!;
-    const { rows } = await db.query<{ owner: string }>('select user_id as owner from stories where id = $1 and expires_at > now()', [p.id]);
-    const owner = rows[0]?.owner;
-    if (!owner) return reply.code(404).send({ error: 'not_found', message: 'This story has ended.' });
-    if (owner === me) return reply.code(400).send({ error: 'invalid_input', message: "That's your own story." });
-    try {
-      const sent = await sendMessage(db, me, owner, { kind: 'story_reply', body: b.body, storyId: p.id });
-      return reply.code(201).send({ conversationId: sent.conversationId });
-    } catch (err) {
-      if (err instanceof MessageError) return reply.code(err.status).send({ error: err.code, message: err.message });
-      throw err;
-    }
-  });
+  // Replying to a story by message is off for now (messages only carry shared dishes).
+  app.post('/stories/:id/reply', { preHandler: requireAuth }, async (_req, reply) =>
+    reply.code(403).send({ error: 'share_only', message: 'Replies are off for now. You can like the story.' }));
 
   // Who watched your story, likes first.
   app.get('/stories/:id/viewers', { preHandler: requireAuth }, async (req, reply) => {

@@ -7,8 +7,7 @@ import app.foodfeed.data.MapTopDish
 import app.foodfeed.data.ChatSummary
 import app.foodfeed.data.LastMessage
 import app.foodfeed.data.Message
-import app.foodfeed.data.MessageReplyRef
-import app.foodfeed.data.MessagePlace
+import app.foodfeed.data.MessagePost
 import app.foodfeed.data.Reaction
 import app.foodfeed.data.MessageDish
 import app.foodfeed.data.Conversation
@@ -384,12 +383,10 @@ class ScreenshotTest {
         InboxList(
             state = InboxUiState(
                 loading = false,
-                requests = 1,
                 items = listOf(
-                    ChatSummary("c1", with = UserRef("diya_k", "Diya K"), lastMessage = LastMessage("text", "Misal at 8? I'll book a table", false, ago(3)), unread = true),
+                    ChatSummary("c1", with = UserRef("diya_k", "Diya K"), lastMessage = LastMessage("post", null, false, ago(3)), unread = true),
                     ChatSummary("c2", with = UserRef("arjun", "Arjun"), lastMessage = LastMessage("dish", null, true, ago(45))),
-                    ChatSummary("c3", with = UserRef("myra_s", "Myra S"), lastMessage = LastMessage("story_like", null, false, ago(60 * 5))),
-                    ChatSummary("c4", with = UserRef("kabir", "Kabir"), lastMessage = LastMessage("text", "That pav bhaji was unreal", true, ago(60 * 30))),
+                    ChatSummary("c3", with = UserRef("myra_s", "Myra S"), lastMessage = LastMessage("dish", null, false, ago(60 * 5))),
                 ),
             ),
             imageUrl = { it }, onOpen = {}, onLongPress = {},
@@ -401,21 +398,16 @@ class ScreenshotTest {
         val now = java.time.Instant.now()
         fun ago(m: Long) = now.minusSeconds(m * 60).toString()
         val msgs = listOf(
-            Message("m1", "text", "Where should we eat tonight?", ago(30), mine = false),
-            Message("m2", "dish", null, ago(28), mine = true, dish = MessageDish("d1", "Kolhapuri Misal", "Godavari Misal House", 90, "/media/godavari_kolhapuri_misal")),
-            Message("m3", "text", "This one. 95% loved it 🔥", ago(28), mine = true, reactions = listOf(Reaction("❤️"))),
+            Message("m1", "dish", null, ago(30), mine = false, dish = MessageDish("d1", "Kolhapuri Misal", "Godavari Misal House", 90, "/media/godavari_kolhapuri_misal")),
             Message(
-                "m4", "place", null, ago(20), mine = false,
-                place = MessagePlace("r1", "Godavari Misal House", "Panchavati", "maharashtrian", thumbUrl = "/media/godavari_misal_pav"),
+                "m2", "post", null, ago(28), mine = true, reactions = listOf(Reaction("❤️")),
+                post = MessagePost("p1", "d2", "/media/katta_vada_pav", "Crisp, spicy, perfect", "Vada Pav", "arjun"),
             ),
-            Message(
-                "m5", "text", "Misal at 8? I'll book a table", ago(3), mine = false,
-                replyTo = MessageReplyRef("m3", "text", "This one. 95% loved it 🔥", mine = true),
-            ),
+            Message("m3", "dish", null, ago(3), mine = false, reactions = listOf(Reaction("😋", mine = true)), dish = MessageDish("d3", "Pav Bhaji", "Pav Bhaji Point", 110, "/media/pbp_pav_bhaji")),
         )
         ChatContent(
             state = ChatUiState(loading = false, chat = Conversation("c1", with = UserRef("diya_k", "Diya K"), theirLastReadAt = now.toString()), messages = msgs),
-            imageUrl = { it }, onBack = {}, onOpenUser = {}, onOpenDish = {}, onSend = { _, _ -> }, onUnsend = {}, onAccept = {},
+            imageUrl = { it }, onBack = {}, onOpenUser = {}, onOpenDish = {}, onUnsend = {},
             onDelete = {}, onBlock = {}, onReport = {},
         )
     }

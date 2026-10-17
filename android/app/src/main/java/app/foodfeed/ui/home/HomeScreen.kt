@@ -553,7 +553,7 @@ private fun HomeSkeleton() {
 private fun MessagesButton(unread: Int, onClick: () -> Unit) {
     Box {
         IconButton(onClick = onClick, modifier = Modifier.testTag("messages_button")) {
-            Icon(AppIcons.Send, if (unread > 0) "Messages, $unread unread" else "Messages", modifier = Modifier.size(26.dp))
+            Icon(AppIcons.Send, if (unread > 0) "Shared dishes, $unread new" else "Shared dishes", modifier = Modifier.size(26.dp))
         }
         if (unread > 0) {
             Text(

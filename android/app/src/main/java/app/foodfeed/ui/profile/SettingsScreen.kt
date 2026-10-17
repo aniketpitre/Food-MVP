@@ -104,18 +104,10 @@ fun SettingsScreen(
                     onClick = onEditProfile,
                 )
                 Item(
-                    AppIcons.Send, "Who can message you",
-                    when (user.dmPolicy) {
-                        "following" -> "Only people you follow"
-                        "off" -> "Nobody (existing chats stay open)"
-                        else -> "Everyone (people you don't follow land in Requests)"
-                    },
+                    AppIcons.Send, "Who can share dishes with you",
+                    if (user.dmPolicy == "off") "Nobody" else "Friends (people you follow who follow you back)",
                 ) {
-                    val next = when (user.dmPolicy) {
-                        "everyone" -> "following"
-                        "following" -> "off"
-                        else -> "everyone"
-                    }
+                    val next = if (user.dmPolicy == "off") "everyone" else "off"
                     scope.launch {
                         try {
                             app.updateProfile(ProfileUpdate(dmPolicy = next))

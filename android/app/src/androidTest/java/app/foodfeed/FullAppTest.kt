@@ -58,8 +58,8 @@ import java.util.concurrent.TimeUnit
  * Walks through every part of the app on an emulator against a real FoodFeed server (CI
  * starts one with demo data): the Explore deck (scrolling, love, save, send, tabs), a dish
  * page (real photo credit, comments, share, Take me there on a demo place, the place page),
- * craving search (typos and nothing found), messages (text, double-tap heart, reply, dish
- * card, a reply from a friend while the chat is open), phone notifications and the links
+ * craving search (typos and nothing found), sharing a dish with a friend (double-tap
+ * heart, a post shared back while the chat is open), phone notifications and the links
  * they open, Activity, profile and every setting, signing out, and a guest trying to love a
  * dish. A second account (the "friend") talks to the server directly. Screenshots of each
  * step go to files/device-shots for CI to collect; how smooth the deck scrolled goes to the log.
@@ -225,7 +225,8 @@ class FullAppTest {
         }
         step("send sheet") {
             visible(hasContentDescription("Send to friends")).performClick()
-            waitText("Send to")
+            waitText("Share with friends")
+            waitText("No friends yet", substring = true)
             waitText("Share elsewhere")
             shot("13_send_sheet")
             backTo(hasTestTag("feed_pager"))
@@ -275,7 +276,7 @@ class FullAppTest {
         }
         step("send this post") {
             compose.onAllNodes(hasContentDescription("Send to friends")).onFirst().performScrollTo().performClick()
-            waitText("Send to")
+            waitText("Share with friends")
             backTo(hasText("Take me there"))
         }
         step("take me there on a demo place") {
@@ -287,13 +288,12 @@ class FullAppTest {
         }
         step("the place page") {
             compose.onAllNodes(hasContentDescription("Open place")).onFirst().performScrollTo().performClick()
-            waitFor(hasContentDescription("Send this place to friends"), 15_000)
+            waitText("Most recommended here", timeoutMs = 15_000)
             waitFor(hasTestTag("demo_tag"))
             Thread.sleep(1200)
             shot("24_place_page")
-            compose.onNodeWithContentDescription("Send this place to friends").performClick()
-            waitText("Send to")
-            backTo(hasContentDescription("Send this place to friends"))
+            // Places can't be sent for now: only dishes.
+            assertTrue(compose.onAllNodes(hasContentDescription("Send this place to friends")).fetchSemanticsNodes().isEmpty())
         }
     }
 
@@ -327,54 +327,66 @@ class FullAppTest {
     }
 
     @Test
-    fun messages_richChatNotificationsAndLinks() {
+    fun messages_shareDishesWithFriendsNotificationsAndLinks() {
         val pal = friend("m")
         val palName = pal.user.displayName!!
-        step("find the friend and open a chat") {
-            waitFor(hasTestTag("messages_button"), 30_000)
-            compose.onNodeWithTag("messages_button").performClick()
-            waitFor(hasTestTag("inbox_search"))
-            compose.onNodeWithTag("inbox_search").performTextInput(pal.user.handle)
-            waitText(palName, timeoutMs = 15_000)
-            compose.onNodeWithText(palName).performClick()
-            waitFor(hasTestTag("chat_input"), 15_000)
+        val stranger = friend("s")
+        step("become friends (we follow each other)") {
+            call("PUT", "/users/${pal.user.handle}/follow", me.token)
+            call("PUT", "/users/${me.user.handle}/follow", pal.token)
+            // Following one way isn't enough to share.
+            call("PUT", "/users/${stranger.user.handle}/follow", me.token)
         }
-        step("text, double-tap heart, reply") {
-            compose.onNodeWithTag("chat_input").performTextInput("Hello from the emulator 👋")
-            compose.onNodeWithContentDescription("Send").performClick()
-            waitFor(hasTestTag("message_text"))
-            compose.onAllNodes(hasTestTag("message_text")).onLast().performTouchInput { doubleClick() }
-            waitFor(hasTestTag("reactions"))
-            compose.onAllNodes(hasTestTag("message_text")).onLast().performTouchInput { longClick() }
-            waitText("Reply")
-            compose.onNodeWithText("Reply").performClick()
-            waitText("Replying to", substring = true)
-            compose.onNodeWithTag("chat_input").performTextInput("Also: misal or pav bhaji?")
-            compose.onNodeWithContentDescription("Send").performClick()
-            waitText("You replied to yourself")
-        }
-        step("send a dish card") {
-            compose.onNodeWithTag("chat_attach").performClick()
-            waitText("Dish or place")
-            compose.onNodeWithText("Dish or place").performClick()
-            waitFor(hasTestTag("attach_dish"), 20_000)
-            compose.onAllNodes(hasTestTag("attach_dish")).onFirst().performClick()
-            waitFor(hasTestTag("message_dish"), 15_000)
-            Thread.sleep(1200)
-            shot("40_chat_text_heart_reply_dish")
+        step("share a dish from Explore with the friend") {
+            waitFor(hasContentDescription("Explore"), 30_000)
+            tab("Explore")
+            waitFor(hasTestTag("feed_pager"), 20_000)
+            waitFor(hasContentDescription("Send to friends"), 20_000)
+            visible(hasContentDescription("Send to friends")).performClick()
+            waitText("Share with friends")
+            waitFor(hasTestTag("friend_${pal.user.handle}"), 15_000)
+            assertTrue(
+                "one-way follows aren't listed",
+                compose.onAllNodes(hasTestTag("friend_${stranger.user.handle}"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(),
+            )
+            compose.onNodeWithTag("friend_${pal.user.handle}", useUnmergedTree = true).performClick()
+            shot("40_share_sheet")
+            compose.onAllNodes(hasText("Share")).onLast().performClick()
+            waitText("Shared.", timeoutMs = 15_000)
         }
         lateinit var chatId: String
-        step("the friend answers while the chat is open") {
+        step("the shared dish in the inbox and chat, with a reaction") {
+            tab("Home")
+            waitFor(hasTestTag("messages_button"), 30_000)
+            compose.onNodeWithTag("messages_button").performClick()
+            waitText("Shared dishes")
+            waitFor(hasTestTag("chat_${pal.user.handle}"), 15_000)
+            shot("41_shared_inbox")
+            compose.onNodeWithTag("chat_${pal.user.handle}", useUnmergedTree = true).performClick()
+            waitFor(hasTestTag("message_dish"), 15_000)
+            waitFor(hasTestTag("share_hint"))
+            // No typing: there is no message box.
+            assertTrue(compose.onAllNodes(hasTestTag("chat_input"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+            compose.onAllNodes(hasTestTag("message_dish")).onLast().performTouchInput { doubleClick() }
+            waitFor(hasTestTag("reactions"))
+            Thread.sleep(1200)
+            shot("42_shared_chat_reaction")
+        }
+        step("the friend shares a post back while the chat is open") {
             chatId = call("POST", "/conversations", pal.token, JSONObject().put("handle", me.user.handle)).getString("id")
-            call("POST", "/conversations/$chatId/messages", pal.token, JSONObject().put("body", "Misal at 8? 🌶️"))
-            waitText("Misal at 8? 🌶️", timeoutMs = 15_000)
-            shot("41_chat_live_reply")
+            val city = container.city.value!!.id
+            val postId = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.first { it.cover != null }.cover!!.postId
+            call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("postId", postId))
+            waitFor(hasTestTag("message_post"), 15_000)
+            shot("43_chat_live_share")
         }
         step("notifications when the app is elsewhere") {
             backTo(hasTestTag("messages_button"), presses = 6)
             Thread.sleep(1000)
-            call("POST", "/conversations/$chatId/messages", pal.token, JSONObject().put("body", "Are you coming?"))
-            call("PUT", "/users/${me.user.handle}/follow", pal.token)
+            val city = container.city.value!!.id
+            val other = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.last().id
+            call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("dishId", other))
+            call("PUT", "/users/${me.user.handle}/follow", stranger.token)
             val nm = context.getSystemService(NotificationManager::class.java)
             val end = System.currentTimeMillis() + 60_000
             var tags = emptyList<String>()
@@ -385,29 +397,28 @@ class FullAppTest {
                 Thread.sleep(2000)
             }
             Log.d("JOURNEY", "notifications: $tags")
-            assertTrue("a message notification ($tags)", tags.contains("chat:$chatId"))
+            assertTrue("a share notification ($tags)", tags.contains("chat:$chatId"))
             assertTrue("a follow notification ($tags)", tags.any { it.startsWith("activity:") })
             device.openNotification()
             Thread.sleep(2000)
             val shade = instrumentation.uiAutomation.takeScreenshot()
-            File(shots, "42_notifications.png").outputStream().use { shade?.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            File(shots, "44_notifications.png").outputStream().use { shade?.compress(Bitmap.CompressFormat.PNG, 100, it) }
             device.pressBack()
             Thread.sleep(800)
         }
         step("the notification's link opens the chat and clears it") {
             open("foodfeed://chat/$chatId")
-            waitText("Are you coming?", timeoutMs = 15_000)
+            waitFor(hasTestTag("message_post"), 15_000)
             val nm = context.getSystemService(NotificationManager::class.java)
             compose.waitUntil(10_000) { nm.activeNotifications.none { it.tag == "chat:$chatId" } }
-            shot("43_chat_from_notification")
+            shot("45_chat_from_notification")
         }
-        step("a profile link") {
+        step("a profile link and Activity") {
             open("foodfeed://user/${pal.user.handle}")
             waitText(palName, timeoutMs = 15_000)
-            waitText("Message")
             open("foodfeed://activity")
             waitText("started following you", substring = true, timeoutMs = 15_000)
-            shot("44_activity_from_link")
+            shot("46_activity_from_link")
         }
     }
 

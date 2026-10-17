@@ -496,77 +496,119 @@ describe('safety', () => {
   });
 });
 
-describe('rich messages and notifications', () => {
-  it('shares places and posts, sends photos, replies, reacts, and reports it all as updates', async () => {
+describe('sharing dishes with friends', () => {
+  async function friends(a: { auth: Record<string, string>; handle: string }, b: { auth: Record<string, string>; handle: string }) {
+    await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth });
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
+  }
+  async function coverPostOf(name: string): Promise<{ dish: string; post: string }> {
+    const dish = await dishId(name);
+    return { dish, post: (await app.inject(`/dishes/${dish}`)).json().cover.postId };
+  }
+
+  it('shares only with friends (you follow each other), never text, and lists who you can share with', async () => {
+    const a = await signUp();
+    const b = await signUp();
+    const c = await signUp();
+    const misal = await dishId('Misal Pav');
+    const share = (handles: string[], payload: object = { dishId: misal }) =>
+      app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles, ...payload } });
+
+    // Strangers and one-way follows can't be shared with.
+    expect((await share([b.handle])).json()).toEqual({ sent: [], failed: [b.handle] });
+    await app.inject({ method: 'PUT', url: `/users/${b.handle}/follow`, headers: a.auth });
+    expect((await share([b.handle])).json()).toEqual({ sent: [], failed: [b.handle] });
+    expect((await app.inject({ url: '/me/friends', headers: a.auth })).json()).toEqual([]);
+    expect((await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).statusCode).toBe(403);
+
+    // Once b follows back they are friends.
+    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
+    await friends(a, c);
+    const list = (await app.inject({ url: '/me/friends', headers: a.auth })).json().map((p: { handle: string }) => p.handle).sort();
+    expect(list).toEqual([b.handle, c.handle].sort());
+    expect((await share([b.handle, c.handle])).json()).toEqual({ sent: [b.handle, c.handle].sort(), failed: [] });
+
+    // No text, places or photos: only a dish or a post.
+    expect((await share([b.handle], { body: 'hello' })).statusCode).toBe(400);
+    const place = (await db.query('select restaurant_id from dishes where id = $1', [misal])).rows[0].restaurant_id;
+    expect((await share([b.handle], { restaurantId: place })).statusCode).toBe(400);
+    const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
+    const say = await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload: { body: 'hi' } });
+    expect(say.statusCode).toBe(400);
+    const pic = multipart(a.auth, {}, await photo());
+    expect((await app.inject({ method: 'POST', url: `/conversations/${conv.id}/photo`, ...pic })).statusCode).toBe(403);
+    // A note sent along with a dish is dropped; the dish is shared.
+    const withNote = await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload: { dishId: misal, body: 'look' } });
+    expect(withNote.statusCode).toBe(201);
+    expect(withNote.json()).toMatchObject({ kind: 'dish', body: null, dish: { name: 'Misal Pav' } });
+
+    // Unfollowing ends it; turning sharing off ends it; blocks end it.
+    await app.inject({ method: 'DELETE', url: `/users/${a.handle}/follow`, headers: b.auth });
+    expect((await share([b.handle])).json().failed).toEqual([b.handle]);
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: c.auth, payload: { dmPolicy: 'off' } });
+    expect((await share([c.handle])).json().failed).toEqual([c.handle]);
+    expect((await app.inject({ url: '/me/friends', headers: a.auth })).json()).toEqual([]);
+  });
+
+  it('shows shared dishes and posts in the inbox, with reactions, read state, unsend and notifications', async () => {
     const a = await signUp();
     const b = await signUp();
     const start = (await app.inject({ url: '/updates', headers: b.auth })).json();
-    expect(start).toMatchObject({ messages: [], reactions: [], activity: [] });
     const since = encodeURIComponent(start.now);
-    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
+    await friends(a, b);
+    const { dish, post } = await coverPostOf('Kolhapuri Misal');
+    await app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles: [b.handle], dishId: dish } });
+    await app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles: [b.handle], postId: post } });
 
-    const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
-    const dish = await dishId('Misal Pav');
-    const place = (await db.query('select restaurant_id from dishes where id = $1', [dish])).rows[0].restaurant_id;
-    const postId = (await app.inject(`/dishes/${dish}`)).json().cover.postId;
-    const send = (payload: object) =>
-      app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload });
-
-    const placeMsg = (await send({ restaurantId: place })).json();
-    expect(placeMsg).toMatchObject({ kind: 'place', place: { id: place } });
-    expect(typeof placeMsg.place.lat).toBe('number');
-    const postMsg = (await send({ postId, body: 'look at this' })).json();
-    expect(postMsg).toMatchObject({ kind: 'post', body: 'look at this', post: { id: postId, dishId: dish, dishName: 'Misal Pav' } });
-
-    const up = multipart(a.auth, { body: 'my plate' }, await photo(true));
-    const photoRes = await app.inject({ method: 'POST', url: `/conversations/${conv.id}/photo`, ...up });
-    expect(photoRes.statusCode).toBe(201);
-    expect(photoRes.json()).toMatchObject({ kind: 'photo', body: 'my plate', photo: { imageUrl: expect.stringContaining('messages/') } });
-
-    // b's phone sees a's three messages.
+    // Straight into b's inbox (friends), unread, newest share as the preview.
+    const inbox = (await app.inject({ url: '/inbox', headers: b.auth })).json();
+    expect(inbox).toMatchObject({ requests: 0, items: [{ with: { handle: a.handle }, unread: true, lastMessage: { kind: 'post', mine: false } }] });
+    expect((await app.inject({ url: '/inbox/unread', headers: b.auth })).json()).toEqual({ chats: 1, requests: 0 });
+    // b's phone is told.
     const forB = (await app.inject({ url: `/updates?since=${since}`, headers: b.auth })).json();
-    expect(forB.messages.map((m: { kind: string }) => m.kind)).toEqual(['place', 'post', 'photo']);
-    expect(forB.messages[0]).toMatchObject({ conversationId: conv.id, from: { handle: a.handle } });
+    expect(forB.messages.map((m: { kind: string }) => m.kind)).toEqual(['dish', 'post']);
 
-    // b replies to the photo (which marks the chat read) and double-taps the place with a heart.
-    const replyRes = await app.inject({
-      method: 'POST', url: `/conversations/${conv.id}/messages`, headers: b.auth,
-      payload: { body: 'Yum!', replyTo: photoRes.json().id },
-    });
-    expect(replyRes.json()).toMatchObject({ replyTo: { id: photoRes.json().id, kind: 'photo', mine: false } });
-    expect((await app.inject({ method: 'PUT', url: `/messages/${placeMsg.id}/reaction`, headers: b.auth, payload: { emoji: '❤️' } })).statusCode).toBe(200);
-    const outsider = await signUp();
-    expect((await app.inject({ method: 'PUT', url: `/messages/${placeMsg.id}/reaction`, headers: outsider.auth, payload: { emoji: '❤️' } })).statusCode).toBe(404);
-    const thread = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json();
-    expect(thread.messages.find((m: { id: string }) => m.id === placeMsg.id).reactions).toEqual([{ emoji: '❤️', mine: false }]);
+    const convId = inbox.items[0].id;
+    const thread = (await app.inject({ url: `/conversations/${convId}`, headers: b.auth })).json();
+    expect(thread.messages.map((m: { kind: string }) => m.kind)).toEqual(['dish', 'post']);
+    expect(thread.messages[1].post).toMatchObject({ id: post, dishId: dish, dishName: 'Kolhapuri Misal' });
+    // Old text messages from before are not shown.
+    await db.query(
+      "insert into messages (conversation_id, sender_id, kind, body) values ($1, $2, 'text', 'an old chat line')",
+      [convId, a.id],
+    );
+    expect((await app.inject({ url: `/conversations/${convId}`, headers: b.auth })).json().messages).toHaveLength(2);
 
-    // a's sees the reaction, the reply, and the follow.
+    // Reactions on a shared dish, and a's phone hears about them.
+    const shared = thread.messages[0].id;
+    expect((await app.inject({ method: 'PUT', url: `/messages/${shared}/reaction`, headers: b.auth, payload: { emoji: '😋' } })).statusCode).toBe(200);
     const forA = (await app.inject({ url: `/updates?since=${since}`, headers: a.auth })).json();
-    expect(forA.reactions).toMatchObject([{ messageId: placeMsg.id, emoji: '❤️', from: { handle: b.handle } }]);
-    expect(forA.messages).toMatchObject([{ body: 'Yum!' }]);
-    expect(forA.activity).toMatchObject([{ kind: 'follow', actor: { handle: b.handle } }]);
-    // Nothing new after the cursor moves on; reading a chat silences it.
-    expect((await app.inject({ url: `/updates?since=${encodeURIComponent(forA.now)}`, headers: a.auth })).json().messages).toEqual([]);
-    expect((await app.inject({ url: `/updates?since=${since}`, headers: b.auth })).json().messages).toEqual([]);
+    expect(forA.reactions).toMatchObject([{ messageId: shared, emoji: '😋', from: { handle: b.handle } }]);
+    expect((await app.inject({ url: `/conversations/${convId}`, headers: a.auth })).json().messages[0].reactions).toEqual([{ emoji: '😋', mine: false }]);
+    const outsider = await signUp();
+    expect((await app.inject({ method: 'PUT', url: `/messages/${shared}/reaction`, headers: outsider.auth, payload: { emoji: '❤️' } })).statusCode).toBe(404);
+    expect((await app.inject({ url: `/conversations/${convId}`, headers: outsider.auth })).statusCode).toBe(404);
 
-    // Removing the reaction and unsending the photo.
-    await app.inject({ method: 'DELETE', url: `/messages/${placeMsg.id}/reaction`, headers: b.auth });
-    expect((await app.inject({ method: 'DELETE', url: `/messages/${photoRes.json().id}`, headers: a.auth })).statusCode).toBe(204);
-    const after = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().messages;
-    expect(after.find((m: { id: string }) => m.id === placeMsg.id).reactions).toEqual([]);
-    expect(after.some((m: { kind: string }) => m.kind === 'photo')).toBe(false);
+    // Reading clears the badge; only the sender can unsend; deleting the chat is for you only.
+    await app.inject({ method: 'POST', url: `/conversations/${convId}/read`, headers: b.auth });
+    expect((await app.inject({ url: '/inbox/unread', headers: b.auth })).json()).toEqual({ chats: 0, requests: 0 });
+    expect((await app.inject({ method: 'DELETE', url: `/messages/${shared}`, headers: b.auth })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: `/messages/${shared}`, headers: a.auth })).statusCode).toBe(204);
+    await app.inject({ method: 'DELETE', url: `/conversations/${convId}`, headers: b.auth });
+    expect((await app.inject({ url: '/inbox', headers: b.auth })).json().items).toHaveLength(0);
+    expect((await app.inject({ url: '/inbox', headers: a.auth })).json().items).toHaveLength(1);
   });
-});
 
-describe('message edge cases', () => {
   it('answers an open chat\'s poll cheaply while nothing changed, and notices every change', async () => {
     const a = await signUp();
     const b = await signUp();
+    await friends(a, b);
+    const { dish, post } = await coverPostOf('Misal Pav');
     const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
-    const say = (auth: Record<string, string>, body: string) =>
-      app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: auth, payload: { body } });
+    const send = (auth: Record<string, string>, payload: object) =>
+      app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: auth, payload });
     const poll = async (state: string) => (await app.inject({ url: `/conversations/${conv.id}?state=${encodeURIComponent(state)}`, headers: a.auth })).json();
-    const m1 = (await say(a.auth, 'one')).json();
+    const m1 = (await send(a.auth, { dishId: dish })).json();
     let state = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().state;
     expect(await poll(state)).toEqual({ id: conv.id, unchanged: true, state });
     const changed = async (what: string) => {
@@ -576,8 +618,8 @@ describe('message edge cases', () => {
       state = r.state;
       expect(await poll(state), what).toMatchObject({ unchanged: true });
     };
-    await say(b.auth, 'two');
-    await changed('a new message');
+    await send(b.auth, { postId: post });
+    await changed('a new share');
     await app.inject({ method: 'PUT', url: `/messages/${m1.id}/reaction`, headers: b.auth, payload: { emoji: '🔥' } });
     await changed('a reaction');
     await app.inject({ method: 'PUT', url: `/messages/${m1.id}/reaction`, headers: b.auth, payload: { emoji: '❤️' } });
@@ -588,64 +630,28 @@ describe('message edge cases', () => {
     await changed('they saw it');
     await app.inject({ method: 'DELETE', url: `/messages/${m1.id}`, headers: a.auth });
     await changed('an unsend');
-    // ?after still pages exactly, to the millisecond.
-    const all = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json().messages;
-    const after = (await app.inject({ url: `/conversations/${conv.id}?after=${encodeURIComponent(all[0].createdAt)}`, headers: a.auth })).json();
-    expect(after.messages.map((x: { id: string }) => x.id)).toEqual(all.slice(1).map((x: { id: string }) => x.id));
+    // Reactions: an emoji, not an essay.
+    const m2 = (await send(a.auth, { dishId: dish })).json();
+    expect((await app.inject({ method: 'PUT', url: `/messages/${m2.id}/reaction`, headers: b.auth, payload: { emoji: '' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: `/messages/${m2.id}/reaction`, headers: b.auth, payload: { emoji: 'x'.repeat(17) } })).statusCode).toBe(400);
+    // Bad cursors are refused.
+    expect((await app.inject({ url: '/updates?since=yesterday', headers: b.auth })).statusCode).toBe(400);
+    expect((await app.inject({ url: '/updates' })).statusCode).toBe(401);
   });
 
-  it('rejects empty, too long, foreign and broken input, and never leaks other chats', async () => {
+  it('respects blocks and reports', async () => {
     const a = await signUp();
     const b = await signUp();
-    const c = await signUp();
-    const ab = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
-    const ac = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: c.handle } })).json();
-    const send = (conv: string, auth: Record<string, string>, payload: object) =>
-      app.inject({ method: 'POST', url: `/conversations/${conv}/messages`, headers: auth, payload });
-
-    expect((await send(ab.id, a.auth, {})).statusCode).toBe(400);
-    expect((await send(ab.id, a.auth, { body: '   ' })).statusCode).toBe(400);
-    expect((await send(ab.id, a.auth, { body: 'x'.repeat(1001) })).statusCode).toBe(400);
-    expect((await send(ab.id, a.auth, { dishId: 'not-a-uuid' })).statusCode).toBe(400);
-    expect((await send('00000000-0000-4000-8000-000000000000', a.auth, { body: 'hi' })).statusCode).toBe(404);
-    // c is not in a's chat with b.
-    expect((await send(ab.id, c.auth, { body: 'let me in' })).statusCode).toBe(404);
-    expect((await app.inject({ url: `/conversations/${ab.id}`, headers: c.auth })).statusCode).toBe(404);
-    expect((await app.inject({ url: `/conversations/${ab.id}` })).statusCode).toBe(401);
-    // Exactly 1000 characters is fine.
-    expect((await send(ab.id, a.auth, { body: 'y'.repeat(1000) })).statusCode).toBe(201);
-
-    // A reply can only point at a message in the same chat; otherwise it's sent without the quote.
-    const inAc = (await send(ac.id, a.auth, { body: 'secret for c' })).json();
-    const sneaky = (await send(ab.id, a.auth, { body: 'quoting?', replyTo: inAc.id })).json();
-    expect(sneaky.replyTo).toBeNull();
-
-    // Reactions: an emoji, not an essay; only members; removing twice is harmless.
-    const m = (await send(ab.id, a.auth, { body: 'react to me' })).json();
-    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: '' } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: 'x'.repeat(17) } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: '😂' } })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'PUT', url: `/messages/${m.id}/reaction`, headers: b.auth, payload: { emoji: '❤️' } })).statusCode).toBe(200);
-    const reacted = (await app.inject({ url: `/conversations/${ab.id}`, headers: a.auth })).json().messages.find((x: { id: string }) => x.id === m.id);
-    expect(reacted.reactions).toEqual([{ emoji: '❤️', mine: false }]); // one per person: the newest wins
-    for (let i = 0; i < 2; i++) {
-      expect((await app.inject({ method: 'DELETE', url: `/messages/${m.id}/reaction`, headers: b.auth })).statusCode).toBe(200);
-    }
-
-    // Photos: a real image only, and big enough.
-    const notImage = multipart(a.auth, {}, Buffer.from('this is not a photo'));
-    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...notImage })).statusCode).toBe(400);
-    const tiny = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
-    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...multipart(a.auth, {}, tiny) })).statusCode).toBe(400);
-    const noFile = multipart(a.auth, { body: 'where is the photo' });
-    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...noFile })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url: `/conversations/${ab.id}/photo`, ...multipart(c.auth, {}, await photo()) })).statusCode).toBe(404);
-
-    // Updates: a bad cursor is refused, a future one returns nothing.
-    expect((await app.inject({ url: '/updates?since=yesterday', headers: b.auth })).statusCode).toBe(400);
-    const future = new Date(Date.now() + 86_400_000).toISOString();
-    expect((await app.inject({ url: `/updates?since=${encodeURIComponent(future)}`, headers: b.auth })).json().messages).toEqual([]);
-    expect((await app.inject({ url: '/updates' })).statusCode).toBe(401);
+    await friends(a, b);
+    const dish = await dishId('Misal Pav');
+    await app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles: [b.handle], dishId: dish } });
+    const convId = (await app.inject({ url: '/inbox', headers: b.auth })).json().items[0].id;
+    const msg = (await app.inject({ url: `/conversations/${convId}`, headers: b.auth })).json().messages[0];
+    const rep = await app.inject({ method: 'POST', url: '/reports', headers: b.auth, payload: { targetType: 'message', targetId: msg.id, reason: 'spam' } });
+    expect(rep.json()).toEqual({ ok: true, hidden: false });
+    await app.inject({ method: 'POST', url: '/blocks', headers: b.auth, payload: { handle: a.handle } });
+    expect((await app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles: [b.handle], dishId: dish } })).json().failed).toEqual([b.handle]);
+    expect((await app.inject({ url: '/inbox', headers: b.auth })).json().items).toHaveLength(0);
   });
 });
 
@@ -946,82 +952,8 @@ async function loginAs(handle: string) {
   return { auth: { authorization: `Bearer ${res.json().token}` } };
 }
 
-describe('direct messages', () => {
-  it('sends, lists, marks read and unsends; strangers land in Requests until accepted', async () => {
-    const a = await signUp();
-    const b = await signUp();
-    // a writes to b, whom b doesn't follow: a request for b.
-    const conv = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
-    const sent = await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload: { body: 'Misal tonight?' } });
-    expect(sent.statusCode).toBe(201);
-    expect(sent.json()).toMatchObject({ kind: 'text', body: 'Misal tonight?', mine: true });
-
-    expect((await app.inject({ url: '/inbox', headers: b.auth })).json()).toMatchObject({ items: [], requests: 1 });
-    const req = (await app.inject({ url: '/inbox?folder=request', headers: b.auth })).json();
-    expect(req.items[0]).toMatchObject({ with: { handle: a.handle }, unread: true, lastMessage: { body: 'Misal tonight?', mine: false } });
-    expect((await app.inject({ url: '/inbox/unread', headers: b.auth })).json()).toEqual({ chats: 0, requests: 1 });
-
-    // Replying accepts the request; a dish can be shared too.
-    const dish = await dishId('Kolhapuri Misal');
-    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: b.auth, payload: { dishId: dish } });
-    expect((await app.inject({ url: '/inbox', headers: b.auth })).json().items).toHaveLength(1);
-    const thread = (await app.inject({ url: `/conversations/${conv.id}`, headers: a.auth })).json();
-    expect(thread).toMatchObject({ folder: 'inbox', with: { handle: b.handle }, canMessage: true });
-    expect(thread.messages.map((m: { kind: string }) => m.kind)).toEqual(['text', 'dish']);
-    expect(thread.messages[1].dish).toMatchObject({ name: 'Kolhapuri Misal' });
-    expect((await app.inject({ url: '/inbox/unread', headers: a.auth })).json()).toEqual({ chats: 1, requests: 0 });
-    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/read`, headers: a.auth });
-    expect((await app.inject({ url: '/inbox/unread', headers: a.auth })).json()).toEqual({ chats: 0, requests: 0 });
-
-    // Polling with ?after returns only newer messages.
-    const after = thread.messages[1].createdAt;
-    await app.inject({ method: 'POST', url: `/conversations/${conv.id}/messages`, headers: a.auth, payload: { body: 'See you at 8' } });
-    const newer = (await app.inject({ url: `/conversations/${conv.id}?after=${encodeURIComponent(after)}`, headers: b.auth })).json();
-    expect(newer.messages.map((m: { body: string }) => m.body)).toEqual(['See you at 8']);
-
-    // Unsend removes it for both; only the sender can.
-    const id = newer.messages[0].id;
-    expect((await app.inject({ method: 'DELETE', url: `/messages/${id}`, headers: b.auth })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'DELETE', url: `/messages/${id}`, headers: a.auth })).statusCode).toBe(204);
-
-    // Deleting the chat clears it for you only.
-    await app.inject({ method: 'DELETE', url: `/conversations/${conv.id}`, headers: b.auth });
-    expect((await app.inject({ url: '/inbox', headers: b.auth })).json().items).toHaveLength(0);
-    expect((await app.inject({ url: '/inbox', headers: a.auth })).json().items).toHaveLength(1);
-  });
-
-  it('respects message settings and blocks, and shares to several people', async () => {
-    const a = await signUp();
-    const b = await signUp();
-    const c = await signUp();
-    await app.inject({ method: 'PATCH', url: '/me/profile', headers: b.auth, payload: { dmPolicy: 'following' } });
-    const toB = (await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: b.handle } })).json();
-    const no = await app.inject({ method: 'POST', url: `/conversations/${toB.id}/messages`, headers: a.auth, payload: { body: 'hi' } });
-    expect(no.statusCode).toBe(403);
-    // Once b follows a, a can write, straight into b's inbox.
-    await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
-    const share = await app.inject({
-      method: 'POST', url: '/messages', headers: a.auth,
-      payload: { handles: [b.handle, c.handle], dishId: await dishId('Kolhapuri Misal'), body: 'This one?' },
-    });
-    expect(share.json()).toEqual({ sent: [b.handle, c.handle].sort(), failed: [] });
-    expect((await app.inject({ url: '/inbox/unread', headers: b.auth })).json()).toEqual({ chats: 1, requests: 0 });
-
-    // A block stops messages both ways and hides the chat.
-    await app.inject({ method: 'POST', url: '/blocks', headers: c.auth, payload: { handle: a.handle } });
-    expect((await app.inject({ method: 'POST', url: '/messages', headers: a.auth, payload: { handles: [c.handle], body: 'hello?' } })).json())
-      .toEqual({ sent: [], failed: [c.handle] });
-    expect((await app.inject({ url: '/inbox?folder=request', headers: c.auth })).json().items).toHaveLength(0);
-
-    // Messages can be reported; they go to the admin queue.
-    const msg = (await app.inject({ url: `/conversations/${toB.id}`, headers: b.auth })).json().messages[0];
-    const rep = await app.inject({ method: 'POST', url: '/reports', headers: b.auth, payload: { targetType: 'message', targetId: msg.id, reason: 'spam' } });
-    expect(rep.json()).toEqual({ ok: true, hidden: false });
-  });
-});
-
 describe('stories', () => {
-  it('posts a story, shows it in the tray, counts views and likes, and replies by message', async () => {
+  it('posts a story, shows it in the tray, counts views and likes; replies are off', async () => {
     const a = await signUp();
     const b = await signUp();
     await app.inject({ method: 'PUT', url: `/users/${a.handle}/follow`, headers: b.auth });
@@ -1046,19 +978,16 @@ describe('stories', () => {
     await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: b.auth, payload: { liked: true } });
     await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: b.auth, payload: { liked: false } });
     await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: b.auth, payload: { liked: true } });
+    // Messages carry only shared dishes for now: no story replies, and likes stay on the story.
     const reply = await app.inject({ method: 'POST', url: `/stories/${storyId}/reply`, headers: b.auth, payload: { body: 'Going tomorrow!' } });
-    expect(reply.statusCode).toBe(201);
+    expect(reply.statusCode).toBe(403);
+    expect((await app.inject({ url: '/inbox', headers: a.auth })).json().items).toEqual([]);
 
     const mine = (await app.inject({ url: `/users/${a.handle}/stories`, headers: a.auth })).json();
     expect(mine).toMatchObject({ isMe: true, stories: [{ viewCount: 1 }] });
     const viewers = (await app.inject({ url: `/stories/${storyId}/viewers`, headers: a.auth })).json();
     expect(viewers.items).toEqual([expect.objectContaining({ handle: b.handle, liked: true })]);
     expect((await app.inject({ url: `/stories/${storyId}/viewers`, headers: b.auth })).json().items).toEqual([]);
-
-    // One like message (not one per toggle) and the reply, both pointing at the story.
-    const chat = (await app.inject({ url: `/conversations/${reply.json().conversationId}`, headers: a.auth })).json();
-    expect(chat.messages.map((m: { kind: string }) => m.kind)).toEqual(['story_like', 'story_reply']);
-    expect(chat.messages[1].story).toMatchObject({ id: storyId, expired: false });
 
     // Ended stories leave the tray; deleting removes the photo.
     await db.query("update stories set expires_at = now() - interval '1 minute' where id = $1", [storyId]);

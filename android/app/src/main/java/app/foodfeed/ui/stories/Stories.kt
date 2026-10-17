@@ -570,27 +570,10 @@ private fun StoryPage(
                     )
                 }
             } else {
+                // Replies by message are off for now: a story gets a like.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = reply,
-                        onValueChange = { reply = it.take(500) },
-                        placeholder = { Text("Reply to ${reel.user.handle}…", color = Color.White.copy(alpha = 0.8f)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(50),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.6f),
-                            cursorColor = Color.White,
-                        ),
-                        modifier = Modifier.weight(1f).onFocusChanged { typing = it.isFocused },
-                    )
-                    if (reply.isNotBlank()) {
-                        IconButton(onClick = { onReply(story, reply.trim()); reply = "" }) {
-                            Icon(AppIcons.Send, "Send", tint = Color.White)
-                        }
-                    } else {
+                    Spacer(Modifier.weight(1f))
+                    run {
                         val on = liked[story.id] ?: story.liked
                         val pop = remember(story.id) { Animatable(1f) }
                         val scope = rememberCoroutineScope()

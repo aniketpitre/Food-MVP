@@ -2,8 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { requireAuth, userId } from '../auth.js';
-import { randomUUID } from 'node:crypto';
-import { deleteImages, storeImage } from '../media.js';
+import { deleteImages } from '../media.js';
 import { canMessage, conversationWith, MessageError, sendMessage } from '../messaging.js';
 
 const uuid = z.string().uuid();
@@ -92,7 +91,7 @@ export async function messageRoutes(app: FastifyInstance) {
        join conversations c on c.id = mine.conversation_id
        join conversation_members o on o.conversation_id = c.id and o.user_id <> $1
        join profiles p on p.id = o.user_id
-       join lateral (select * from messages m where m.conversation_id = c.id and m.created_at > mine.cleared_at
+       join lateral (select * from messages m where m.conversation_id = c.id and m.created_at > mine.cleared_at and m.kind in ('dish', 'post')
                      order by m.created_at desc limit 1) lm on true
        where mine.user_id = $1 and mine.folder = $2
          and not exists (select 1 from blocks where (blocker_id = $1 and blocked_id = o.user_id)
@@ -103,7 +102,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const { rows: n } = await db.query<{ n: number }>(
       `select count(*)::int as n from conversation_members mine
        where mine.user_id = $1 and mine.folder = 'request'
-         and exists (select 1 from messages m where m.conversation_id = mine.conversation_id and m.created_at > mine.cleared_at)`,
+         and exists (select 1 from messages m where m.conversation_id = mine.conversation_id and m.created_at > mine.cleared_at and m.kind in ('dish', 'post'))`,
       [me],
     );
     return { items: rows, requests: n[0]!.n };
@@ -121,7 +120,7 @@ export async function messageRoutes(app: FastifyInstance) {
        join conversations c on c.id = mine.conversation_id
                            and c.last_message_at > greatest(mine.last_read_at, mine.cleared_at)
        where mine.user_id = $1
-         and exists (select 1 from messages m where m.conversation_id = mine.conversation_id
+         and exists (select 1 from messages m where m.conversation_id = mine.conversation_id and m.kind in ('dish', 'post')
                        and m.sender_id <> $1 and m.created_at > greatest(mine.last_read_at, mine.cleared_at))
          and not exists (select 1 from conversation_members o join blocks b
                            on (b.blocker_id = $1 and b.blocked_id = o.user_id) or (b.blocker_id = o.user_id and b.blocked_id = $1)
@@ -154,7 +153,7 @@ export async function messageRoutes(app: FastifyInstance) {
          from messages m
          join conversation_members mine on mine.conversation_id = m.conversation_id and mine.user_id = $1
          join profiles p on p.id = m.sender_id
-         where m.sender_id <> $1 and m.created_at > $2 and m.created_at <= $3
+         where m.sender_id <> $1 and m.created_at > $2 and m.created_at <= $3 and m.kind in ('dish', 'post')
            and m.created_at > greatest(mine.last_read_at, mine.cleared_at) and ${notBlocked('m.sender_id')}
          order by m.created_at limit 30`,
         [me, q.since, now],
@@ -198,6 +197,14 @@ export async function messageRoutes(app: FastifyInstance) {
     const { rows } = await db.query<{ id: string }>('select id from profiles where handle = $1', [body.handle]);
     const other = rows[0]?.id;
     if (!other || other === me) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+    const { rowCount: existing } = await db.query(
+      `select 1 from conversations c join conversation_members cm on cm.conversation_id = c.id and cm.user_id = $2
+       where c.pair_key = $1`,
+      [[me, other].sort().join(':'), me],
+    );
+    if (!existing && !(await canMessage(db, me, other))) {
+      return reply.code(403).send({ error: 'cannot_message', message: 'You can share dishes only with friends: people you follow who follow you back.' });
+    }
     const id = await conversationWith(db, me, other);
     return { id };
   });
@@ -218,8 +225,8 @@ export async function messageRoutes(app: FastifyInstance) {
     const m = await membership(p.id, me);
     if (!m) return reply.code(404).send({ error: 'not_found', message: 'Chat not found.' });
     const { rows: f } = await db.query<{ last: string | null; n: number; rn: number; rlast: string | null }>(
-      `select (select max(created_at)::text from messages where conversation_id = $1 and created_at > $2) as last,
-              (select count(*)::int from messages where conversation_id = $1 and created_at > $2) as n,
+      `select (select max(created_at)::text from messages where conversation_id = $1 and created_at > $2 and kind in ('dish', 'post')) as last,
+              (select count(*)::int from messages where conversation_id = $1 and created_at > $2 and kind in ('dish', 'post')) as n,
               (select count(*)::int from message_reactions x join messages mm on mm.id = x.message_id
                 where mm.conversation_id = $1 and mm.created_at > $2) as rn,
               (select max(x.created_at)::text from message_reactions x join messages mm on mm.id = x.message_id
@@ -231,7 +238,7 @@ export async function messageRoutes(app: FastifyInstance) {
     // The truncated comparisons keep millisecond cursors exact; the plain ones let the index help.
     const { rows } = await db.query(
       `select * from (${messageSql}
-         where m.conversation_id = $1 and m.created_at > $3
+         where m.conversation_id = $1 and m.created_at > $3 and m.kind in ('dish', 'post')
            and ($4::timestamptz is null or (m.created_at > $4 and date_trunc('milliseconds', m.created_at) > $4))
            and ($5::timestamptz is null or (m.created_at < $5 + interval '1 millisecond' and date_trunc('milliseconds', m.created_at) < $5))
          order by m.created_at desc limit 50) page order by "createdAt"`,
@@ -248,19 +255,15 @@ export async function messageRoutes(app: FastifyInstance) {
     };
   });
 
+  // Share a dish (or a post, a photo of one) into a chat with a friend. No text for now.
   app.post(
     '/conversations/:id/messages',
     { preHandler: requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
     async (req, reply) => {
       const p = parse(z.object({ id: uuid }), req.params, reply);
       const body = parse(
-        z.object({
-          body: z.string().trim().min(1).max(1000).optional(),
-          dishId: uuid.optional(),
-          restaurantId: uuid.optional(),
-          postId: uuid.optional(),
-          replyTo: uuid.optional(),
-        }).refine((b) => b.body || b.dishId || b.restaurantId || b.postId, 'write something'),
+        z.object({ dishId: uuid.optional(), postId: uuid.optional() })
+          .refine((b) => b.dishId || b.postId, 'Only dishes can be shared for now.'),
         req.body,
         reply,
       );
@@ -269,10 +272,9 @@ export async function messageRoutes(app: FastifyInstance) {
       const m = await membership(p.id, me);
       if (!m) return reply.code(404).send({ error: 'not_found', message: 'Chat not found.' });
       try {
-        const kind = body.postId ? 'post' : body.dishId ? 'dish' : body.restaurantId ? 'place' : 'text';
-        const sent = await sendMessage(db, me, m.other_id, {
-          kind, body: body.body, dishId: body.dishId, restaurantId: body.restaurantId, postId: body.postId, replyTo: body.replyTo,
-        });
+        const sent = await sendMessage(db, me, m.other_id, body.postId
+          ? { kind: 'post', postId: body.postId }
+          : { kind: 'dish', dishId: body.dishId });
         const { rows } = await db.query(`${messageSql} where m.id = $1`, [sent.messageId, me]);
         return reply.code(201).send(rows[0]);
       } catch (err) {
@@ -286,11 +288,9 @@ export async function messageRoutes(app: FastifyInstance) {
     const body = parse(
       z.object({
         handles: z.array(z.string().trim().toLowerCase().max(20)).min(1).max(15),
-        body: z.string().trim().min(1).max(1000).optional(),
         dishId: uuid.optional(),
-        restaurantId: uuid.optional(),
         postId: uuid.optional(),
-      }).refine((b) => b.body || b.dishId || b.restaurantId || b.postId, 'write something'),
+      }).refine((b) => b.dishId || b.postId, 'Only dishes can be shared for now.'),
       req.body,
       reply,
     );
@@ -302,9 +302,7 @@ export async function messageRoutes(app: FastifyInstance) {
     for (const r of rows) {
       try {
         if (body.postId) await sendMessage(db, me, r.id, { kind: 'post', postId: body.postId });
-        else if (body.dishId) await sendMessage(db, me, r.id, { kind: 'dish', dishId: body.dishId });
-        else if (body.restaurantId) await sendMessage(db, me, r.id, { kind: 'place', restaurantId: body.restaurantId });
-        if (body.body) await sendMessage(db, me, r.id, { kind: 'text', body: body.body });
+        else await sendMessage(db, me, r.id, { kind: 'dish', dishId: body.dishId });
         sent.push(r.handle);
       } catch (err) {
         if (!(err instanceof MessageError)) throw err;
@@ -314,41 +312,28 @@ export async function messageRoutes(app: FastifyInstance) {
     return { sent: sent.sort(), failed: failed.sort() };
   });
 
-  // A photo in a chat (re-encoded like every photo: WebP, location data dropped).
-  app.post(
-    '/conversations/:id/photo',
-    { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
-    async (req, reply) => {
-      const p = parse(z.object({ id: uuid }), req.params, reply);
-      if (!p) return;
-      const me = userId(req)!;
-      const m = await membership(p.id, me);
-      if (!m) return reply.code(404).send({ error: 'not_found', message: 'Chat not found.' });
-      let image: Buffer | undefined;
-      let caption: string | undefined;
-      for await (const part of req.parts()) {
-        if (part.type === 'file' && part.fieldname === 'image') image = await part.toBuffer();
-        else if (part.type === 'file') part.file.resume();
-        else if (part.fieldname === 'body') caption = String(part.value).trim().slice(0, 1000) || undefined;
-      }
-      if (!image) return reply.code(400).send({ error: 'invalid_input', message: 'Choose a photo.' });
-      const fileId = randomUUID();
-      let stored;
-      try {
-        stored = await storeImage(config.mediaDir, 'messages', fileId, image);
-      } catch {
-        return reply.code(400).send({ error: 'bad_image', message: 'That file is not a photo we can read.' });
-      }
-      try {
-        const sent = await sendMessage(db, me, m.other_id, { kind: 'photo', body: caption, imagePath: stored.imagePath, thumbPath: stored.thumbPath });
-        const { rows } = await db.query(`${messageSql} where m.id = $1`, [sent.messageId, me]);
-        return reply.code(201).send(rows[0]);
-      } catch (err) {
-        await deleteImages(config.mediaDir, 'messages', fileId);
-        return fail(reply, err);
-      }
-    },
-  );
+  // Friends you can share with: people you follow who follow you back (and haven't turned sharing off).
+  app.get('/me/friends', { preHandler: requireAuth }, async (req) => {
+    const me = userId(req)!;
+    const { rows } = await db.query(
+      `select p.handle, p.display_name as "displayName", p.avatar_path as "avatarUrl", true as "isFollowing"
+       from follows mine
+       join follows back on back.follower_id = mine.followee_id and back.followee_id = mine.follower_id
+       join profiles p on p.id = mine.followee_id
+       left join conversations c on c.pair_key = least(p.id, $1::uuid)::text || ':' || greatest(p.id, $1::uuid)::text
+       where mine.follower_id = $1 and p.dm_policy <> 'off'
+         and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.id)
+                                                or (b.blocker_id = p.id and b.blocked_id = $1))
+       order by c.last_message_at desc nulls last, p.handle
+       limit 200`,
+      [me],
+    );
+    return rows;
+  });
+
+  // Photos, text and replies in chats are off for now; only dishes are shared.
+  app.post('/conversations/:id/photo', { preHandler: requireAuth }, async (_req, reply) =>
+    reply.code(403).send({ error: 'share_only', message: 'Only dishes can be shared for now.' }));
 
   // React to a message (one reaction per person, like Instagram; double-tap sends a heart).
   app.put('/messages/:id/reaction', { preHandler: requireAuth }, async (req, reply) => {

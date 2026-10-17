@@ -172,6 +172,8 @@ interface FoodFeedApi {
 
     @DELETE("messages/{id}/reaction") suspend fun unreact(@Path("id") id: String): OkResult
 
+    @GET("me/friends") suspend fun friends(): List<Person>
+
     @GET("updates") suspend fun updates(@Query("since") since: String?): UpdatesPage
 
     @POST("conversations/{id}/read") suspend fun readChat(@Path("id") id: String): OkResult

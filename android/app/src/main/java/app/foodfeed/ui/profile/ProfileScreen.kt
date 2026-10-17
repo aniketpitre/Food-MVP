@@ -377,7 +377,6 @@ fun ProfileContent(
                         QuietButton("Share", { onShare(profile.handle) }, Modifier.weight(1f), leading = Icons.Outlined.Share)
                     } else {
                         FollowButton(profile.isFollowing, onFollow, Modifier.weight(1f), followsYou = profile.followsYou)
-                        QuietButton("Message", { onMessage(profile.handle) }, Modifier.weight(1f))
                         QuietButton("", { onShare(profile.handle) }, leading = Icons.Outlined.Share)
                     }
                 }
