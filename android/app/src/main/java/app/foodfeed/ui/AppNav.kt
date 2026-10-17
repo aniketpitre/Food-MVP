@@ -236,11 +236,14 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
     val context = LocalContext.current
     val showMessage: (String) -> Unit = { msg -> scope.launch { snackbar.showSnackbar(msg) } }
     // The server ended this sign-in (signed out elsewhere, a new password): say so once.
-    val endedNotice by app.signedOutNotice.collectAsState()
-    LaunchedEffect(endedNotice) {
-        endedNotice?.let {
+    // (Collected, not keyed on the value: clearing it must not cancel the message.)
+    LaunchedEffect(Unit) {
+        app.signedOutNotice.collect { notice ->
+            if (notice == null) return@collect
             app.signedOutNotice.value = null
-            snackbar.showSnackbar(it)
+            // Off any screen that needs the account, back to Home.
+            runCatching { nav.navigateToTab(Routes.HOME) }
+            snackbar.showSnackbar(notice)
         }
     }
     val needsSetup = server.isBlank() || city == null
