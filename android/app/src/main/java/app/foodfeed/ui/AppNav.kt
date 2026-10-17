@@ -494,8 +494,10 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                             // New here (or never said)? Ask about their taste once, in place of sign-in.
                             scope.launch {
                                 val set = runCatching { apiCall { app.api.taste() } }.getOrNull()?.set
-                                if (set == false) nav.navigate(Routes.taste(first = true)) { popUpTo(Routes.AUTH) { inclusive = true } }
-                                else nav.back()
+                                withContext(Dispatchers.Main) {
+                                    if (set == false) nav.navigate(Routes.taste(first = true)) { popUpTo(Routes.AUTH) { inclusive = true } }
+                                    else nav.back()
+                                }
                             }
                         },
                         onClose = { app.setPendingAction(null); nav.back() },

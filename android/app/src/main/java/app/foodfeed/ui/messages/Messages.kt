@@ -196,7 +196,9 @@ fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit, onOpenChat: (String) -> 
     val startChat: (String) -> Unit = { handle ->
         scope.launch {
             try {
-                onOpenChat(vm.openWith(handle))
+                val id = vm.openWith(handle)
+                // Navigation must happen on the main thread, whatever thread the call came back on.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { onOpenChat(id) }
             } catch (e: ApiException) {
                 showMessage(e.message)
             }
