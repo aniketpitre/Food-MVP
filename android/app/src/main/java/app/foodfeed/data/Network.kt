@@ -63,6 +63,8 @@ class NetworkFactory(
     private val serverUrl: () -> String = { "" },
     /** Our server said this sign-in has ended (signed out elsewhere, password changed). */
     private val onSessionEnded: (token: String) -> Unit = {},
+    /** The server renewed this sign-in's token (it does so weekly while you use the app). */
+    private val onNewToken: (old: String, new: String) -> Unit = { _, _ -> },
     private val device: String? = null,
 ) {
     val okHttp: OkHttpClient = OkHttpClient.Builder()
@@ -82,6 +84,7 @@ class NetworkFactory(
                 device?.let { header("X-Device-Name", it) }
             }.build()
             val response = chain.proceed(req)
+            if (token != null) response.header("X-New-Token")?.let { fresh -> if (fresh.count { it == '.' } == 2) onNewToken(token, fresh) }
             if (token != null && response.code == 401) {
                 val body = runCatching { response.peekBody(2048).string() }.getOrDefault("")
                 if ("\"session_ended\"" in body || "\"sign_in_required\"" in body) onSessionEnded(token)

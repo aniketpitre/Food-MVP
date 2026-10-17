@@ -81,12 +81,38 @@ async function sessionOn(req: FastifyRequest): Promise<boolean> {
   return ok;
 }
 
+/** Tokens last 30 days; one older than a week is quietly renewed, so people who use the app stay signed in. */
+const RENEW_AFTER_S = 7 * 24 * 3600;
+
+function renewIfOld(req: FastifyRequest, reply?: FastifyReply) {
+  const p = req.user as TokenPayload;
+  if (!reply || !p.sid || !p.iat || Date.now() / 1000 - p.iat < RENEW_AFTER_S) return;
+  reply.header('x-new-token', req.server.jwt.sign({ sub: p.sub, role: p.role, sid: p.sid }));
+}
+
+/**
+ * At most [max] tries per [windowMs] for one key (an address and an email, say), kept in
+ * memory. On top of the per-address limit and the account lock in the database.
+ */
+const tries = new Map<string, number[]>();
+export function tooManyTries(key: string, max: number, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const recent = (tries.get(key) ?? []).filter((t) => now - t < windowMs);
+  recent.push(now);
+  tries.set(key, recent);
+  if (tries.size > 50_000) {
+    for (const [k, v] of tries) if (!v.some((t) => now - t < windowMs)) tries.delete(k);
+  }
+  return recent.length > max;
+}
+
 /** Sets request.user when a valid bearer token is present; guests pass through. */
-export async function optionalAuth(req: FastifyRequest): Promise<void> {
+export async function optionalAuth(req: FastifyRequest, reply?: FastifyReply): Promise<void> {
   if (!req.headers.authorization) return;
   try {
     await req.jwtVerify();
     if (!(await sessionOn(req))) (req as { user?: unknown }).user = undefined;
+    else renewIfOld(req, reply);
   } catch {
     // An invalid or expired token is treated as a guest; protected routes reject below.
     (req as { user?: unknown }).user = undefined;
@@ -102,6 +128,7 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
   if (!(await sessionOn(req))) {
     return reply.code(401).send({ error: 'session_ended', message: 'You were signed out. Please sign in again.' });
   }
+  renewIfOld(req, reply);
 }
 
 export function userId(req: FastifyRequest): string | null {

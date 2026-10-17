@@ -1773,6 +1773,40 @@ describe('accounts: sign in, sessions, recovery', () => {
   });
 });
 
+describe('sign-in limits and staying signed in', () => {
+  it('counts tries per key in a time window', async () => {
+    const { tooManyTries } = await import('../src/auth.js');
+    const key = `test:${Math.random()}`;
+    for (let i = 0; i < 3; i++) expect(tooManyTries(key, 3, 1000)).toBe(false);
+    expect(tooManyTries(key, 3, 1000)).toBe(true);
+    expect(tooManyTries(`${key}:other`, 3, 1000)).toBe(false);
+  });
+
+  it('renews a token older than a week on the same session, and says how long a lock lasts', async () => {
+    const u = await signUp();
+    const sid = app.jwt.decode<{ sid: string }>(u.token)!.sid;
+    const week = Math.floor(Date.now() / 1000) - 8 * 24 * 3600;
+    const old = app.jwt.sign({ sub: u.id, role: 'user', sid, iat: week });
+    const res = await app.inject({ url: '/me', headers: { authorization: `Bearer ${old}` } });
+    expect(res.statusCode).toBe(200);
+    const fresh = res.headers['x-new-token'] as string;
+    expect(app.jwt.decode<{ sid: string }>(fresh)!.sid).toBe(sid);
+    expect((await app.inject({ url: '/me', headers: { authorization: `Bearer ${fresh}` } })).statusCode).toBe(200);
+    // A new token isn't renewed.
+    expect((await app.inject({ url: '/me', headers: u.auth })).headers['x-new-token']).toBeUndefined();
+
+    await db.query("update profiles set locked_until = now() + interval '5 minutes' where id = $1", [u.id]);
+    const locked = await app.inject({ method: 'POST', url: '/auth/login', payload: { login: u.handle, password: 'correct horse' } });
+    expect(locked.json().message).toMatch(/Try again in 5 minutes/);
+  });
+
+  it('accepts both "login" and "email" together (newer apps send both, for older servers)', async () => {
+    const u = await signUp();
+    const r = await app.inject({ method: 'POST', url: '/auth/login', payload: { login: u.handle, email: u.handle, password: 'correct horse' } });
+    expect(r.statusCode).toBe(200);
+  });
+});
+
 describe('changing the email', () => {
   it('needs the password, a code from the old address and one from the new, then switches and tells the old address', async () => {
     const mails: { to: string; subject: string; text: string }[] = [];

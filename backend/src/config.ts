@@ -48,7 +48,9 @@ export function loadConfig(): Config {
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
     rankRefreshSeconds: Number(process.env.RANK_REFRESH_SECONDS ?? 300),
-    authRateLimitPerMinute: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 10),
+    // Per IP address. Phone networks put thousands of people behind one address, so this
+    // is generous; each account and each email/username has its own tighter limit too.
+    authRateLimitPerMinute: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 60),
     seedOnStart: process.env.SEED_ON_START === 'true',
     demoActivity: process.env.DEMO_ACTIVITY === 'true',
     appDownloadUrl: process.env.APP_DOWNLOAD_URL ?? 'https://github.com/aniketpitre/Food-MVP/releases/latest',

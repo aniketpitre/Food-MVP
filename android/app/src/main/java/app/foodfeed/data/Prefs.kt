@@ -72,9 +72,16 @@ class Prefs(private val context: Context) {
             deviceId = UUID.randomUUID().toString()
             context.dataStore.edit { it[Keys.deviceId] = deviceId }
         }
+        val stored = p[Keys.token]
+        val token = stored?.let { TokenCipher.open(it) }
+        // A token saved before encryption is sealed now; one that can't be opened any more
+        // (the phone's key was reset) means signing in again.
+        if (stored != null && token != null && !TokenCipher.isSealed(stored)) {
+            context.dataStore.edit { it[Keys.token] = TokenCipher.seal(token) }
+        }
         return StoredState(
             serverUrl = p[Keys.serverUrl] ?: defaultServerUrl,
-            token = p[Keys.token],
+            token = token,
             user = p[Keys.user]?.let { runCatching { AppJson.decodeFromString(User.serializer(), it) }.getOrNull() },
             cityId = p[Keys.cityId],
             cityName = p[Keys.cityName],
@@ -95,7 +102,7 @@ class Prefs(private val context: Context) {
             it.remove(Keys.token)
             it.remove(Keys.user)
         } else {
-            it[Keys.token] = token
+            it[Keys.token] = TokenCipher.seal(token)
             it[Keys.user] = AppJson.encodeToString(User.serializer(), user)
         }
     }

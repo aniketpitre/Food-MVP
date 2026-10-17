@@ -122,6 +122,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         { session.value?.token },
         { normaliseServerUrl(_serverUrl.value) },
         onSessionEnded = { token -> scope.launch { sessionEnded(token) } },
+        onNewToken = { old, new -> scope.launch { if (_session.value?.token == old) replaceToken(new) } },
         device = runCatching { deviceName() }.getOrNull(),
     )
 

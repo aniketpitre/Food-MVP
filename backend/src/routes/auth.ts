@@ -4,7 +4,7 @@ import { parse } from '../app.js';
 import type { FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import {
-  burnPasswordCheck, forgetSessions, hashPassword, passwordProblem, requireAuth, sessionId, userId, verifyPassword,
+  burnPasswordCheck, forgetSessions, hashPassword, passwordProblem, requireAuth, sessionId, tooManyTries, userId, verifyPassword,
 } from '../auth.js';
 import { noticeEmail } from '../mail.js';
 import { deletePostImages } from '../media.js';
@@ -102,6 +102,10 @@ export function profileJson(p: ProfileRow) {
 export async function authRoutes(app: FastifyInstance) {
   const { db, config } = app;
   const authLimit = { config: { rateLimit: { max: config.authRateLimitPerMinute, timeWindow: '1 minute' } } };
+  /** Per address and email/username: 10 tries a minute, so one person can't hammer one account. */
+  // (A server set to allow thousands a minute, like the test setup, lifts this too.)
+  const PER_ACCOUNT = config.authRateLimitPerMinute >= 1000 ? config.authRateLimitPerMinute : 10;
+  const slowDown = { error: 'rate_limited', message: 'Too many tries. Wait a minute and try again.' };
 
   app.post('/auth/register', authLimit, async (req, reply) => {
     const body = parse(registerSchema, req.body, reply);
@@ -135,8 +139,11 @@ export async function authRoutes(app: FastifyInstance) {
     const body = parse(loginSchema, req.body, reply);
     if (!body) return;
     const login = (body.login || body.email)!.replace(/^@/, '');
-    const { rows } = await db.query<ProfileRow & { password_hash: string; locked: boolean; failed_logins: number }>(
-      `select *, coalesce(locked_until > now(), false) as locked from profiles
+    if (tooManyTries(`login:${req.ip}:${login}`, PER_ACCOUNT)) return reply.code(429).send(slowDown);
+    const { rows } = await db.query<ProfileRow & { password_hash: string; locked: boolean; failed_logins: number; lock_minutes: number }>(
+      `select *, coalesce(locked_until > now(), false) as locked,
+              greatest(1, ceil(extract(epoch from (locked_until - now())) / 60))::int as lock_minutes
+       from profiles
        where ${login.includes('@') ? 'email' : 'handle'} = $1`,
       [login],
     );
@@ -150,7 +157,7 @@ export async function authRoutes(app: FastifyInstance) {
       await burnPasswordCheck(body.password);
       return reply.code(429).send({
         error: 'locked',
-        message: `Too many wrong passwords. Try again in ${LOCK_MINUTES} minutes, or reset your password.`,
+        message: `Too many wrong passwords. Try again in ${user.lock_minutes} minute${user.lock_minutes === 1 ? '' : 's'}, or reset your password.`,
       });
     }
     if (!(await verifyPassword(body.password, user.password_hash))) {
@@ -352,6 +359,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!b) return;
     if (!app.mailer.enabled) return reply.code(503).send(MAIL_OFF);
     const login = b.login.replace(/^@/, '');
+    if (tooManyTries(`forgot:${req.ip}:${login}`, PER_ACCOUNT)) return reply.code(429).send(slowDown);
     const { rows } = await db.query<{ id: string; email: string; recent: boolean }>(
       `select p.id, p.email,
               exists (select 1 from auth_codes c where c.user_id = p.id and c.purpose = 'reset' and c.sent_at > now() - interval '30 seconds') as recent
@@ -402,6 +410,7 @@ export async function authRoutes(app: FastifyInstance) {
     const b = parse(z.object({ email: z.string().trim().toLowerCase().email().max(254) }), req.body, reply);
     if (!b) return;
     if (!app.mailer.enabled) return reply.code(503).send(MAIL_OFF);
+    if (tooManyTries(`username:${req.ip}:${b.email}`, PER_ACCOUNT)) return reply.code(429).send(slowDown);
     const { rows } = await db.query<{ handle: string }>('select handle from profiles where email = $1', [b.email]);
     if (rows[0]) {
       void sendNotice(b.email, 'Your WorthAbite username', [
@@ -416,6 +425,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/email/forgot', authLimit, async (req, reply) => {
     const b = parse(z.object({ handle: z.string().trim().toLowerCase().max(40) }), req.body, reply);
     if (!b) return;
+    if (tooManyTries(`emailhint:${req.ip}`, 30)) return reply.code(429).send(slowDown);
     const { rows } = await db.query<{ email: string }>('select email from profiles where handle = $1', [b.handle.replace(/^@/, '')]);
     if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'No account has that username.' });
     return { emailHint: emailHint(rows[0].email) };

@@ -184,7 +184,7 @@ class AuthViewModel(private val app: AppContainer) : ViewModel() {
                     }
                     return@launch
                 }
-                val r = apiCall { app.api.login(LoginBody(s.email, s.password)) }
+                val r = apiCall { app.api.login(LoginBody(login = s.email, password = s.password, email = s.email)) }
                 if (r.twoFactor && r.challengeId != null) {
                     _state.update { it.copy(busy = false, challengeId = r.challengeId, emailHint = r.emailHint.orEmpty(), code = "") }
                     countdown()

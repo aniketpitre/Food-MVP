@@ -447,8 +447,11 @@ data class RegisterBody(
 )
 
 @Serializable
-/** [login] is an email or a username. */
-data class LoginBody(val login: String, val password: String)
+/**
+ * [login] is an email or a username. [email] carries the same text for servers older than
+ * 0.16, which only read "email".
+ */
+data class LoginBody(val login: String, val password: String, val email: String)
 
 @Serializable
 data class EngagementResult(val stats: DishStats, val me: MyActions, val rating: Rating? = null)
