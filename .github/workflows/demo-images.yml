@@ -1,0 +1,44 @@
+# Finds (candidates) or fetches (pick) free Wikimedia Commons photos for the demo dishes
+# and commits them to the branch it runs on. See backend/scripts/demo-images.mjs.
+name: Demo dish photos
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "candidates or pick"
+        required: true
+        default: candidates
+
+permissions:
+  contents: write
+
+jobs:
+  photos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Candidates
+        if: inputs.mode == 'candidates'
+        run: |
+          node scripts/demo-images.mjs candidates
+          git add demo-candidates
+      - name: Pick
+        if: inputs.mode == 'pick'
+        run: |
+          node scripts/demo-images.mjs pick scripts/demo-picks.json
+          git add seed/images
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Demo dish photos: ${{ inputs.mode }} [skip ci]" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}" && git push
