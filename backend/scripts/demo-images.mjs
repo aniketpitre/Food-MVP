@@ -137,14 +137,18 @@ async function pick(file) {
   const dir = path.join(root, 'seed', 'images');
   const creditsFile = path.join(dir, 'credits.json');
   const credits = JSON.parse(await fs.readFile(creditsFile, 'utf8').catch(() => '{}'));
-  for (const [key, title] of Object.entries(picks)) {
+  const only = process.argv.slice(4);
+  for (const [key, pickValue] of Object.entries(picks)) {
+    if (only.length && !only.includes(key)) continue;
+    // "File:Name.jpg" or "File:Name.jpg|centre" when the automatic crop picks the wrong part.
+    const [title, crop] = pickValue.split('|');
     const [f] = await commons({ titles: title });
     if (!f) throw new Error(`${key}: ${title} is not a usable free photo`);
     const res = await fetch(f.thumb, { headers: UA });
     if (!res.ok) throw new Error(`${key}: download failed`);
     await sharp(Buffer.from(await res.arrayBuffer()))
       .rotate()
-      .resize(1080, 1350, { fit: 'cover', position: sharp.strategy.attention })
+      .resize(1080, 1350, { fit: 'cover', position: crop === 'centre' ? 'centre' : sharp.strategy.attention })
       .jpeg({ quality: 84, mozjpeg: true })
       .toFile(path.join(dir, `${key}.jpg`));
     credits[key] = { title: f.title, author: f.author, licence: f.licence, licenceUrl: f.licenceUrl, source: f.page };

@@ -10,7 +10,7 @@ on:
         required: true
         default: candidates
       keys:
-        description: "candidates: only these dish keys (space separated), empty for all"
+        description: "only these dish keys (space separated), empty for all"
         required: false
         default: ""
 
@@ -38,7 +38,7 @@ jobs:
       - name: Pick
         if: inputs.mode == 'pick'
         run: |
-          node scripts/demo-images.mjs pick scripts/demo-picks.json
+          node scripts/demo-images.mjs pick scripts/demo-picks.json ${{ inputs.keys }}
           git add seed/images
       - name: Commit
         run: |
