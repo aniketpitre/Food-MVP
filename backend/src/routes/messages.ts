@@ -135,18 +135,80 @@ export async function messageRoutes(app: FastifyInstance) {
    * messages, and unread Activity. The app keeps the returned `now` as its next cursor
    * (server time, so phone clocks don't matter). Without `since` it only returns `now`.
    */
+  /**
+   * New food near you since [since]: dishes just posted within 5 km (or in your city when
+   * the phone's location isn't known), and places that just went live on WorthAbite (not the
+   * bulk map imports). Your own, and people you blocked, never show. Nearest first, 3 at most.
+   */
+  async function newNearby(me: string, since: string, now: Date, lat?: number, lng?: number, city?: number) {
+    const here = lat !== undefined && lng !== undefined;
+    if (!here && !city) return [];
+    const { rows } = await db.query(
+      `with here as (select case when $4::float8 is not null then st_setsrid(st_makepoint($5, $4), 4326)::geography end as g),
+       near as (
+         select r.* from restaurants r, here
+         where r.status = 'active'
+           and (case when here.g is not null then st_dwithin(r.geo, here.g, 5000) else r.city_id = $6 end)
+       ),
+       found as (
+         -- Places new on WorthAbite (first went live just now), with their best dish so far.
+         select 'place' as kind, r.id as place_id, r.listed_at as at,
+                (select d.id from dishes d where d.restaurant_id = r.id and d.status = 'live'
+                   and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
+                 order by d.created_at limit 1) as dish_id
+         from near r
+         where r.listed_at > $2 and r.listed_at <= $3 and r.source = 'user'
+           and r.created_by is distinct from $1
+         union all
+         -- Dishes just posted at places already on WorthAbite.
+         select 'dish', r.id, d.created_at, d.id
+         from near r join dishes d on d.restaurant_id = r.id and d.status = 'live'
+         where d.created_at > $2 and d.created_at <= $3 and not (r.listed_at > $2)
+           and d.created_by is distinct from $1
+           and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
+       )
+       select f.kind, f.place_id as "placeId", r.name as "placeName", r.locality, f.dish_id as "dishId", d.name as "dishName",
+              c.emoji, d.is_veg as "isVeg",
+              (select p.thumb_path from posts p where p.dish_id = d.id and p.status = 'live'
+               order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1) as "thumbUrl",
+              case when here.g is not null then round(st_distance(r.geo, here.g))::int end as "distanceM"
+       from found f
+       cross join here
+       join restaurants r on r.id = f.place_id
+       join dishes d on d.id = f.dish_id
+       left join dish_categories c on c.id = d.category_id
+       where true
+         and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = coalesce(d.created_by, r.created_by))
+                                                 or (b.blocked_id = $1 and b.blocker_id = coalesce(d.created_by, r.created_by)))
+       order by "distanceM" nulls last, f.at desc
+       limit 3`,
+      [me, since, now, here ? lat : null, here ? lng : null, city ?? null],
+    );
+    return rows;
+  }
+
   app.get('/updates', { preHandler: requireAuth }, async (req, reply) => {
-    const q = parse(z.object({ since: z.string().datetime({ offset: true }).optional() }), req.query, reply);
+    const q = parse(
+      z.object({
+        since: z.string().datetime({ offset: true }).optional(),
+        // Where the phone was last (rounded), or its city: for new food near you.
+        lat: z.coerce.number().min(-90).max(90).optional(),
+        lng: z.coerce.number().min(-180).max(180).optional(),
+        city: z.coerce.number().int().positive().optional(),
+      }),
+      req.query,
+      reply,
+    );
     if (!q) return;
     const me = userId(req)!;
     const { rows: t } = await db.query<{ now: Date }>('select now() as now');
     const now = t[0]!.now;
-    if (!q.since) return { now, messages: [], reactions: [], activity: [] };
+    if (!q.since) return { now, messages: [], reactions: [], activity: [], nearby: [] };
     const notBlocked = (col: string) =>
       `not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = ${col}) or (b.blocker_id = ${col} and b.blocked_id = $1))`;
     const person = (a: string) =>
       `json_build_object('handle', ${a}.handle, 'displayName', ${a}.display_name, 'avatarUrl', ${a}.avatar_path)`;
-    const [messages, reactions, activity] = await Promise.all([
+    const [messages, reactions, activity, nearby] = await Promise.all([
       db.query(
         `select m.id, m.conversation_id as "conversationId", m.kind, left(m.body, 200) as body,
                 m.created_at as "createdAt", mine.folder, ${person('p')} as "from"
@@ -170,22 +232,26 @@ export async function messageRoutes(app: FastifyInstance) {
       ),
       db.query(
         `select n.id, n.kind, n.created_at as "createdAt", ${person('a')} as actor,
-                d.name as "dishName", d.id as "dishId", left(c.body, 120) as "commentBody"
+                d.name as "dishName", d.id as "dishId", left(c.body, 120) as "commentBody",
+                n.story_id as "storyId", r.name as "placeName"
          from notifications n
          join profiles a on a.id = n.actor_id
          left join dishes d on d.id = coalesce(n.dish_id, (select po.dish_id from posts po where po.id = n.post_id))
+         left join restaurants r on r.id = d.restaurant_id
          left join comments c on c.id = n.comment_id and c.status = 'live'
          where n.user_id = $1 and n.read_at is null and n.created_at > $2 and n.created_at <= $3
            and ${notBlocked('n.actor_id')}
          order by n.id limit 30`,
         [me, q.since, now],
       ),
+      newNearby(me, q.since, now, q.lat, q.lng, q.city),
     ]);
     return {
       now,
       messages: messages.rows,
       reactions: reactions.rows,
       activity: activity.rows.map((r) => ({ ...r, id: Number(r.id) })),
+      nearby,
     };
   });
 

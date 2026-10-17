@@ -187,6 +187,9 @@ private fun sentence(n: ActivityItem): Pair<String, String?> = when (n.kind) {
     "comment_like" -> "liked your comment:" to n.commentBody
     "recommend" -> "loved the ${n.dish?.name ?: "dish"} you posted." to null
     "agree" -> "agreed with your pick: ${n.dish?.name ?: "a dish"}." to null
+    "story" -> "posted a new story." to null
+    "post" -> "posted ${n.dish?.name ?: "a new dish"}. Worth a bite?" to null
+    "story_like" -> "liked your story." to null
     else -> "did something." to null
 }
 
@@ -213,7 +216,8 @@ private fun ActivityRow(
             .pressScale(interaction, 0.98f)
             .clickable(interaction, indication = null, role = Role.Button) {
                 val dish = n.dish
-                if (dish != null && n.kind != "follow") onOpenDish(dish.id) else onOpenUser(n.actor.handle)
+                if (dish != null && n.kind != "follow" && n.kind != "story" && n.kind != "story_like") onOpenDish(dish.id)
+                else onOpenUser(n.actor.handle)
             }
             .then(if (!n.read) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)) else Modifier)
             .padding(horizontal = 20.dp, vertical = 10.dp),

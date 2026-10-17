@@ -61,7 +61,8 @@ class MainActivity : ComponentActivity() {
 
     /**
      * The screen a link opens: foodfeed://dish/<uuid> from a share link, and from
-     * notifications foodfeed://chat/<uuid>, foodfeed://user/<handle> or foodfeed://activity.
+     * notifications foodfeed://chat/<uuid>, foodfeed://user/<handle>, foodfeed://stories/<handle>
+     * or foodfeed://activity.
      */
     private fun routeFrom(intent: Intent?): String? {
         val uri = intent?.data ?: return null
@@ -72,6 +73,7 @@ class MainActivity : ComponentActivity() {
             "dish" -> id?.takeIf { uuid.matches(it) }?.let { "dish/$it" }
             "chat" -> id?.takeIf { uuid.matches(it) }?.let { "chat/$it" }
             "user" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user/$it" }
+            "stories" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user-stories/$it" }
             "activity" -> "activity"
             else -> null
         }

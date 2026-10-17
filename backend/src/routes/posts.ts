@@ -1,3 +1,4 @@
+import { notifyFollowers } from '../notify.js';
 import crypto from 'node:crypto';
 import { nearestCity } from '../geo.js';
 import type { FastifyInstance } from 'fastify';
@@ -78,6 +79,7 @@ export async function postRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'bad_image', message: msg });
     }
 
+    let published: { dishId: string; cityId: number; restaurantId: string } | null = null;
     const client = await db.connect();
     try {
       await client.query('begin');
@@ -128,12 +130,22 @@ export async function postRoutes(app: FastifyInstance) {
       );
       await client.query('update dishes set cover_post_id = coalesce(cover_post_id, $2) where id = $1', [dishId, postId]);
       await client.query('commit');
+      published = { dishId, cityId, restaurantId: restaurantId! };
     } catch (err) {
       await client.query('rollback');
       await deletePostImages(config.mediaDir, postId);
       throw err;
     } finally {
       client.release();
+    }
+    // Followers hear about it, and phones in the city check for new food near them. A place
+    // still waiting for review stays quiet until it's approved.
+    if (published) {
+      const live = await db.query("select 1 from restaurants where id = $1 and status = 'active'", [published.restaurantId]);
+      if (live.rows[0]) {
+        await notifyFollowers(db, { actorId: me, kind: 'post', postId, dishId: published.dishId });
+        await app.push.tickleCity(published.cityId, me);
+      }
     }
     return reply.code(201).send(await postJson(postId));
   });

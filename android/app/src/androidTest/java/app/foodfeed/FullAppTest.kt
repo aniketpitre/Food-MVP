@@ -565,6 +565,70 @@ class FullAppTest {
         }
     }
 
+    /** A plain photo to post, made on the spot. */
+    private fun jpeg(): ByteArray {
+        val bmp = Bitmap.createBitmap(1200, 900, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFFE0823A.toInt()) }
+        return java.io.ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+    }
+
+    private fun upload(path: String, token: String, fields: Map<String, String>) {
+        val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM).apply {
+            fields.forEach { (k, v) -> addFormDataPart(k, v) }
+            addFormDataPart("image", "photo.jpg", jpeg().toRequestBody("image/jpeg".toMediaType()))
+        }.build()
+        val req = Request.Builder().url("$server$path").header("Authorization", "Bearer $token").post(body).build()
+        http.newCall(req).execute().use { res -> assertTrue("$path -> ${res.code} ${res.body?.string()}", res.isSuccessful) }
+    }
+
+    @Test
+    fun notifications_storiesPostsAndFoodNearby() {
+        val cook = friend("n")
+        val city = container.city.value!!.id
+        val place = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.first().restaurant.id
+        val nm = context.getSystemService(NotificationManager::class.java)
+        step("I follow a friend, and the app has its starting point") {
+            waitFor(hasTestTag("home_list"), 30_000)
+            call("PUT", "/users/${cook.user.handle}/follow", me.token)
+            runBlocking {
+                container.checkUpdates()
+                container.resetNearbyAllowance()
+            }
+            nm.cancelAll()
+        }
+        step("they post a story and a new dish near me") {
+            upload("/stories", cook.token, mapOf("cityId" to city.toString()))
+            upload("/posts", cook.token, mapOf("idempotencyKey" to "nearby-$suffix", "dishName" to "Test Kanda Bhaji $suffix", "restaurantId" to place))
+        }
+        step("story, post and food near you show on the phone") {
+            val end = System.currentTimeMillis() + 60_000
+            var texts = emptyList<String>()
+            var tags = emptyList<String>()
+            while (System.currentTimeMillis() < end) {
+                runBlocking { container.checkUpdates() }
+                val active = nm.activeNotifications.toList()
+                tags = active.mapNotNull { it.tag }
+                texts = active.map { it.notification.extras.getCharSequence("android.text")?.toString().orEmpty() }
+                if (texts.any { "new story" in it } && texts.any { "Test Kanda Bhaji" in it && "posted" in it } && tags.any { it.startsWith("nearby:") }) break
+                Thread.sleep(2000)
+            }
+            Log.d("JOURNEY", "notifications: $tags $texts")
+            assertTrue("a story notification ($texts)", texts.any { "new story" in it })
+            assertTrue("a post notification ($texts)", texts.any { "Test Kanda Bhaji" in it && "posted" in it })
+            assertTrue("a food-near-you notification ($tags)", tags.any { it.startsWith("nearby:") })
+            device.openNotification()
+            Thread.sleep(2500)
+            val shade = instrumentation.uiAutomation.takeScreenshot()
+            File(shots, "68_notifications_story_post_nearby.png").outputStream().use { shade?.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            device.pressBack()
+            Thread.sleep(800)
+        }
+        step("the story notification opens their stories") {
+            open("foodfeed://stories/${cook.user.handle}")
+            Thread.sleep(2500)
+            shot("69_story_from_notification")
+        }
+    }
+
     @Test
     fun placesFiltersAndInAppDirections() {
         val probe = app.foodfeed.ui.map.NavigateProbe

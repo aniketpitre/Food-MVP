@@ -95,6 +95,11 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.lifecycle.process)
+    // Push wake-ups (Firebase Cloud Messaging). Started at run time with values from our
+    // server, so the build needs no google-services.json; off when the server has no Firebase.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation(libs.androidx.exifinterface)
 
     implementation(platform(libs.compose.bom))

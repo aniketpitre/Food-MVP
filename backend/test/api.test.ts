@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
 import sharp from 'sharp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { createPool, migrate, type Db } from '../src/db.js';
@@ -1413,6 +1413,146 @@ describe('explore places and in-app directions', () => {
     expect(stepText({ distance: 10, maneuver: { type: 'arrive', location: at } })).toBe('You have arrived');
     expect(stepText({ name: '', distance: 10, maneuver: { type: 'turn', modifier: 'uturn', location: at } })).toBe('Make a U-turn');
     expect(stepText({ name: 'Ring Rd', distance: 10, maneuver: { type: 'roundabout', location: at } })).toBe('At the roundabout, take the exit onto Ring Rd');
+  });
+});
+
+describe('notifications: stories, posts, story likes, new food near you, push', () => {
+  async function activeRestaurant(lng = 73.7898, lat = 19.9975): Promise<string> {
+    const r = await db.query(
+      `insert into restaurants (city_id, name, name_norm, geo, status, created_at)
+       values ($1, $2, norm_name($2), st_setsrid(st_makepoint($3, $4), 4326)::geography, 'active', now() - interval '2 days') returning id`,
+      [cityId, `Notify Place ${Math.random().toString(36).slice(2, 8)}`, lng, lat],
+    );
+    await db.query("update restaurants set listed_at = now() - interval '2 days' where id = $1", [r.rows[0].id]);
+    return r.rows[0].id;
+  }
+  it('tells followers about a new story and a new dish post, and owners about story likes', async () => {
+    const poster = await signUp({ established: true });
+    const fan = await signUp({ established: true });
+    const stranger = await signUp({ established: true });
+    await app.inject({ method: 'PUT', url: `/users/${poster.handle}/follow`, headers: fan.auth });
+
+    const story = await app.inject({ method: 'POST', url: '/stories', ...multipart(poster.auth, { cityId: String(cityId) }, await photo()) });
+    expect(story.statusCode).toBe(201);
+    const place = await activeRestaurant();
+    const post = await app.inject({
+      method: 'POST', url: '/posts',
+      ...multipart(poster.auth, { idempotencyKey: 'key-notify-post', dishName: 'Notify Thalipeeth', restaurantId: place }, await photo()),
+    });
+    expect(post.statusCode).toBe(201);
+
+    const items = (await app.inject({ url: '/notifications', headers: fan.auth })).json().items;
+    const kinds = items.filter((n: { actor: { handle: string } }) => n.actor.handle === poster.handle).map((n: { kind: string }) => n.kind);
+    expect(kinds).toEqual(expect.arrayContaining(['story', 'post']));
+    const postItem = items.find((n: { kind: string }) => n.kind === 'post');
+    expect(postItem.dish.name).toBe('Notify Thalipeeth');
+    // Only followers hear about it.
+    const strangers = (await app.inject({ url: '/notifications', headers: stranger.auth })).json().items;
+    expect(strangers.some((n: { actor: { handle: string } }) => n.actor.handle === poster.handle)).toBe(false);
+
+    // A heart on the story tells its owner, once even if toggled.
+    for (const liked of [true, false, true]) {
+      await app.inject({ method: 'PUT', url: `/stories/${story.json().id}/like`, headers: fan.auth, payload: { liked } });
+    }
+    const mine = (await app.inject({ url: '/notifications', headers: poster.auth })).json().items;
+    expect(mine.filter((n: { kind: string }) => n.kind === 'story_like')).toHaveLength(1);
+
+    // Phone updates carry them too, with the story to open.
+    const { rows } = await db.query("select (now() - interval '1 hour') as t");
+    const upd = (await app.inject({ url: `/updates?since=${encodeURIComponent(rows[0].t.toISOString())}`, headers: fan.auth })).json();
+    const st = upd.activity.find((a: { kind: string }) => a.kind === 'story');
+    expect(st.storyId).toBe(story.json().id);
+    expect(upd.activity.find((a: { kind: string }) => a.kind === 'post').placeName).toMatch(/^Notify Place/);
+  });
+
+  it('finds new food near you: new dishes within 5 km, never your own, nearest first', async () => {
+    const me = await signUp({ established: true });
+    const cook = await signUp({ established: true });
+    const t0 = new Date(Date.now() - 1000).toISOString();
+    const near = await activeRestaurant(73.79, 19.998);
+    const far = await activeRestaurant(73.95, 20.2);
+    for (const [place, name, who] of [[near, 'Nearby Poha', cook], [far, 'Faraway Poha', cook], [near, 'My Own Poha', me]] as const) {
+      const r = await app.inject({
+        method: 'POST', url: '/posts',
+        ...multipart(who.auth, { idempotencyKey: `key-${name.replace(/ /g, '')}`, dishName: name, restaurantId: place }, await photo()),
+      });
+      expect(r.statusCode).toBe(201);
+    }
+    const upd = (await app.inject({ url: `/updates?since=${encodeURIComponent(t0)}&lat=19.9975&lng=73.7898`, headers: me.auth })).json();
+    const names = upd.nearby.map((n: { dishName: string }) => n.dishName);
+    expect(names).toContain('Nearby Poha');
+    expect(names).not.toContain('Faraway Poha');
+    expect(names).not.toContain('My Own Poha');
+    const poha = upd.nearby.find((n: { dishName: string }) => n.dishName === 'Nearby Poha');
+    expect(poha).toMatchObject({ kind: 'dish', placeId: near });
+    expect(poha.distanceM).toBeLessThan(1000);
+    const d = upd.nearby.map((n: { distanceM: number }) => n.distanceM);
+    expect(d).toEqual([...d].sort((a, b) => a - b));
+    // Without a location, the city stands in.
+    const byCity = (await app.inject({ url: `/updates?since=${encodeURIComponent(t0)}&city=${cityId}`, headers: me.auth })).json();
+    expect(byCity.nearby.map((n: { dishName: string }) => n.dishName)).toEqual(expect.arrayContaining(['Nearby Poha']));
+    // A place approved just now is new near you too.
+    const pending = await db.query(
+      `insert into restaurants (city_id, name, name_norm, geo, status, created_by)
+       values ($1, 'Brand New Misal', norm_name('Brand New Misal'), st_setsrid(st_makepoint(73.791, 19.999), 4326)::geography, 'pending', $2) returning id`,
+      [cityId, cook.id],
+    );
+    const dish = await db.query(
+      `insert into dishes (restaurant_id, city_id, name, name_norm, created_by, created_at) values ($1, $2, 'Kat Misal', norm_name('Kat Misal'), $3, now() - interval '1 day') returning id`,
+      [pending.rows[0].id, cityId, cook.id],
+    );
+    await db.query(`insert into posts (dish_id, author_id, image_path, thumb_path) values ($1, $2, '/media/t.webp', '/media/t.webp')`, [dish.rows[0].id, cook.id]);
+    await db.query("update restaurants set source = 'user' where id = $1", [pending.rows[0].id]);
+    await db.query("update restaurants set status = 'active' where id = $1", [pending.rows[0].id]);
+    const later = (await app.inject({ url: `/updates?since=${encodeURIComponent(t0)}&lat=19.9975&lng=73.7898`, headers: me.auth })).json();
+    expect(later.nearby).toContainEqual(expect.objectContaining({ kind: 'place', placeName: 'Brand New Misal', dishName: 'Kat Misal' }));
+    expect(later.nearby.length).toBeLessThanOrEqual(3);
+  });
+
+  it('keeps push tokens, and wakes the right phone through Firebase when something arrives', async () => {
+    expect((await app.inject('/push/config')).json()).toEqual({ enabled: false });
+    const { Push, serviceJwt } = await import('../src/push.js');
+    const { generateKeyPairSync, createVerify } = await import('node:crypto');
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    // The token request is signed with the service account's key.
+    const jwt = serviceJwt({ clientEmail: 'push@test.iam', privateKey: pem }, 1_700_000_000);
+    const [h, b, sig] = jwt.split('.');
+    expect(JSON.parse(Buffer.from(b!, 'base64url').toString())).toMatchObject({ iss: 'push@test.iam', scope: 'https://www.googleapis.com/auth/firebase.messaging', exp: 1_700_003_600 });
+    expect(createVerify('RSA-SHA256').update(`${h}.${b}`).verify(publicKey, sig!, 'base64url')).toBe(true);
+
+    const sent: { url: string; body: string }[] = [];
+    const http = (async (url: string | URL, init?: RequestInit) => {
+      sent.push({ url: String(url), body: String(init?.body ?? '') });
+      if (String(url).includes('oauth2')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }));
+      if (String(init?.body).includes('stale-token-0000')) return new Response('{"error":{"status":"NOT_FOUND","details":[{"errorCode":"UNREGISTERED"}]}}', { status: 404 });
+      return new Response('{}');
+    }) as typeof fetch;
+    const push = new Push(db, { projectId: 'wab-test', clientEmail: 'push@test.iam', privateKey: pem, app: { apiKey: 'k', appId: 'a', senderId: 's' } }, console, http, 0);
+    const config2 = { ...app.config, push: push.config };
+    const app2 = await buildApp(config2, db, { logger: false, push });
+    try {
+      expect((await app2.inject('/push/config')).json()).toEqual({ enabled: true, projectId: 'wab-test', apiKey: 'k', appId: 'a', senderId: 's' });
+      const phone = await signUp({ established: true });
+      const fan = await signUp({ established: true });
+      expect((await app2.inject({ method: 'PUT', url: '/me/push-token', headers: phone.auth, payload: { token: 'phone-token-1234', cityId } })).statusCode).toBe(200);
+      await db.query('insert into push_tokens (token, user_id) values ($1, $2)', ['stale-token-0000', phone.id]);
+      // A new follower: the database wakes the server, the server wakes the phone.
+      await app2.inject({ method: 'PUT', url: `/users/${phone.handle}/follow`, headers: fan.auth });
+      await vi.waitFor(() => {
+        const fcm = sent.filter((x) => x.url.includes('fcm.googleapis.com/v1/projects/wab-test'));
+        expect(fcm.some((x) => x.body.includes('phone-token-1234'))).toBe(true);
+        expect(fcm.every((x) => !x.body.includes('"notification"'))).toBe(true); // no content in the push
+      }, { timeout: 5000 });
+      // A token Firebase no longer knows is forgotten.
+      await vi.waitFor(async () => {
+        expect((await db.query("select 1 from push_tokens where token = 'stale-token-0000'")).rowCount).toBe(0);
+      }, { timeout: 5000 });
+      expect((await app2.inject({ method: 'DELETE', url: '/me/push-token', headers: phone.auth, payload: { token: 'phone-token-1234' } })).statusCode).toBe(200);
+      expect((await db.query("select 1 from push_tokens where token = 'phone-token-1234'")).rowCount).toBe(0);
+    } finally {
+      await app2.close();
+    }
   });
 });
 

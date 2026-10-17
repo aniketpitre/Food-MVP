@@ -7,11 +7,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import app.foodfeed.Notifications
+import app.foodfeed.PushSetup
+import coil3.request.allowHardware
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -73,7 +78,7 @@ fun MyActions.has(kind: Engagement) = when (kind) {
 
 /** App-wide state and the single entry point to the server. */
 class AppContainer(context: Context, private val scope: CoroutineScope) {
-    private val appContext = context.applicationContext
+    val appContext: android.content.Context = context.applicationContext
     private val prefs = Prefs(appContext)
 
     fun notificationsAllowed() = Notifications.allowed(appContext)
@@ -181,7 +186,10 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         _ready.value = true
         scope.launch { impressionLoop() }
         scope.launch { activityLoop() }
-        if (_session.value != null) scope.launch { refreshMe() }
+        if (_session.value != null) {
+            scope.launch { refreshMe() }
+            scope.launch { PushSetup.sync(this@AppContainer) }
+        }
     }
 
     suspend fun setServerUrl(url: String) {
@@ -204,6 +212,8 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         _city.value = city
         prefs.saveCity(city?.id, city?.name)
         contentVersion.update { it + 1 }
+        // Push for food near you goes to phones by city.
+        if (_session.value != null) scope.launch { PushSetup.sync(this@AppContainer) }
     }
 
     suspend fun setThemeMode(mode: String) {
@@ -231,13 +241,24 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         runCatching { apiCall { api.inboxUnread() } }.onSuccess { unreadMessages.value = it.chats + it.requests }
     }
 
+    /**
+     * Checks for news every 30 seconds while the app is on screen, and not at all in the
+     * background (the 15-minute worker and push wake-ups cover that), so it costs no battery
+     * when you're not using it.
+     */
     private suspend fun activityLoop() {
-        var tick = 0
-        while (true) {
-            checkUpdates()
-            if (tick++ % 2 == 0) refreshUnread()
-            delay(30_000)
-        }
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+            .map { it.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) }
+            .distinctUntilChanged()
+            .collectLatest { onScreen ->
+                if (!onScreen) return@collectLatest
+                var tick = 0
+                while (true) {
+                    checkUpdates()
+                    if (tick++ % 2 == 0) refreshUnread()
+                    delay(30_000)
+                }
+            }
     }
 
     /**
@@ -248,8 +269,17 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     suspend fun checkUpdates(): Unit = updatesLock.withLock {
         if (_session.value == null || _serverUrl.value.isBlank()) return@withLock
         val since = prefs.updatesSince()
+        // Roughly where you are (about 100 m), only to find new food near you; never stored.
+        val here = location.value
         val page = try {
-            apiCall { api.updates(since) }
+            apiCall {
+                api.updates(
+                    since,
+                    lat = here?.lat?.let { Math.round(it * 1000) / 1000.0 },
+                    lng = here?.lng?.let { Math.round(it * 1000) / 1000.0 },
+                    city = _city.value?.id,
+                )
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -258,7 +288,27 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         prefs.saveUpdatesSince(page.now)
         if (since == null) return@withLock
         Notifications.show(appContext, page.messages, page.reactions, page.activity, openChatId.value)
+        val nearby = prefs.takeNearbyAllowance(page.nearby.size)
+        if (nearby > 0) {
+            val items = page.nearby.take(nearby)
+            Notifications.showNearby(appContext, items, items.associate { it.dishId to loadThumb(mediaUrl(it.thumbUrl)) })
+        }
         if (page.activity.isNotEmpty() || page.messages.isNotEmpty()) refreshUnread()
+    }
+
+    /** For tests: today's food-near-you notifications start again from zero. */
+    @androidx.annotation.VisibleForTesting
+    suspend fun resetNearbyAllowance() = prefs.resetNearbyAllowance()
+
+    /** A small photo for a notification, or null if it can't be had in a few seconds. */
+    private suspend fun loadThumb(url: String?): android.graphics.Bitmap? {
+        if (url == null) return null
+        return kotlinx.coroutines.withTimeoutOrNull(5_000) {
+            val request = coil3.request.ImageRequest.Builder(appContext).data(url).size(512)
+                .allowHardware(false).build()
+            (coil3.SingletonImageLoader.get(appContext).execute(request) as? coil3.request.SuccessResult)
+                ?.image?.let { (it as? coil3.BitmapImage)?.bitmap }
+        }
     }
 
     /** Applies a profile change from the server to the signed-in session. */
@@ -284,6 +334,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         prefs.saveSession(result.token, result.user)
         prefs.saveUpdatesSince(null)
         scope.launch { checkUpdates() }
+        scope.launch { PushSetup.sync(this@AppContainer) }
         _overrides.value = emptyMap()
         contentVersion.update { it + 1 }
         val action = pendingAction
@@ -292,6 +343,8 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     }
 
     suspend fun signOut() {
+        // This phone stops getting the account's notifications (a few seconds at most).
+        if (_session.value != null) kotlinx.coroutines.withTimeoutOrNull(4_000) { PushSetup.unregister(this@AppContainer) }
         _session.value = null
         unreadActivity.value = 0
         unreadMessages.value = 0

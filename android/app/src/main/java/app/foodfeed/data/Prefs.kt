@@ -35,6 +35,27 @@ class Prefs(private val context: Context) {
         val themeMode = stringPreferencesKey("theme_mode")
         val liteMode = stringPreferencesKey("lite_mode")
         val updatesSince = stringPreferencesKey("updates_since")
+        val nearbyDay = stringPreferencesKey("nearby_day")
+        val nearbyCount = intPreferencesKey("nearby_count")
+    }
+
+    suspend fun resetNearbyAllowance() = context.dataStore.edit { it.remove(Keys.nearbyDay); it.remove(Keys.nearbyCount) }
+
+    /**
+     * Food-near-you notifications are capped at 3 a day so they stay a treat, not noise.
+     * Returns how many of [wanted] may be shown now, and counts them.
+     */
+    suspend fun takeNearbyAllowance(wanted: Int, perDay: Int = 3): Int {
+        if (wanted <= 0) return 0
+        var granted = 0
+        context.dataStore.edit {
+            val today = java.time.LocalDate.now().toString()
+            val used = if (it[Keys.nearbyDay] == today) it[Keys.nearbyCount] ?: 0 else 0
+            granted = minOf(wanted, perDay - used).coerceAtLeast(0)
+            it[Keys.nearbyDay] = today
+            it[Keys.nearbyCount] = used + granted
+        }
+        return granted
     }
 
     /** Server time of the last check for notifications (null: start from now). */

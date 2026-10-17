@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { type PushConfig, pushConfigFromEnv } from './push.js';
 
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback;
@@ -24,6 +25,8 @@ export interface Config {
   googlePlacesApiKey: string;
   googlePhotosDailyLimit: number;
   routingUrl: string;
+  /** Firebase Cloud Messaging, for instant notifications; null = phones check by themselves. */
+  push?: PushConfig | null;
 }
 
 export function loadConfig(): Config {
@@ -52,5 +55,6 @@ export function loadConfig(): Config {
     googlePhotosDailyLimit: Number(process.env.GOOGLE_PHOTOS_DAILY_LIMIT ?? 30),
     // Driving routes for "food stops along the way" (an OSRM server; empty = straight lines).
     routingUrl: process.env.ROUTING_URL ?? 'https://router.project-osrm.org',
+    push: pushConfigFromEnv(),
   };
 }

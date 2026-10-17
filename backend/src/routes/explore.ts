@@ -56,6 +56,10 @@ export async function exploreRoutes(app: FastifyInstance) {
                 or (exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live')
                     and not exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live' and d.is_veg is not true)))
            and ($8::float8 is null or st_dwithin(r.geo, st_setsrid(st_makepoint($3, $2), 4326)::geography, $8 * 1000))
+           -- Skip places nobody has posted from before counting anything (the city can hold
+           -- thousands of imported places with no dishes).
+           and ($9 or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live'
+                              and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')))
        )
        select b.id, b.name, b.locality, b.cuisine, b.address, b.opening_hours as "openingHours",
               (b.source = 'seed') as demo, st_y(b.geo::geometry) as lat, st_x(b.geo::geometry) as lng,

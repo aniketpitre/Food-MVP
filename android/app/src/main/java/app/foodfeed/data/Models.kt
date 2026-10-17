@@ -773,6 +773,23 @@ data class UpdateActivity(
     val dishName: String? = null,
     val dishId: String? = null,
     val commentBody: String? = null,
+    val storyId: String? = null,
+    val placeName: String? = null,
+)
+
+/** New food near you: a dish just posted nearby, or a place new on WorthAbite. */
+@Serializable
+data class UpdateNearby(
+    val kind: String = "dish",
+    val placeId: String,
+    val placeName: String,
+    val locality: String? = null,
+    val dishId: String,
+    val dishName: String,
+    val emoji: String? = null,
+    val isVeg: Boolean? = null,
+    val distanceM: Int? = null,
+    val thumbUrl: String? = null,
 )
 
 @Serializable
@@ -781,7 +798,20 @@ data class UpdatesPage(
     val messages: List<UpdateMessage> = emptyList(),
     val reactions: List<UpdateReaction> = emptyList(),
     val activity: List<UpdateActivity> = emptyList(),
+    val nearby: List<UpdateNearby> = emptyList(),
 )
+
+@Serializable
+data class PushConfig(
+    val enabled: Boolean = false,
+    val apiKey: String? = null,
+    val appId: String? = null,
+    val projectId: String? = null,
+    val senderId: String? = null,
+)
+
+@Serializable
+data class PushTokenBody(val token: String, val cityId: Int? = null)
 
 @Serializable
 data class ShareResult2(val sent: List<String> = emptyList(), val failed: List<String> = emptyList())

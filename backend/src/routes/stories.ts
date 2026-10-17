@@ -1,3 +1,4 @@
+import { notify, notifyFollowers } from '../notify.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -138,6 +139,7 @@ export async function storyRoutes(app: FastifyInstance) {
       [id, me, stored.imagePath, stored.thumbPath, stored.placeholderColor, body.caption || null,
         body.dishId ?? null, body.restaurantId ?? null, body.cityId ?? null],
     );
+    await notifyFollowers(db, { actorId: me, kind: 'story', storyId: id, dishId: body.dishId ?? null });
     return reply.code(201).send({ id });
   });
 
@@ -169,6 +171,7 @@ export async function storyRoutes(app: FastifyInstance) {
        on conflict (story_id, viewer_id) do update set liked = excluded.liked`,
       [p.id, me, b.liked],
     );
+    if (b.liked) await notify(db, { userId: rows[0].owner, actorId: me, kind: 'story_like', storyId: p.id });
     return { liked: b.liked };
   });
 

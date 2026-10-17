@@ -88,7 +88,7 @@ fun SettingsScreen(
                 Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
                 Item(
                     AppIcons.Bell, "Notifications",
-                    if (app.notificationsAllowed()) "On for messages, reactions and activity" else "Off. Tap to turn on in Android settings",
+                    if (app.notificationsAllowed()) "Messages, activity, stories and posts, food near you. Tap to choose" else "Off. Tap to turn on in Android settings",
                 ) {
                     val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                         .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)

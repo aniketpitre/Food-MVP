@@ -25,6 +25,7 @@ class WorthAbiteApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         container = AppContainer(this, appScope)
         Notifications.setUp(this)
+        PushSetup.startFromCache(this)
         appScope.launch { container.init() }
     }
 

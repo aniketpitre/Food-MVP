@@ -55,8 +55,10 @@ export async function adminRoutes(app: FastifyInstance) {
     const p = parse(z.object({ id: z.string().uuid(), action: z.enum(['approve', 'hide']) }), req.params, reply);
     if (!p) return;
     const status = p.action === 'approve' ? 'active' : 'hidden';
-    const { rowCount } = await db.query('update restaurants set status = $2 where id = $1', [p.id, status]);
-    if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Place not found.' });
+    const { rows } = await db.query<{ city_id: number }>('update restaurants set status = $2 where id = $1 returning city_id', [p.id, status]);
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'Place not found.' });
+    // A newly approved place is new food near people in that city.
+    if (status === 'active') await app.push.tickleCity(rows[0].city_id);
     return { ok: true, status };
   });
 

@@ -4,6 +4,7 @@ import okhttp3.MultipartBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
@@ -218,7 +219,16 @@ interface WorthAbiteApi {
 
     @GET("me/friends") suspend fun friends(@Query("q") q: String? = null): List<Person>
 
-    @GET("updates") suspend fun updates(@Query("since") since: String?): UpdatesPage
+    @GET("updates") suspend fun updates(
+        @Query("since") since: String?,
+        @Query("lat") lat: Double? = null,
+        @Query("lng") lng: Double? = null,
+        @Query("city") city: Int? = null,
+    ): UpdatesPage
+
+    @GET("push/config") suspend fun pushConfig(): PushConfig
+    @PUT("me/push-token") suspend fun savePushToken(@Body body: PushTokenBody): OkResult
+    @HTTP(method = "DELETE", path = "me/push-token", hasBody = true) suspend fun deletePushToken(@Body body: PushTokenBody): OkResult
 
     @POST("conversations/{id}/read") suspend fun readChat(@Path("id") id: String): OkResult
 
