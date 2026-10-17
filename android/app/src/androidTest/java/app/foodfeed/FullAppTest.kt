@@ -363,29 +363,30 @@ class FullAppTest {
             waitFor(hasTestTag("chat_${pal.user.handle}"), 15_000)
             shot("41_shared_inbox")
             compose.onNodeWithTag("chat_${pal.user.handle}", useUnmergedTree = true).performClick()
-            waitFor(hasTestTag("message_dish"), 15_000)
+            // Explore shares the post (its photo and caption) rather than the bare dish.
+            waitFor(hasTestTag("message_post"), 15_000)
             waitFor(hasTestTag("share_hint"))
             // No typing: there is no message box.
             assertTrue(compose.onAllNodes(hasTestTag("chat_input"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
-            compose.onAllNodes(hasTestTag("message_dish")).onLast().performTouchInput { doubleClick() }
+            compose.onAllNodes(hasTestTag("message_post")).onLast().performTouchInput { doubleClick() }
             waitFor(hasTestTag("reactions"))
             Thread.sleep(1200)
             shot("42_shared_chat_reaction")
         }
-        step("the friend shares a post back while the chat is open") {
+        step("the friend shares a dish back while the chat is open") {
             chatId = call("POST", "/conversations", pal.token, JSONObject().put("handle", me.user.handle)).getString("id")
             val city = container.city.value!!.id
-            val postId = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.first { it.cover != null }.cover!!.postId
-            call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("postId", postId))
-            waitFor(hasTestTag("message_post"), 15_000)
+            val dishId = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.first().id
+            call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("dishId", dishId))
+            waitFor(hasTestTag("message_dish"), 15_000)
             shot("43_chat_live_share")
         }
         step("notifications when the app is elsewhere") {
             backTo(hasTestTag("messages_button"), presses = 6)
             Thread.sleep(1000)
             val city = container.city.value!!.id
-            val other = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.last().id
-            call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("dishId", other))
+            val other = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.last { it.cover != null }.cover!!.postId
+            call("POST", "/messages", pal.token, JSONObject().put("handles", org.json.JSONArray().put(me.user.handle)).put("postId", other))
             call("PUT", "/users/${me.user.handle}/follow", stranger.token)
             val nm = context.getSystemService(NotificationManager::class.java)
             val end = System.currentTimeMillis() + 60_000
@@ -408,7 +409,7 @@ class FullAppTest {
         }
         step("the notification's link opens the chat and clears it") {
             open("foodfeed://chat/$chatId")
-            waitFor(hasTestTag("message_post"), 15_000)
+            waitFor(hasTestTag("message_dish"), 15_000)
             val nm = context.getSystemService(NotificationManager::class.java)
             compose.waitUntil(10_000) { nm.activeNotifications.none { it.tag == "chat:$chatId" } }
             shot("45_chat_from_notification")
@@ -452,7 +453,7 @@ class FullAppTest {
         }
         step("notifications and the rest are there") {
             waitText("Notifications")
-            waitText("Who can message you")
+            waitText("Who can share dishes with you")
             compose.onNodeWithText("Version", substring = true).performScrollTo()
             waitText("Privacy policy")
         }
