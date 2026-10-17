@@ -9,6 +9,22 @@ export function createPool(databaseUrl: string): Db {
   return new pg.Pool({ connectionString: databaseUrl, max: 10 });
 }
 
+/** Runs [fn] in one transaction: all of its writes happen, or none do. */
+export async function inTransaction<T>(db: Db, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await db.connect();
+  try {
+    await client.query('begin');
+    const result = await fn(client);
+    await client.query('commit');
+    return result;
+  } catch (err) {
+    await client.query('rollback').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 const migrationsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations');
 
 /** Applies every migrations/NNN_*.sql file not yet recorded, each in its own transaction. */

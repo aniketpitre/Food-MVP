@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { hashPassword, requireAuth, userId, verifyPassword } from '../auth.js';
 import { deletePostImages } from '../media.js';
+import { scheduleTrustRefresh } from '../ranking.js';
 
 const handleSchema = z
   .string()
@@ -144,7 +145,12 @@ export async function authRoutes(app: FastifyInstance) {
     await db.query('delete from profiles where id = $1', [id]);
     for (const p of posts) await deletePostImages(config.mediaDir, p.id);
     const dishes = new Set([...touched.map((t) => t.dish_id), ...posts.map((p) => p.dish_id)]);
-    for (const dishId of dishes) await db.query('select refresh_dish_stats($1)', [dishId]);
+    for (const dishId of dishes) {
+      await db.query('select refresh_dish_stats($1)', [dishId]);
+      await db.query('select refresh_people_pick($1)', [dishId]);
+    }
+    // Their votes also shaped other people's trust; rebuild it (once, in the background).
+    scheduleTrustRefresh(db, 3000, (err) => app.log.error(err));
     return { ok: true };
   });
 }

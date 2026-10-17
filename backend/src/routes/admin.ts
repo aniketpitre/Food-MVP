@@ -113,9 +113,34 @@ export async function adminRoutes(app: FastifyInstance) {
     const p = parse(z.object({ key: z.string().max(40) }), req.params, reply);
     const b = parse(z.object({ value: z.number().min(0).max(100000) }), req.body, reply);
     if (!p || !b) return;
+    const [min, max] = SETTING_RANGES[p.key] ?? [0, 100000];
+    if (b.value < min || b.value > max) {
+      return reply.code(400).send({ error: 'out_of_range', message: `${p.key} must be between ${min} and ${max}.` });
+    }
     const { rowCount } = await db.query('update ranking_config set value = $2 where key = $1', [p.key, b.value]);
     if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Unknown setting.' });
+    // Everything that reads the settings is rebuilt now, not on the next timer.
     await db.query('select refresh_dish_stats()');
+    await db.query('select refresh_people_pick()');
     return { ok: true };
   });
 }
+
+/** Values that keep the maths meaningful (each is also clamped where it's used). */
+const SETTING_RANGES: Record<string, [number, number]> = {
+  pp_prior: [0.01, 0.99],
+  pp_prior_weight: [0.1, 1000],
+  pp_z: [0, 5],
+  pp_half_life_days: [1, 3650],
+  half_life_days: [1, 3650],
+  trust_floor: [0.01, 10],
+  trust_span: [0, 10],
+  trust_prior_picks: [0.1, 100],
+  standing_ramp_days: [0, 365],
+  twin_window_hours: [0, 168],
+  twin_min_votes: [1, 1000],
+  twin_overlap: [0, 1],
+  expert_min_standing: [0, 1],
+  gem_top_fraction: [0, 1],
+  fresh_days: [1, 365],
+};

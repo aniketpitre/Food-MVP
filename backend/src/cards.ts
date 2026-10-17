@@ -73,7 +73,7 @@ interface CardRow {
   champ_name: string | null;
   champ_avatar: string | null;
   champ_trust: number | null;
-  champ_picks: number | null;
+  champ_expert: boolean | null;
   champ_backers: number | null;
   distance_m: number | null;
 }
@@ -113,13 +113,14 @@ export async function loadDishCards(
                  then st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography) end as distance_m,
             dr.loves, dr.passes, dr.confidence,
             ch.handle as champ_handle, ch.display_name as champ_name, ch.avatar_path as champ_avatar,
-            ct.trust as champ_trust, ct.picks as champ_picks, ct.backers as champ_backers
+            ct.trust as champ_trust, ct.expert as champ_expert, ct.backers as champ_backers
      from unnest($1::uuid[]) with ordinality as ids(id, ord)
      join dishes d on d.id = ids.id
      join restaurants r on r.id = d.restaurant_id
      left join dish_stats s on s.dish_id = d.id
      left join dish_rating dr on dr.dish_id = d.id
      left join profiles ch on ch.id = dr.champion_id
+       and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = ch.id))
      left join taster_stats ct on ct.user_id = dr.champion_id and ct.category_id = coalesce(d.category_id, -1)
      left join lateral (
        select p.* from posts p
@@ -178,7 +179,7 @@ function toCard(r: CardRow): DishCard {
           handle: r.champ_handle,
           displayName: r.champ_name,
           avatarUrl: r.champ_avatar,
-          isExpert: isExpert(r.champ_trust, r.champ_picks),
+          isExpert: !!r.champ_expert,
           backers: Number(r.champ_backers ?? 0),
         }
       : null,
@@ -192,7 +193,7 @@ export function ratingJson(loves: number | null, passes: number | null, confiden
   return { loves: l, passes: p, percent: l + p > 0 ? Math.round((100 * l) / (l + p)) : null, score: Number(confidence ?? 0) };
 }
 
-/** Matches expert_min_picks / expert_min_trust in ranking_config (defaults 3 and 1.1). */
-export function isExpert(trust: number | null, picks: number | null): boolean {
-  return Number(picks ?? 0) >= 3 && Number(trust ?? 0) >= 1.1;
+/** Picks are weighted by how independently they were backed; shown as whole picks. */
+export function wholePicks(picks: number | string | null): number {
+  return Math.round(Number(picks ?? 0));
 }

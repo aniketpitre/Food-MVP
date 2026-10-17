@@ -274,7 +274,7 @@ describe('recommend, save, tried and share', () => {
     expect(saved.items.map((i: { name: string }) => i.name)).toEqual(['Vada Pav']);
   });
 
-  it('caps one person at 3 points and halves brand-new accounts', async () => {
+  it('caps one person at 3 points, and a brand-new account barely counts', async () => {
     const id = await dishId('Rabdi');
     const veteran = await signUp({ established: true });
     for (const k of ['recommend', 'save', 'tried']) {
@@ -286,7 +286,11 @@ describe('recommend, save, tried and share', () => {
     const newbie = await signUp();
     await app.inject({ method: 'PUT', url: `/dishes/${id}/engagements/recommend`, headers: newbie.auth });
     score = (await db.query('select score from dish_stats where dish_id = $1', [id])).rows[0].score;
-    expect(score).toBeCloseTo(3.5, 3); // newcomer's recommend counts 0.5
+    expect(score).toBeCloseTo(3, 2); // a seconds-old account's love counts next to nothing...
+    await db.query("update profiles set created_at = now() - interval '7 days' where id = $1", [newbie.id]);
+    await db.query('select refresh_dish_stats($1)', [id]);
+    score = (await db.query('select score from dish_stats where dish_id = $1', [id])).rows[0].score;
+    expect(score).toBeCloseTo(4, 2); // ...and fully once the account is a week old
   });
 
   it('counts a share once and lets guests share without counting', async () => {
@@ -897,7 +901,7 @@ describe("People's Pick", () => {
       [fan.handle],
     );
     expect(rows[0]).toMatchObject({ picks: 1, backers: 4 });
-    expect(rows[0].trust).toBeGreaterThan(1.0);
+    expect(rows[0].trust).toBeGreaterThan(0.6); // above the floor everyone starts at
     // The fan is listed among the people to trust for pav bhaji (people with longer records may rank above).
     expect(res.tasters.map((t: { handle: string }) => t.handle)).toContain(fan.handle);
     // ...and was told each time someone agreed (up to three people per new love).
@@ -918,6 +922,234 @@ describe("People's Pick", () => {
     const p = map.places[0];
     expect(p).toMatchObject({ dishCount: expect.any(Number), lat: expect.any(Number), lng: expect.any(Number) });
     expect(p.topDish).toMatchObject({ name: expect.any(String), thumbUrl: expect.stringMatching(/^\/media\//) });
+  });
+});
+
+describe('fair ranking', () => {
+  // Places and dishes made directly in the database, so each case starts from a clean slate.
+  async function mkDish(name: string, daysOld = 60): Promise<string> {
+    const r = await db.query(
+      `insert into restaurants (city_id, name, name_norm, geo, status, created_at)
+       values ($1, $2, norm_name($2), st_setsrid(st_makepoint(73.7, 20.1), 4326)::geography, 'active', now() - make_interval(days => $3))
+       returning id`,
+      [cityId, `Fair Place ${name}`, daysOld],
+    );
+    const d = await db.query(
+      `insert into dishes (restaurant_id, city_id, name, name_norm, created_at)
+       values ($1, $2, $3, norm_name($3), now() - make_interval(days => $4)) returning id`,
+      [r.rows[0].id, cityId, name, daysOld],
+    );
+    await db.query(
+      `insert into posts (dish_id, image_path, thumb_path, created_at) values ($1, '/media/x.webp', '/media/x.webp', now() - make_interval(days => $2))`,
+      [d.rows[0].id, daysOld],
+    );
+    return d.rows[0].id;
+  }
+  async function vote(userId: string, dish: string, kind: string, hoursAgo: number) {
+    await db.query(
+      'insert into engagements (user_id, dish_id, kind, created_at) values ($1, $2, $3, now() - make_interval(hours => $4))',
+      [userId, dish, kind, hoursAgo],
+    );
+  }
+  async function aged(days: number) {
+    const u = await signUp();
+    await db.query('update profiles set created_at = now() - make_interval(days => $2) where id = $1', [u.id, days]);
+    return u;
+  }
+  const put = (u: { auth: Record<string, string> }, dish: string, kind: string) =>
+    app.inject({ method: 'PUT', url: `/dishes/${dish}/engagements/${kind}`, headers: u.auth });
+  const trustOf = async (id: string) =>
+    (await db.query('select trust, expert from taster_stats where user_id = $1 and category_id = 0', [id])).rows[0];
+
+  afterAll(async () => {
+    await db.query("update restaurants set status = 'hidden' where name like 'Fair Place %'");
+    await db.query('select refresh_dish_stats()');
+    await db.query('select refresh_people_pick()');
+  });
+
+  it('keeps brand-new accounts from taking over Top and Trending', async () => {
+    const real = await mkDish('Fair Real Favourite');
+    const rush = await mkDish('Fair Rushed Dish');
+    for (let i = 0; i < 8; i++) expect((await put(await signUp({ established: true }), real, 'recommend')).statusCode).toBe(200);
+    // Three accounts made a moment ago do everything they can for the other dish.
+    for (let i = 0; i < 3; i++) {
+      const fresh = await signUp();
+      for (const k of ['recommend', 'save', 'tried']) await put(fresh, rush, k);
+      await app.inject({ method: 'POST', url: `/dishes/${rush}/share`, headers: fresh.auth });
+    }
+    const stats = async (id: string) => (await db.query('select score, w_endorsers, endorsers from dish_stats where dish_id = $1', [id])).rows[0];
+    const r = await stats(real);
+    const x = await stats(rush);
+    expect(r.w_endorsers).toBeCloseTo(8, 1);
+    expect(x.endorsers).toBe(3); // they are counted as people who acted...
+    expect(x.w_endorsers).toBeLessThan(0.01); // ...but carry almost no weight
+    expect(x.score).toBeLessThan(r.score / 100);
+
+    const ids = async (tab: string) =>
+      (await app.inject(`/feed?city=${cityId}&tab=${tab}&limit=50`)).json().items.map((i: { id: string; lane: string }) => `${i.id}:${i.lane}`);
+    expect(await ids('trending')).toContain(`${real}:trending`);
+    expect((await ids('trending')).some((s: string) => s.startsWith(rush))).toBe(false);
+    const top = await ids('top');
+    expect(top).toContain(`${real}:top`);
+    expect(top.some((s: string) => s.startsWith(rush))).toBe(false);
+  });
+
+  it("keeps a ring of accounts voting together from winning People's Pick", async () => {
+    const pick = await mkDish('Fair Puppet Pick');
+    const rival = await mkDish('Fair Rival Pick');
+    const fans: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const u = await aged(30);
+      fans.push(u.id);
+      await vote(u.id, rival, 'recommend', 24 * (i + 1));
+    }
+    // Six month-old accounts, all loving one dish and sinking its rival within minutes.
+    const ring: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const u = await aged(30);
+      ring.push(u.id);
+      expect((await put(u, pick, 'recommend')).statusCode).toBe(200);
+      expect((await put(u, rival, 'pass')).statusCode).toBe(200);
+    }
+    await db.query('select refresh_people_pick()');
+    const twins = (await db.query('select twins from voter_independence where user_id = $1', [ring[0]])).rows[0];
+    expect(twins.twins).toBe(5);
+    expect((await db.query('select twins from voter_independence where user_id = $1', [fans[0]])).rowCount).toBe(0);
+
+    const rating = async (id: string) => (await db.query('select * from dish_rating where dish_id = $1', [id])).rows[0];
+    const p = await rating(pick);
+    const r = await rating(rival);
+    expect(p.loves).toBe(6);
+    expect(p.w_loves).toBeLessThan(0.7); // six accounts, one person's worth of love
+    expect(r.confidence).toBeGreaterThan(p.confidence);
+    expect(p.champion_id).toBeNull(); // nobody in the ring stands tall enough to be its champion
+    for (const id of ring) expect((await trustOf(id))?.expert ?? false).toBe(false);
+  });
+
+  it('builds trust from good judgement: a right "not for me" counts, loving everything does not', async () => {
+    const dishes = [];
+    for (let i = 0; i < 6; i++) dishes.push(await mkDish(`Fair Judged ${i}`));
+    const shotgun = await aged(100);
+    const sharp = await aged(100);
+    const contrarian = await aged(100);
+    const newcomer = await aged(100);
+    // The shotgun loves four dishes first; later, three in four people agree (no better
+    // than the usual approval, so no credit).
+    for (const d of dishes.slice(0, 4)) await vote(shotgun.id, d, 'recommend', 24 * 20);
+    // The sharp one says "not for me" to a dish that everyone after them passes on too.
+    await vote(sharp.id, dishes[4]!, 'pass', 24 * 20);
+    // The contrarian loves a dish everyone after them passes on.
+    await vote(contrarian.id, dishes[5]!, 'recommend', 24 * 20);
+    for (let g = 0; g < 4; g++) {
+      const crowd = await aged(100);
+      // Hours apart, so the crowd are independent people, not a ring.
+      for (const [i, d] of dishes.slice(0, 4).entries()) await vote(crowd.id, d, g === 3 ? 'pass' : 'recommend', 24 * 10 + g * 5 + i * 30);
+      await vote(crowd.id, dishes[4]!, 'pass', 24 * 9 + g * 5);
+      await vote(crowd.id, dishes[5]!, 'pass', 24 * 8 + g * 5);
+    }
+    await db.query('select refresh_people_pick()');
+    const floor = 0.6;
+    const s = await trustOf(shotgun.id);
+    const sh = await trustOf(sharp.id);
+    const c = await trustOf(contrarian.id);
+    expect(s.trust).toBeCloseTo(floor, 3);
+    expect(s.expert).toBe(false);
+    expect(sh.trust).toBeGreaterThan(floor + 0.2);
+    // A newcomer has no record and starts at the floor: never above someone with a poor record.
+    expect(await trustOf(newcomer.id)).toBeUndefined();
+    expect(c.trust).toBeCloseTo(floor, 3);
+  });
+
+  it('finds every dish a craving means', async () => {
+    const names = async (q: string) =>
+      (await app.inject(`/craving?q=${encodeURIComponent(q)}&city=${cityId}`)).json().results.map((r: { name: string }) => r.name);
+    const chicken = await names('chicken');
+    expect(chicken.filter((n: string) => /chicken/i.test(n)).length).toBeGreaterThanOrEqual(2);
+    expect(await names('pav')).toEqual(expect.arrayContaining(['Pav Bhaji', 'Misal Pav', 'Vada Pav']));
+    const exact = await names('pav bhaji');
+    expect(exact).toContain('Pav Bhaji');
+    expect(exact).not.toContain('Kanda Bhaji');
+  });
+
+  it('puts a dish nobody has voted on above one people dislike', async () => {
+    const unrated = await mkDish('Fair Untasted');
+    const disliked = await mkDish('Fair Disliked');
+    for (let i = 0; i < 3; i++) await put(await signUp({ established: true }), disliked, 'pass');
+    await db.query('select refresh_people_pick()');
+    const conf = async (id: string) => (await db.query('select loves, passes, confidence from dish_rating where dish_id = $1', [id])).rows[0];
+    const u = await conf(unrated);
+    expect(u).toMatchObject({ loves: 0, passes: 0 });
+    expect(u.confidence).toBeGreaterThan((await conf(disliked)).confidence);
+  });
+
+  it('undoes "not for me" completely, and never lists a "not for me" as a recommendation', async () => {
+    const dish = await mkDish('Fair Undo');
+    const u = await signUp({ established: true });
+    let res = (await put(u, dish, 'pass')).json();
+    expect(res.me).toMatchObject({ passed: true, tried: true });
+    expect((await app.inject(`/dishes/${dish}`)).json().recommenders).toEqual([]);
+    res = (await app.inject({ method: 'DELETE', url: `/dishes/${dish}/engagements/pass`, headers: u.auth })).json();
+    expect(res.me).toMatchObject({ passed: false, tried: false });
+    expect(res.stats.tried).toBe(0);
+    // A "tried" marked on its own before the pass stays when the pass is undone.
+    await put(u, dish, 'tried');
+    await new Promise((r) => setTimeout(r, 20));
+    await put(u, dish, 'pass');
+    res = (await app.inject({ method: 'DELETE', url: `/dishes/${dish}/engagements/pass`, headers: u.auth })).json();
+    expect(res.me).toMatchObject({ passed: false, tried: true });
+  });
+
+  it('keeps the Fresh lane fresh', async () => {
+    const stale = await mkDish('Fair Stale Untried', 60);
+    const renewed = await mkDish('Fair Renewed', 60);
+    await db.query(`insert into posts (dish_id, image_path, thumb_path) values ($1, '/media/y.webp', '/media/y.webp')`, [renewed]);
+    const items: { id: string; lane: string }[] = [];
+    for (let offset: number | null = 0; offset !== null; ) {
+      const page = (await app.inject(`/feed?city=${cityId}&limit=50&offset=${offset}`)).json();
+      items.push(...page.items);
+      offset = page.nextOffset;
+    }
+    expect(items.find((i) => i.id === stale)).toBeUndefined();
+    expect(items.find((i) => i.id === renewed)?.lane).toBe('fresh');
+  });
+
+  it('rejects settings that would break the maths, and applies good ones at once', async () => {
+    const login = () => app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
+    if ((await login()).statusCode !== 200) await signUp({ email: 'admin@example.com' });
+    const headers = { authorization: `Bearer ${(await login()).json().token}` };
+    const set = (key: string, value: number) => app.inject({ method: 'PUT', url: `/admin/ranking-config/${key}`, headers, payload: { value } });
+    expect((await set('half_life_days', 0)).statusCode).toBe(400);
+    expect((await set('pp_prior', 1.5)).statusCode).toBe(400);
+    // Even a bad value written straight into the database can't break a vote.
+    await db.query("update ranking_config set value = 0 where key in ('half_life_days', 'pp_prior_weight', 'pp_half_life_days')");
+    try {
+      await db.query('select refresh_dish_stats(); select refresh_people_pick()');
+    } finally {
+      await db.query("update ranking_config set value = 45 where key = 'half_life_days'");
+      await db.query("update ranking_config set value = 3 where key = 'pp_prior_weight'");
+      await db.query("update ranking_config set value = 180 where key = 'pp_half_life_days'");
+    }
+    const dish = await mkDish('Fair Settings');
+    const before = (await db.query('select confidence from dish_rating where dish_id = $1', [dish])).rows[0];
+    expect((await set('pp_z', 2)).statusCode).toBe(200);
+    const after = (await db.query('select confidence from dish_rating where dish_id = $1', [dish])).rows[0];
+    expect(after.confidence).toBeLessThan(before?.confidence ?? 1);
+    expect((await set('pp_z', 1)).statusCode).toBe(200);
+  });
+
+  it("hides a champion you blocked, and forgets a deleted account's votes", async () => {
+    const dish = await mkDish('Fair Champion');
+    const champ = await aged(30);
+    await vote(champ.id, dish, 'recommend', 48);
+    await db.query('select refresh_people_pick()');
+    const viewer = await signUp();
+    expect((await app.inject({ url: `/dishes/${dish}`, headers: viewer.auth })).json().champion?.handle).toBe(champ.handle);
+    await app.inject({ method: 'POST', url: '/blocks', headers: viewer.auth, payload: { handle: champ.handle } });
+    expect((await app.inject({ url: `/dishes/${dish}`, headers: viewer.auth })).json().champion).toBeNull();
+    // The account goes; its love goes from the dish straight away.
+    await app.inject({ method: 'DELETE', url: '/me', headers: champ.auth });
+    const r = (await db.query('select loves from dish_rating where dish_id = $1', [dish])).rows[0];
+    expect(r.loves).toBe(0);
   });
 });
 

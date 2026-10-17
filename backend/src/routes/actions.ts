@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, requireAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
+import { inTransaction } from '../db.js';
 import { notify } from '../notify.js';
 import { scheduleTrustRefresh } from '../ranking.js';
 
 const uuid = z.string().uuid();
+type Queryable = { query: (sql: string, params?: unknown[]) => Promise<unknown> };
 const actionLimit = { rateLimit: { max: 60, timeWindow: '1 minute' } };
 
 export async function actionRoutes(app: FastifyInstance) {
@@ -29,25 +31,32 @@ export async function actionRoutes(app: FastifyInstance) {
 
   // Recommend, save, tried and "not for me" (pass) are on/off toggles. PUT turns one on,
   // DELETE turns it off; both are idempotent, so a retried request never double counts.
-  // Recommend and pass exclude each other; a pass also marks the dish as tried.
+  // Recommend and pass exclude each other; a pass also marks the dish as tried (and
+  // undoing the pass takes that "tried" back, unless it was marked on its own before).
+  // Each toggle is one transaction, so a half-done vote never shows.
   const kinds = z.enum(['recommend', 'save', 'tried', 'pass']);
   app.put('/dishes/:id/engagements/:kind', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
     const p = parse(z.object({ id: uuid, kind: kinds }), req.params, reply);
     if (!p) return;
     if (!(await dishIsLive(p.id))) return reply.code(404).send({ error: 'not_found', message: 'Dish not found.' });
     const me = userId(req)!;
-    const { rowCount: added } = await db.query(
-      'insert into engagements (user_id, dish_id, kind) values ($1, $2, $3) on conflict do nothing',
-      [me, p.id, p.kind],
-    );
-    if (p.kind === 'pass') {
-      await db.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, p.id]);
-      await db.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'tried') on conflict do nothing", [me, p.id]);
-    }
-    if (p.kind === 'recommend') {
-      await db.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, p.id]);
-      if (added) await tellPeople(p.id, me);
-    }
+    const added = await inTransaction(db, async (tx) => {
+      const { rowCount } = await tx.query(
+        'insert into engagements (user_id, dish_id, kind) values ($1, $2, $3) on conflict do nothing',
+        [me, p.id, p.kind],
+      );
+      if (p.kind === 'pass') {
+        await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, p.id]);
+        // Same transaction, so the same timestamp as the pass: that's how undo knows it.
+        await tx.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'tried') on conflict do nothing", [me, p.id]);
+      }
+      if (p.kind === 'recommend') {
+        // Changing your mind to a love: you did try it, so "tried" stays.
+        await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, p.id]);
+      }
+      return (rowCount ?? 0) > 0;
+    });
+    if (p.kind === 'recommend' && added) await tellPeople(p.id, me);
     return counts(p.id, me);
   });
 
@@ -74,11 +83,25 @@ export async function actionRoutes(app: FastifyInstance) {
     }
   }
 
+  /** Removes a "not for me" and the "tried" it added (a "tried" marked earlier stays). */
+  async function undoPass(tx: Queryable, me: string, dishId: string) {
+    await tx.query(
+      `delete from engagements t using engagements x
+       where x.user_id = $1 and x.dish_id = $2 and x.kind = 'pass'
+         and t.user_id = x.user_id and t.dish_id = x.dish_id and t.kind = 'tried' and t.created_at = x.created_at`,
+      [me, dishId],
+    );
+    await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, dishId]);
+  }
+
   app.delete('/dishes/:id/engagements/:kind', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
     const p = parse(z.object({ id: uuid, kind: kinds }), req.params, reply);
     if (!p) return;
     const me = userId(req)!;
-    await db.query('delete from engagements where user_id = $1 and dish_id = $2 and kind = $3', [me, p.id, p.kind]);
+    await inTransaction(db, async (tx) => {
+      if (p.kind === 'pass') await undoPass(tx, me, p.id);
+      else await tx.query('delete from engagements where user_id = $1 and dish_id = $2 and kind = $3', [me, p.id, p.kind]);
+    });
     return counts(p.id, me);
   });
 

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { hashPassword, optionalAuth, requireAuth, userId, verifyPassword } from '../auth.js';
-import { isExpert, loadDishCards } from '../cards.js';
+import { loadDishCards, wholePicks } from '../cards.js';
 import { deleteAvatar, storeAvatar } from '../media.js';
 import { notify } from '../notify.js';
 
@@ -57,17 +57,17 @@ export async function socialRoutes(app: FastifyInstance) {
     );
     // Taste badges: dish types where this person's picks were backed by others.
     const { rows: badges } = await db.query(
-      `select c.name as category, c.emoji, t.picks, t.backers, t.trust
+      `select c.name as category, c.emoji, t.picks, t.backers, t.trust, t.expert
        from taster_stats t join dish_categories c on c.id = t.category_id
-       where t.user_id = $1 and t.picks > 0 order by t.trust desc, t.backers desc limit 6`,
+       where t.user_id = $1 and t.picks >= 0.5 order by t.trust desc, t.backers desc, c.id limit 6`,
       [u.id],
     );
     const tasteBadges = badges.map((b) => ({
       category: b.category,
       emoji: b.emoji,
-      picks: b.picks,
+      picks: wholePicks(b.picks),
       backers: b.backers,
-      isExpert: isExpert(b.trust, b.picks),
+      isExpert: b.expert,
     }));
     delete u.id;
     return { ...u, isMe, posts, tasteBadges };

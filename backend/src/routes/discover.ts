@@ -2,29 +2,40 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, userId } from '../auth.js';
-import { isExpert, loadDishCards } from '../cards.js';
+import { loadDishCards, wholePicks } from '../cards.js';
 
 const coords = {
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
 };
 
-/** People whose picks for these dishes the community backed, most trusted first. */
+/**
+ * People whose picks for these dishes the community backed, most trusted first. Each
+ * person is judged on one record: their best dish type among these dishes (their trust,
+ * picks and backers all come from that same record, never mixed across types).
+ */
 async function tastersFor(app: FastifyInstance, dishIds: string[], viewer: string | null, limit: number) {
   if (dishIds.length === 0) return [];
   const { rows } = await app.db.query(
-    `select pr.handle, pr.display_name as "displayName", pr.avatar_path as "avatarUrl",
-            max(ts.trust) as trust, max(ts.picks)::int as picks, max(ts.backers)::int as backers,
-            (array_agg(d.name order by coalesce(dr.confidence, 0) desc))[1] as "topPick"
-     from engagements e
-     join dishes d on d.id = e.dish_id
-     join profiles pr on pr.id = e.user_id
-     join taster_stats ts on ts.user_id = e.user_id and ts.category_id = coalesce(d.category_id, -1)
-     left join dish_rating dr on dr.dish_id = d.id
-     where e.dish_id = any($1) and e.kind = 'recommend' and ts.picks > 0
-       and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = pr.id))
-     group by pr.id, pr.handle, pr.display_name, pr.avatar_path
-     order by max(ts.trust) desc, max(ts.backers) desc
+    `with loved as (
+       select e.user_id, d.id as dish_id, d.name, coalesce(d.category_id, -1) as cat, coalesce(dr.confidence, 0) as conf
+       from engagements e
+       join dishes d on d.id = e.dish_id
+       left join dish_rating dr on dr.dish_id = d.id
+       where e.dish_id = any($1) and e.kind = 'recommend'
+     ),
+     best as (
+       select distinct on (l.user_id) l.user_id, ts.trust, ts.picks, ts.backers, ts.expert
+       from loved l join taster_stats ts on ts.user_id = l.user_id and ts.category_id = l.cat
+       where ts.picks >= 0.5
+       order by l.user_id, ts.trust desc, ts.backers desc, ts.category_id
+     )
+     select pr.handle, pr.display_name as "displayName", pr.avatar_path as "avatarUrl",
+            b.trust, b.picks, b.backers, b.expert,
+            (select l.name from loved l where l.user_id = b.user_id order by l.conf desc, l.dish_id limit 1) as "topPick"
+     from best b join profiles pr on pr.id = b.user_id
+     where ($2::uuid is null or not exists (select 1 from blocks bl where bl.blocker_id = $2 and bl.blocked_id = pr.id))
+     order by b.trust desc, b.backers desc, pr.handle
      limit $3`,
     [dishIds, viewer, limit],
   );
@@ -32,10 +43,10 @@ async function tastersFor(app: FastifyInstance, dishIds: string[], viewer: strin
     handle: r.handle,
     displayName: r.displayName,
     avatarUrl: r.avatarUrl,
-    picks: r.picks,
+    picks: wholePicks(r.picks),
     backers: r.backers,
     topPick: r.topPick,
-    isExpert: isExpert(r.trust, r.picks),
+    isExpert: r.expert,
   }));
 }
 
@@ -57,25 +68,32 @@ export async function discoverRoutes(app: FastifyInstance) {
     );
     if (!q) return;
     const viewer = userId(req);
-    // What the person means: a known dish (any spelling), a dish type, or free text.
-    const { rows: meaning } = await db.query<{ canonical: string | null; category_id: number | null; category: string | null }>(
-      `with term as (select norm_name($1) as t)
-       select a.canonical, a.category_id, c.name as category
-       from term, dish_aliases a left join dish_categories c on c.id = a.category_id
-       where a.alias_norm = term.t or word_similarity(term.t, a.alias_norm) >= 0.6
-       order by (a.alias_norm = term.t) desc, word_similarity(term.t, a.alias_norm) desc
-       limit 1`,
+    // What the person means: known dishes (any spelling), a dish type, or free text. An
+    // exact spelling wins; otherwise every equally close dish counts ("chicken" means
+    // chicken biryani, chilli chicken and chicken burger alike, not whichever came first).
+    const { rows: meaning } = await db.query<{ canonical: string }>(
+      `with term as (select norm_name($1) as t),
+       scored as (
+         select a.canonical, (a.alias_norm = term.t) as exact, word_similarity(term.t, a.alias_norm) as sim
+         from term, dish_aliases a
+         where a.alias_norm = term.t or word_similarity(term.t, a.alias_norm) >= 0.6
+       )
+       select distinct canonical from scored, (select bool_or(exact) as any_exact, max(sim) as best from scored) b
+       where case when b.any_exact then exact else sim >= b.best - 0.05 end
+       order by canonical`,
       [q.q],
     );
     const { rows: cat } = await db.query<{ id: number; name: string }>(
       `select id, name from dish_categories, (select norm_name($1) as t) term
        where norm_name(name) = term.t or norm_name(slug) = term.t or word_similarity(term.t, norm_name(name)) >= 0.7
-       order by word_similarity(term.t, norm_name(name)) desc limit 1`,
+       order by (norm_name(name) = term.t or norm_name(slug) = term.t) desc, word_similarity(term.t, norm_name(name)) desc, id
+       limit 1`,
       [q.q],
     );
-    const canonical = meaning[0]?.canonical ?? null;
+    const canonicals = meaning.map((m) => m.canonical);
     const categoryId = cat[0]?.id ?? null;
-    const label = canonical ?? cat[0]?.name ?? q.q.replace(/\b\w/g, (c) => c.toUpperCase());
+    const label =
+      (canonicals.length === 1 ? canonicals[0] : null) ?? cat[0]?.name ?? q.q.replace(/\b\w/g, (c) => c.toUpperCase());
 
     const { rows } = await db.query<{ id: string }>(
       `with term as (select norm_name($1) as t)
@@ -87,19 +105,22 @@ export async function discoverRoutes(app: FastifyInstance) {
          and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live'
                      and ($5::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $5 and b.blocked_id = p.author_id)))
          and (
-           -- A known dish: that dish under any spelling (and close typos), not its neighbours
+           -- Known dishes: each under any spelling (and close typos), not its neighbours
            -- ("pav bhaji" must not bring up "kanda bhaji").
-           ($3::text is not null and (d.name_norm = norm_name($3) or d.name_norm like '%' || norm_name($3) || '%'
-                                      or similarity(norm_name($3), d.name_norm) >= 0.75))
+           exists (select 1 from unnest($3::text[]) c(name)
+                   where d.name_norm = norm_name(c.name) or d.name_norm like '%' || norm_name(c.name) || '%'
+                      or similarity(norm_name(c.name), d.name_norm) >= 0.75)
            -- A dish type: everything of that type.
            or ($4::int is not null and d.category_id = $4)
-           -- Anything else: fuzzy match on the dish name.
-           or ($3::text is null and $4::int is null
+           -- The word itself in a dish's name ("pav" finds Pav Bhaji and Misal Pav too).
+           or d.name_norm ~ ('(^| )' || term.t || '( |$)')
+           -- Nothing known: fuzzy match on the dish name.
+           or (cardinality($3::text[]) = 0 and $4::int is null
                and (word_similarity(term.t, d.name_norm) >= 0.6 or d.name_norm like '%' || term.t || '%')))
        order by coalesce(dr.confidence, 0) desc, coalesce(dr.loves, 0) desc, coalesce(s.score, 0) desc,
-                word_similarity(term.t, d.name_norm) desc
+                word_similarity(term.t, d.name_norm) desc, d.id
        limit 30`,
-      [q.q, q.city, canonical, categoryId, viewer],
+      [q.q, q.city, canonicals, categoryId, viewer],
     );
     const ids = rows.map((r) => r.id);
     return {
@@ -125,10 +146,11 @@ export async function discoverRoutes(app: FastifyInstance) {
     const [picks, trending, fresh, following, nearby, cravingsRes, cityDishes] = await Promise.all([
       ids(`select d.id from dishes d join dish_rating dr on dr.dish_id = d.id
            where ${visible} and dr.loves > 0
-           order by dr.confidence desc, dr.loves desc limit 10`),
+           order by dr.confidence desc, dr.loves desc, d.id limit 10`),
       ids(`select d.id from dishes d join dish_stats s on s.dish_id = d.id
-           where ${visible} and s.score_7d > 0 order by s.score_7d desc limit 10`),
-      ids(`select d.id from dishes d where ${visible} order by d.created_at desc limit 10`),
+           where ${visible} and s.score_7d > 0 and s.w_endorsers >= cfg('min_endorsers_trending')
+           order by s.score_7d desc, s.score desc, d.id limit 10`),
+      ids(`select d.id from dishes d where ${visible} order by d.created_at desc, d.id limit 10`),
       viewer
         ? db.query<{ id: string; handle: string }>(
             `select distinct on (d.id) d.id, pr.handle, e.created_at from engagements e
@@ -144,7 +166,7 @@ export async function discoverRoutes(app: FastifyInstance) {
             `select d.id from dishes d join restaurants r on r.id = d.restaurant_id
              left join dish_rating dr on dr.dish_id = d.id
              where ${visible} and st_dwithin(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography, 5000)
-             order by coalesce(dr.confidence, 0) desc limit 10`,
+             order by coalesce(dr.confidence, 0) desc, d.id limit 10`,
             [q.city, viewer, q.lat, q.lng],
           )
         : Promise.resolve([] as { id: string }[]),
@@ -154,7 +176,7 @@ export async function discoverRoutes(app: FastifyInstance) {
          from dish_categories c join dishes d on d.category_id = c.id
          left join dish_rating dr on dr.dish_id = d.id
          where ${visible}
-         group by c.id, c.name, c.emoji order by coalesce(sum(dr.loves), 0) desc, c.sort
+         group by c.id, c.name, c.emoji order by coalesce(sum(dr.loves), 0) desc, c.sort, c.id
          limit 12`,
         [q.city, viewer],
       ),
@@ -210,14 +232,14 @@ export async function discoverRoutes(app: FastifyInstance) {
                left join dish_categories c on c.id = d2.category_id
                where d2.restaurant_id = r.id and d2.status = 'live'
                  and exists (select 1 from posts p where p.dish_id = d2.id and p.status = 'live')
-               order by coalesce(dr.confidence, 0) desc, coalesce(dr.loves, 0) desc limit 1) as "topDish"
+               order by coalesce(dr.confidence, 0) desc, coalesce(dr.loves, 0) desc, d2.id limit 1) as "topDish"
        from restaurants r
        left join dishes d on d.restaurant_id = r.id and d.status = 'live'
          and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
        where r.city_id = $1 and r.status = 'active'
        group by r.id
        having $2 or count(d.id) > 0
-       order by count(d.id) desc
+       order by count(d.id) desc, r.id
        limit 3000`,
       [q.city, q.all === 'true'],
     );

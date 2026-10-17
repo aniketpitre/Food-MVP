@@ -116,9 +116,12 @@ export async function browseRoutes(app: FastifyInstance) {
       `select pr.handle, pr.display_name as "displayName"
        from engagements e join profiles pr on pr.id = e.user_id
        where e.dish_id = $1 and e.kind in ('recommend', 'tried')
+         -- "Tried it, not for me" is not a recommendation.
+         and not exists (select 1 from engagements x where x.user_id = e.user_id and x.dish_id = e.dish_id and x.kind = 'pass')
+         and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = pr.id))
        group by pr.id, pr.handle, pr.display_name
-       order by max(e.created_at) desc limit 12`,
-      [p.id],
+       order by max(e.created_at) desc, pr.handle limit 12`,
+      [p.id, viewer],
     );
     const { rows: more } = await db.query<{ id: string }>(
       `select d.id from dishes d left join dish_stats s on s.dish_id = d.id
