@@ -97,6 +97,7 @@ import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.RollingNumber
 import app.foodfeed.ui.theme.Saffron
 import app.foodfeed.ui.theme.Turmeric
+import app.foodfeed.ui.theme.HeroOrigin
 import app.foodfeed.ui.theme.dishHero
 import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.delay
@@ -526,9 +527,13 @@ private fun PostTile(p: ProfilePost, thumb: String?, index: Int, onClick: () -> 
             }
             .pressScale(interaction, 0.95f)
             .clip(RoundedCornerShape(14.dp))
-            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick),
+            .clickable(interaction, indication = null, role = Role.Button) {
+                HeroOrigin.tap(p.dishId, "post:${p.id}")
+                onClick()
+            },
     ) {
-        DishImage(thumb, p.placeholderColor, p.dishName, Modifier.fillMaxSize().dishHero(p.dishId, 14.dp))
+        // Several photos in the grid can be of the same dish; each is its own hero source.
+        DishImage(thumb, p.placeholderColor, p.dishName, Modifier.fillMaxSize().dishHero(p.dishId, 14.dp, "post:${p.id}"))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))))
         val label = when {
             p.restaurantStatus == "pending" -> "In review"

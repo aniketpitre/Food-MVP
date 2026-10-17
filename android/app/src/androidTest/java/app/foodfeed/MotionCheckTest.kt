@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -111,11 +112,48 @@ class MotionCheckTest {
         val repeated = ids.groupingBy { it }.eachCount().filterValues { it > 1 }.size
         Log.d("JOURNEY", "motion: home shows ${ids.size} dish cards, ${repeated} dishes appear in more than one section")
         compose.mainClock.autoAdvance = false
-        compose.onRoot().performTouchInput { swipeUp(startY = bottom * 0.9f, endY = top + 10f, durationMillis = 60) }
+        // A fast flick in the middle of the page (the bottom bar would take a swipe that starts lower).
+        compose.onRoot().performTouchInput { swipeUp(startY = height * 0.72f, endY = height * 0.12f, durationMillis = 70) }
         for (step in 0..9) {
             frame("72_home_fling_%02d".format(step))
             compose.mainClock.advanceTimeBy(48)
         }
         compose.mainClock.autoAdvance = true
+    }
+
+    @Test
+    fun homeSurvivesATapBurst() {
+        compose.waitUntilAtLeastOneExists(hasTestTag("craving_input"), 30_000)
+        Thread.sleep(4000)
+        val device = androidx.test.uiautomator.UiDevice.getInstance(instrumentation)
+        val w = device.displayWidth
+        val h = device.displayHeight
+        // Stories, chips, both People's Pick cards and the messages button, hit as fast as a
+        // thumb can, without waiting for anything to open.
+        val spots = listOf(0.25f to 0.68f, 0.75f to 0.68f, 0.12f to 0.47f, 0.42f to 0.47f, 0.45f to 0.11f, 0.25f to 0.62f, 0.93f to 0.05f)
+        repeat(24) { i ->
+            val (x, y) = spots[i % spots.size]
+            device.click((w * x).toInt(), (h * y).toInt())
+            Thread.sleep(45)
+        }
+        Thread.sleep(2500)
+        frame("73_after_tap_burst")
+        // How deep did the taps stack screens? Back until Home shows again.
+        var backs = 0
+        while (compose.onAllNodes(hasTestTag("craving_input"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty() && backs < 15) {
+            device.pressBack()
+            backs++
+            Thread.sleep(700)
+            compose.waitForIdle()
+        }
+        Log.d("JOURNEY", "motion: after 24 fast taps it took $backs presses of Back to reach Home")
+        org.junit.Assert.assertTrue("Home is reachable again ($backs backs)", backs < 15)
+        // Home still works: it scrolls, and a card opens its dish.
+        compose.onRoot().performTouchInput { swipeUp(startY = height * 0.7f, endY = height * 0.4f) }
+        compose.onRoot().performTouchInput { swipeDown(startY = height * 0.3f, endY = height * 0.7f) }
+        compose.waitForIdle()
+        device.click((w * 0.25f).toInt(), (h * 0.68f).toInt())
+        compose.waitUntilAtLeastOneExists(androidx.compose.ui.test.hasText("Take me there"), 15_000)
+        frame("74_home_still_works")
     }
 }

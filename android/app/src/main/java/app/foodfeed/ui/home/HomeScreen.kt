@@ -92,6 +92,7 @@ import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.SkeletonBlock
 import app.foodfeed.ui.theme.Turmeric
+import app.foodfeed.ui.theme.HeroOrigin
 import app.foodfeed.ui.theme.dishHero
 import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.delay
@@ -275,16 +276,16 @@ fun HomeContent(
                         item(key = "picks-title") {
                             SectionHeader("People's Pick", "Loved most by people who tried them", onMore = onExplore)
                         }
-                        item(key = "picks") { CardCarousel(d.peoplesPicks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true) }
+                        item(key = "picks") { CardCarousel(d.peoplesPicks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true, section = "home:picks") }
                     }
                     if (d.nearby.isNotEmpty()) {
                         item(key = "near-title") { SectionHeader("Good near you", "Within 5 km") }
-                        item(key = "near") { CardCarousel(d.nearby, imageUrl, onOpenDish, onOpenUser) }
+                        item(key = "near") { CardCarousel(d.nearby, imageUrl, onOpenDish, onOpenUser, section = "home:near") }
                     }
                     if (d.following.isNotEmpty()) {
                         item(key = "follow-title") { SectionHeader("From people you follow", null) }
                         item(key = "follow") {
-                            CardCarousel(d.following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = d.following.map { it.lovedBy })
+                            CardCarousel(d.following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = d.following.map { it.lovedBy }, section = "home:following")
                         }
                     }
                     if (d.tasters.isNotEmpty()) {
@@ -293,11 +294,11 @@ fun HomeContent(
                     }
                     if (d.trending.isNotEmpty()) {
                         item(key = "trend-title") { SectionHeader("Trending this week", null) }
-                        item(key = "trend") { CardCarousel(d.trending, imageUrl, onOpenDish, onOpenUser) }
+                        item(key = "trend") { CardCarousel(d.trending, imageUrl, onOpenDish, onOpenUser, section = "home:trend") }
                     }
                     if (d.fresh.isNotEmpty()) {
                         item(key = "fresh-title") { SectionHeader("Just posted", "Help decide: tried any of these?") }
-                        item(key = "fresh") { CardCarousel(d.fresh, imageUrl, onOpenDish, onOpenUser) }
+                        item(key = "fresh") { CardCarousel(d.fresh, imageUrl, onOpenDish, onOpenUser, section = "home:fresh") }
                     }
                 }
             }
@@ -452,12 +453,14 @@ private fun CardCarousel(
     big: Boolean = false,
     ranked: Boolean = false,
     lovedBy: List<String>? = null,
+    section: String = "home",
 ) {
     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        itemsIndexed(cards, key = { _, c -> c.id }) { i, c ->
+        itemsIndexed(cards, key = { _, c -> c.id }, contentType = { _, _ -> "card" }) { i, c ->
             PickCard(
-                c, imageUrl(c.cover?.thumbUrl ?: c.cover?.imageUrl), { onOpenDish(c.id) }, onOpenUser,
+                c, imageUrl(c.cover?.thumbUrl ?: c.cover?.imageUrl), { HeroOrigin.tap(c.id, section); onOpenDish(c.id) }, onOpenUser,
                 width = if (big) 236 else 176, rank = if (ranked) i + 1 else null, lovedBy = lovedBy?.getOrNull(i),
+                heroSource = section,
             )
         }
     }
@@ -473,6 +476,7 @@ fun PickCard(
     width: Int = 200,
     rank: Int? = null,
     lovedBy: String? = null,
+    heroSource: String? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     Column(
@@ -484,7 +488,7 @@ fun PickCard(
         Box {
             DishImage(
                 thumb, card.cover?.placeholderColor, card.name,
-                Modifier.fillMaxWidth().aspectRatio(0.82f).dishHero(card.id, 24.dp).clip(RoundedCornerShape(24.dp)),
+                Modifier.fillMaxWidth().aspectRatio(0.82f).dishHero(card.id, 24.dp, heroSource).clip(RoundedCornerShape(24.dp)),
             )
             Box(
                 Modifier.matchParentSize().clip(RoundedCornerShape(24.dp)).background(
