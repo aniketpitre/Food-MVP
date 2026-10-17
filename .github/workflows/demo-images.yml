@@ -9,6 +9,10 @@ on:
         description: "candidates or pick"
         required: true
         default: candidates
+      keys:
+        description: "candidates: only these dish keys (space separated), empty for all"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -29,7 +33,7 @@ jobs:
       - name: Candidates
         if: inputs.mode == 'candidates'
         run: |
-          node scripts/demo-images.mjs candidates
+          node scripts/demo-images.mjs candidates ${{ inputs.keys }}
           git add demo-candidates
       - name: Pick
         if: inputs.mode == 'pick'

@@ -18,7 +18,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 // Dish key -> Wikipedia article (its lead photo) and Commons searches.
 export const dishes = {
   ananda_sabudana_khichdi: ['Sabudana khichdi', ['sabudana khichdi', 'sago khichdi']],
-  ananda_cold_coffee: ['Iced coffee', ['cold coffee glass', 'iced coffee milk glass']],
+  ananda_cold_coffee: ['Frappé coffee', ['cold coffee', 'frappe coffee glass', 'iced latte glass', 'coffee milkshake', 'iced coffee']],
   ananda_masala_dosa: ['Masala dosa', ['masala dosa', 'masala dosa chutney sambar']],
   godavari_kolhapuri_misal: ['Misal pav', ['kolhapuri misal', 'misal pav']],
   godavari_misal_pav: ['Misal pav', ['misal pav', 'misal pav plate']],
@@ -97,11 +97,12 @@ async function commons(params) {
   return out;
 }
 
-async function candidates() {
+async function candidates(only) {
   const dir = path.join(root, 'demo-candidates');
   await fs.mkdir(dir, { recursive: true });
-  const all = {};
+  const all = JSON.parse(await fs.readFile(path.join(dir, 'candidates.json'), 'utf8').catch(() => '{}'));
   for (const [key, [article, searches]] of Object.entries(dishes)) {
+    if (only.length && !only.includes(key)) continue;
     const found = [];
     const lead = await leadFile(article).catch(() => null);
     if (lead) found.push(...(await commons({ titles: lead }).catch(() => [])));
@@ -153,7 +154,7 @@ async function pick(file) {
   await fs.writeFile(creditsFile, JSON.stringify(credits, null, 2) + '\n');
 }
 
-const [mode, arg] = process.argv.slice(2);
-if (mode === 'candidates') await candidates();
+const [mode, arg, ...rest] = process.argv.slice(2);
+if (mode === 'candidates') await candidates([arg, ...rest].filter(Boolean));
 else if (mode === 'pick') await pick(arg);
 else throw new Error('usage: demo-images.mjs candidates | pick picks.json');
