@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 enum class FeedTab(val api: String, val label: String) {
+    /** Dishes from people whose taste matches yours and people you follow (signed in only). */
+    ForYou("foryou", "For you"),
     Top("top", "Top"),
     Trending("trending", "Trending"),
     Gems("gems", "Gems"),
@@ -38,7 +40,10 @@ data class FeedUiState(
     val needsLocation: Boolean = false,
     /** Changes whenever the list is replaced, so the pager jumps back to the first card. */
     val generation: Int = 0,
-)
+    val signedIn: Boolean = false,
+) {
+    val tabs: List<FeedTab> get() = FeedTab.entries.filter { it != FeedTab.ForYou || signedIn }
+}
 
 class FeedViewModel(private val app: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(FeedUiState(city = app.city.value))
@@ -50,6 +55,15 @@ class FeedViewModel(private val app: AppContainer) : ViewModel() {
     private var loadJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            app.session.collect { s ->
+                val signedIn = s != null
+                if (signedIn == _state.value.signedIn) return@collect
+                _state.update { it.copy(signedIn = signedIn) }
+                // Signed out on For You: back to Top.
+                if (!signedIn && _state.value.tab == FeedTab.ForYou) selectTab(FeedTab.Top)
+            }
+        }
         viewModelScope.launch {
             combine(app.city, app.contentVersion, app.serverUrl) { city, version, url -> Triple(city, version, url) }
                 .distinctUntilChanged()

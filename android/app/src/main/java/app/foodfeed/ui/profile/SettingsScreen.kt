@@ -61,6 +61,7 @@ fun SettingsScreen(
     onEditProfile: () -> Unit = {},
     onPassword: () -> Unit = {},
     onBlocked: () -> Unit = {},
+    onTaste: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -83,6 +84,7 @@ fun SettingsScreen(
             } else {
                 Group("Account")
                 Item(Icons.Filled.Person, "Edit profile", "Photo, name, username, bio", onClick = onEditProfile)
+                Item(AppIcons.Heart, "Your taste", "What you love, veg or not, and how spicy", onClick = onTaste)
                 Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
                 Item(
                     AppIcons.Bell, "Notifications",

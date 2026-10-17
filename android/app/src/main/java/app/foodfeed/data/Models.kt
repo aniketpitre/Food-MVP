@@ -109,6 +109,20 @@ data class DishCard(
     val lane: String? = null,
     val rating: Rating = Rating(),
     val champion: Champion? = null,
+    /** Why it's in For You: who loved it (and how close their taste is to yours), or a dish type. */
+    val because: Because? = null,
+)
+
+@Serializable
+data class Because(
+    val handle: String? = null,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+    /** Taste Match with that person, in percent. */
+    val match: Int? = null,
+    val followed: Boolean = false,
+    val people: Int = 0,
+    val category: String? = null,
 )
 
 @Serializable
@@ -249,9 +263,65 @@ data class UserProfile(
     val blockedByMe: Boolean = false,
     val commentPolicy: String = "everyone",
     val tasteBadges: List<TasteBadge> = emptyList(),
+    /** How alike your taste and theirs are; null for yourself, guests, or with nothing to go on yet. */
+    val tasteMatch: TasteMatch? = null,
 ) {
     val postCount: Int get() = posts.count { it.status == "live" }
 }
+
+@Serializable
+data class SharedType(val name: String, val emoji: String? = null)
+
+@Serializable
+data class TasteMatch(
+    val percent: Int,
+    val coVotes: Int = 0,
+    val agreed: Int = 0,
+    val shared: List<SharedType> = emptyList(),
+)
+
+/** What someone told us about their taste, and what their votes taught us. */
+@Serializable
+data class TasteProfile(
+    val set: Boolean = false,
+    val categories: List<Int> = emptyList(),
+    val diet: String = "nonveg",
+    val spice: Int = 3,
+    val learned: List<LearnedTaste> = emptyList(),
+)
+
+@Serializable
+data class LearnedTaste(val categoryId: Int, val name: String, val emoji: String? = null, val score: Double = 0.0)
+
+@Serializable
+data class TasteBody(val categories: List<Int>, val diet: String, val spice: Int)
+
+/** Someone whose taste matches yours, suggested to follow. */
+@Serializable
+data class TasteMate(
+    val handle: String,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+    val match: Int = 0,
+    val coVotes: Int = 0,
+    val isFollowing: Boolean = false,
+    val favourite: String? = null,
+)
+
+@Serializable
+data class RouteLine(
+    /** [lng, lat] pairs. */
+    val coordinates: List<List<Double>> = emptyList(),
+    val distanceM: Int? = null,
+    val durationS: Int? = null,
+    val source: String = "straight",
+)
+
+@Serializable
+data class RouteStop(val card: DishCard, val along: Double = 0.0, val offRouteM: Int = 0)
+
+@Serializable
+data class RouteStops(val route: RouteLine = RouteLine(), val stops: List<RouteStop> = emptyList())
 
 @Serializable
 data class User(
@@ -460,6 +530,7 @@ data class FollowedPick(val card: DishCard, val lovedBy: String)
 @Serializable
 data class HomeData(
     val cravings: List<CravingChip> = emptyList(),
+    val forYou: List<DishCard> = emptyList(),
     val peoplesPicks: List<DishCard> = emptyList(),
     val nearby: List<DishCard> = emptyList(),
     val following: List<FollowedPick> = emptyList(),
@@ -498,7 +569,12 @@ data class MapPlace(
     /** The food logo drawn on the pin: the best dish's category, else a guess from the cuisine. */
     val emoji: String = "🍽️",
     val topDish: MapTopDish? = null,
+    /** With a people filter on: who loved [topDish]. */
+    val lovedBy: LovedBy? = null,
 )
+
+@Serializable
+data class LovedBy(val handle: String, val displayName: String? = null, val avatarUrl: String? = null, val match: Int? = null)
 
 @Serializable
 data class MapPlaces(val places: List<MapPlace> = emptyList())

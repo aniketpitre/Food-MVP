@@ -70,6 +70,8 @@ import app.foodfeed.data.TasteBadge
 import app.foodfeed.data.Rating
 import app.foodfeed.data.Champion
 import app.foodfeed.data.HomeData
+import app.foodfeed.data.Because
+import app.foodfeed.data.TasteMate
 import app.foodfeed.data.CravingChip
 import app.foodfeed.data.Taster
 import app.foodfeed.data.CravingResult
@@ -353,6 +355,32 @@ class ScreenshotTest {
             ),
             me = UserRef("you", "You"),
             unreadMessages = 2,
+        )
+    }
+
+    @Test
+    fun homeForYou() = shoot("17b_home_for_you") {
+        HomeContent(
+            state = HomeUiState(
+                city = SelectedCity(1, "Nashik"),
+                loading = false,
+                data = HomeData(
+                    forYou = listOf(
+                        coffee.copy(because = Because("diya_k", "Diya K", match = 92, people = 3)),
+                        thali.copy(because = Because("arjun", "Arjun", match = 81, followed = true)),
+                        biryani.copy(because = Because(category = "Biryani")),
+                    ),
+                    peoplesPicks = listOf(rated(misal, 36, 2, "diya_k", expert = true)),
+                ),
+                mates = listOf(
+                    TasteMate("diya_k", "Diya K", match = 92, coVotes = 11, favourite = "Misal"),
+                    TasteMate("kabir", "Kabir", match = 78, coVotes = 6, favourite = "Chai & Coffee"),
+                ),
+                tasteSet = false,
+            ),
+            imageUrl = { it }, onCraving = {}, onOpenDish = {}, onOpenUser = {}, onChangeCity = {}, onExplore = {}, onAddDish = {},
+            onRefresh = {}, onRetry = {}, greeting = "Lunch o'clock in", cyclePlaceholder = false,
+            me = UserRef("you", "You"),
         )
     }
 

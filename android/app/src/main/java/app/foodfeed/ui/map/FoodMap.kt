@@ -44,6 +44,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -90,6 +93,7 @@ import app.foodfeed.data.ApiException
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.Coords
 import app.foodfeed.data.MapPlace
+import app.foodfeed.data.MapTopDish
 import app.foodfeed.data.Rating
 import app.foodfeed.data.apiCall
 import app.foodfeed.ui.Format
@@ -120,6 +124,8 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -130,7 +136,30 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-data class MapUiState(val loading: Boolean = true, val places: List<MapPlace> = emptyList(), val showAll: Boolean = false, val error: String? = null)
+data class MapUiState(
+    val loading: Boolean = true,
+    val places: List<MapPlace> = emptyList(),
+    val showAll: Boolean = false,
+    val error: String? = null,
+    /** "all", or only the places your friends ("friends") or taste matches ("taste") loved. */
+    val filter: String = "all",
+    /** Food stops along a drive, when one is planned. */
+    val route: PlannedRoute? = null,
+    val routing: Boolean = false,
+)
+
+/** A drive and the best dish at each place along it, in the order you reach them. */
+data class PlannedRoute(
+    val to: String,
+    val fromLat: Double,
+    val fromLng: Double,
+    val toLat: Double,
+    val toLng: Double,
+    val line: List<LatLng>,
+    val distanceM: Int?,
+    val roadRoute: Boolean,
+    val stops: List<MapPlace>,
+)
 
 class MapViewModel(private val app: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
@@ -150,14 +179,58 @@ class MapViewModel(private val app: AppContainer) : ViewModel() {
         load()
     }
 
+    /** People filters need an account; returns false (and changes nothing) for a guest. */
+    fun setFilter(filter: String): Boolean {
+        if (filter != "all" && app.session.value == null) return false
+        if (filter == _state.value.filter) return true
+        _state.update { it.copy(filter = filter, loading = true) }
+        load()
+        return true
+    }
+
+    /** Plans a drive from [from] to a destination and finds the food stops along it. */
+    fun routeTo(from: Coords, toLat: Double, toLng: Double, label: String) {
+        _state.update { it.copy(routing = true) }
+        viewModelScope.launch {
+            try {
+                val r = apiCall { app.api.routeStops(from.lat, from.lng, toLat, toLng) }
+                val stops = r.stops.map { s ->
+                    val c = s.card
+                    MapPlace(
+                        id = c.restaurant.id, name = c.restaurant.name, locality = c.restaurant.locality,
+                        lat = c.restaurant.lat, lng = c.restaurant.lng, dishCount = 1, lovers = c.rating.loves,
+                        demo = c.restaurant.isDemo, emoji = "🍽️",
+                        topDish = MapTopDish(
+                            dishId = c.id, name = c.name, loves = c.rating.loves, percent = c.rating.percent,
+                            thumbUrl = c.cover?.thumbUrl, priceInr = c.priceInr, isVeg = c.isVeg,
+                        ),
+                    )
+                }
+                val line = r.route.coordinates.mapNotNull { pt -> if (pt.size >= 2) LatLng(pt[1], pt[0]) else null }
+                _state.update {
+                    it.copy(
+                        routing = false,
+                        route = PlannedRoute(label, from.lat, from.lng, toLat, toLng, line, r.route.distanceM, r.route.source == "osrm", stops),
+                    )
+                }
+            } catch (e: ApiException) {
+                _state.update { it.copy(routing = false, error = e.message) }
+            }
+        }
+    }
+
+    fun clearRoute() = _state.update { it.copy(route = null) }
+
     fun load() {
         val city = app.city.value ?: return
         viewModelScope.launch {
             try {
-                val r = apiCall { app.api.map(city.id, _state.value.showAll) }
+                val filter = _state.value.filter
+                val r = apiCall { app.api.map(city.id, _state.value.showAll, filter) }
+                if (filter != _state.value.filter) return@launch
                 // Few real places with dishes yet? Show every real food place instead, so the
                 // map is never a handful of pins (or empty) while a city is getting started.
-                if (!userChose && !_state.value.showAll && r.places.count { it.dishCount > 0 && !it.demo } < 3) {
+                if (filter == "all" && !userChose && !_state.value.showAll && r.places.count { it.dishCount > 0 && !it.demo } < 3) {
                     _state.update { it.copy(showAll = true) }
                     load()
                     return@launch
@@ -172,6 +245,7 @@ class MapViewModel(private val app: AppContainer) : ViewModel() {
 
 private const val SOURCE = "ff-places"
 private const val ME = "ff-me"
+private const val ROUTE = "ff-route"
 private val PIN_LAYERS = arrayOf("ff-selected", "ff-pins", "ff-quiet")
 
 /**
@@ -203,16 +277,33 @@ object FoodMapProbe {
  * the people's rating and Take me there. The strip of cards along the bottom does the same.
  */
 @Composable
-fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, onOpenPlace: (String) -> Unit, modifier: Modifier = Modifier) {
+fun FoodMap(
+    vm: MapViewModel,
+    location: Coords?,
+    onOpenDish: (String) -> Unit,
+    onOpenPlace: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    onNeedSignIn: () -> Unit = {},
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
     val context = LocalContext.current
     val density = LocalDensity.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val places = state.places
+    val route = state.route
+    val places = route?.stops ?: state.places
     var selected by remember { mutableStateOf<String?>(null) }
-    val strip = rememberLazyListState()
+    var planning by remember { mutableStateOf(false) }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    // A long press on the map drops a pin there and plans a drive to it.
+    val onLongPress by rememberUpdatedState<(LatLng) -> Unit> { point ->
+        val from = location ?: map?.cameraPosition?.target?.let { Coords(it.latitude, it.longitude) }
+        if (from != null) {
+            selected = null
+            vm.routeTo(from, point.latitude, point.longitude, "the dropped pin")
+        }
+    }
+    val strip = rememberLazyListState()
     var styleReady by remember { mutableStateOf(false) }
     val onPinTap by rememberUpdatedState<(String?) -> Unit> { id -> selected = id }
 
@@ -241,6 +332,10 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 }
                 addOnDidFinishLoadingStyleListener { m.style?.let(ready) }
                 m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style -> ready(style) }
+                m.addOnMapLongClickListener { point ->
+                    onLongPress(point)
+                    true
+                }
                 m.addOnMapClickListener { point ->
                     val hit = m.queryRenderedFeatures(m.projection.toScreenLocation(point), *PIN_LAYERS)
                     // A tap on empty map closes the card.
@@ -312,6 +407,23 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
                 val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lng)) } }.build()
                 m.moveCamera(CameraUpdateFactory.newLatLngBounds(b, 120, 200, 120, 460))
             }
+        }
+    }
+
+    // The drive: a saffron line under the pins, framed whole when it's planned.
+    LaunchedEffect(map, styleReady, route) {
+        val m = map ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        val line = route?.line.orEmpty()
+        m.style?.getSourceAs<GeoJsonSource>(ROUTE)?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                if (line.size < 2) emptyList()
+                else listOf(Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(line.map { Point.fromLngLat(it.longitude, it.latitude) }))),
+            ),
+        )
+        if (line.size >= 2) {
+            val b = LatLngBounds.Builder().apply { line.forEach { include(it) } }.build()
+            m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, 100, 240, 100, 420), 700)
         }
     }
 
@@ -417,8 +529,28 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
     Box(modifier.fillMaxSize()) {
         AndroidView({ mapView }, Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).testTag("food_map"))
 
-        Row(Modifier.align(Alignment.TopStart).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MapChip(if (state.showAll) "All food places" else "Places with dishes", AppIcons.Map) { vm.toggleAll() }
+        if (route == null) {
+            Row(
+                Modifier.align(Alignment.TopStart).padding(top = 14.dp, end = 70.dp)
+                    .horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (state.filter == "all") {
+                    MapChip(if (state.showAll) "All food places" else "Places with dishes", AppIcons.Map) { vm.toggleAll() }
+                }
+                for ((key, label) in listOf("friends" to "Friends' picks", "taste" to "Taste match")) {
+                    MapChip(label, AppIcons.Heart, on = state.filter == key, tag = "map_filter_$key") {
+                        val next = if (state.filter == key) "all" else key
+                        if (!vm.setFilter(next)) onNeedSignIn() else selected = null
+                    }
+                }
+                MapChip("Food on the way", AppIcons.Directions, tag = "map_route") { planning = true }
+            }
+        } else {
+            RouteBanner(route, state.routing, Modifier.align(Alignment.TopStart).padding(14.dp).padding(end = 60.dp)) {
+                selected = null
+                vm.clearRoute()
+            }
         }
         LocateButton(
             onClick = locateMe,
@@ -454,15 +586,34 @@ fun FoodMap(vm: MapViewModel, location: Coords?, onOpenDish: (String) -> Unit, o
             distanceM = current?.let { p -> location?.let { metres(it.lat, it.lng, p.lat, p.lng) } },
             photoUrl = current?.let { app.mediaUrl(it.topDish?.thumbUrl ?: it.photoUrl) },
             onDismiss = { selected = null },
-            onTakeMeThere = { p -> takeMeThere.go(p.id, p.lat, p.lng, p.name, p.demo) },
+            onTakeMeThere = { p ->
+                if (route != null) openDriveWithStop(context, route, p) else takeMeThere.go(p.id, p.lat, p.lng, p.name, p.demo)
+            },
+            onRoute = route != null,
             onOpenDish = onOpenDish,
             onOpenPlace = onOpenPlace,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
 
+        if (planning) {
+            RoutePlanner(
+                onDismiss = { planning = false },
+                onPick = { city ->
+                    planning = false
+                    val from = location ?: map?.cameraPosition?.target?.let { Coords(it.latitude, it.longitude) }
+                    if (from != null) vm.routeTo(from, city.lat, city.lng, city.name)
+                },
+            )
+        }
+
         if (!state.loading && places.isEmpty()) {
             Text(
-                "No places on FoodFeed here yet",
+                when {
+                    route != null -> "No dishes on FoodFeed along this drive yet"
+                    state.filter == "friends" -> "No picks from people you follow here yet"
+                    state.filter == "taste" -> "No picks from your taste matches here yet"
+                    else -> "No places on FoodFeed here yet"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.align(Alignment.Center)
                     .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(50))
@@ -489,6 +640,7 @@ fun MapPopupHost(
     onOpenDish: (String) -> Unit,
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onRoute: Boolean = false,
 ) {
     val lite = LocalLiteMode.current
     // Keep showing the last place while the card swings away.
@@ -545,7 +697,7 @@ fun MapPopupHost(
                 ) { _, dy -> scope.launch { drag.snapTo((drag.value + dy).coerceAtLeast(0f)) } }
             },
     ) {
-        MapPopup(p, distanceM, photoUrl, onDismiss, { onTakeMeThere(p) }, onOpenDish, onOpenPlace)
+        MapPopup(p, distanceM, photoUrl, onDismiss, { onTakeMeThere(p) }, onOpenDish, onOpenPlace, onRoute)
     }
 }
 
@@ -559,6 +711,7 @@ fun MapPopup(
     onTakeMeThere: () -> Unit,
     onOpenDish: (String) -> Unit,
     onOpenPlace: (String) -> Unit,
+    onRoute: Boolean = false,
 ) {
     val top = p.topDish
     Column(
@@ -614,6 +767,16 @@ fun MapPopup(
                         )
                     }
                     RatingPill(Rating(loves = top.loves, passes = top.percent?.let { passesFrom(top.loves, it) } ?: 0, percent = top.percent))
+                    p.lovedBy?.let { by ->
+                        Text(
+                            "♥ Loved by @${by.handle}" + (by.match?.let { " · $it% taste match" } ?: ""),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("loved_by"),
+                        )
+                    }
                 } else {
                     Text("No dishes posted yet. Be the first!", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 }
@@ -648,7 +811,7 @@ fun MapPopup(
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton("Take me there", onTakeMeThere, Modifier.weight(1f), leading = AppIcons.Directions)
+            PrimaryButton(if (onRoute) "Stop on the way" else "Take me there", onTakeMeThere, Modifier.weight(1f), leading = AppIcons.Directions)
             if (top != null) {
                 QuietButton("Dish", { onOpenDish(top.dishId) })
             } else {
@@ -685,22 +848,121 @@ private fun LocateButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun MapChip(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun MapChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    on: Boolean = false,
+    tag: String? = null,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
+    val bg = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLowest
+    val fg = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     Row(
         Modifier
             .pressScale(interaction, 0.94f)
             .shadow(6.dp, RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .background(bg)
             .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .semantics { if (on) stateDescription = "On" }
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+        Icon(icon, null, modifier = Modifier.size(16.dp), tint = if (on) fg else MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = fg)
     }
+}
+
+/** Shown during a drive: where to, how far, how many stops, and a close button. */
+@Composable
+private fun RouteBanner(route: PlannedRoute, loading: Boolean, modifier: Modifier = Modifier, onClose: () -> Unit) {
+    Row(
+        modifier
+            .shadow(6.dp, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .testTag("route_banner")
+            .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(AppIcons.Directions, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        Column(Modifier.weight(1f, fill = false).padding(horizontal = 10.dp)) {
+            Text("Food on the way to ${route.to}", style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(
+                    route.distanceM?.let { Format.distance(it) },
+                    if (route.stops.size == 1) "1 stop" else "${route.stops.size} stops",
+                    if (!route.roadRoute) "straight line" else null,
+                    if (loading) "updating…" else null,
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = "End the drive",
+            modifier = Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onClose).padding(8.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Where to? A city by name, or a long press anywhere on the map. */
+@Composable
+private fun RoutePlanner(onDismiss: () -> Unit, onPick: (app.foodfeed.data.City) -> Unit) {
+    val app = LocalApp.current
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<app.foodfeed.data.City>>(emptyList()) }
+    LaunchedEffect(query) {
+        if (query.trim().length < 2) {
+            results = emptyList()
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(250)
+        results = runCatching { apiCall { app.api.cities(query.trim(), 8) } }.getOrDefault(emptyList())
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Food on the way") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Where are you driving? We'll show the best dish at each place along the road. You can also long-press anywhere on the map.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it.take(40) },
+                    placeholder = { Text("A city, like Pune") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("route_to"),
+                )
+                results.forEach { c ->
+                    Text(
+                        listOfNotNull(c.name, c.state).joinToString(", "),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onPick(c) }
+                            .testTag("route_city_${c.slug}").padding(vertical = 10.dp, horizontal = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Opens the phone's maps app for the drive, with [stop] as a stop on the way. */
+private fun openDriveWithStop(context: Context, route: PlannedRoute, stop: MapPlace) {
+    val uri = android.net.Uri.parse(
+        "https://www.google.com/maps/dir/?api=1&travelmode=driving" +
+            "&origin=${route.fromLat},${route.fromLng}&destination=${route.toLat},${route.toLng}" +
+            "&waypoints=${stop.lat},${stop.lng}",
+    )
+    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
 }
 
 @Composable
@@ -802,6 +1064,16 @@ internal fun logoBitmap(context: Context, emoji: String, selected: Boolean): Bit
 private fun addLayers(style: Style) {
     style.addSource(GeoJsonSource(SOURCE))
     style.addSource(GeoJsonSource(ME))
+    style.addSource(GeoJsonSource(ROUTE))
+    style.addLayer(
+        LineLayer("ff-route-line", ROUTE).withProperties(
+            PropertyFactory.lineColor("#FF7A1A"),
+            PropertyFactory.lineWidth(5f),
+            PropertyFactory.lineOpacity(0.85f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
     val hasDishes = Expression.gt(Expression.get("dishes"), Expression.literal(0))
     style.addLayer(
         SymbolLayer("ff-quiet", SOURCE).withProperties(

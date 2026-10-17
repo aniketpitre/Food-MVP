@@ -74,11 +74,15 @@ import app.foodfeed.data.ApiException
 import app.foodfeed.data.AppContainer
 import app.foodfeed.data.DishCard
 import app.foodfeed.data.HomeData
+import app.foodfeed.ui.feed.becauseLine
+import app.foodfeed.data.TasteMate
 import app.foodfeed.data.SelectedCity
 import app.foodfeed.data.Taster
 import app.foodfeed.data.apiCall
 import app.foodfeed.ui.Format
+import app.foodfeed.ui.components.Avatar
 import app.foodfeed.ui.components.CenteredMessage
+import app.foodfeed.ui.components.PrimaryButton
 import app.foodfeed.ui.components.ChampionLine
 import app.foodfeed.ui.components.DishImage
 import app.foodfeed.ui.components.KickerText
@@ -109,6 +113,10 @@ data class HomeUiState(
     val refreshing: Boolean = false,
     val data: HomeData = HomeData(),
     val error: String? = null,
+    /** People whose taste matches yours, to follow (signed in only). */
+    val mates: List<TasteMate> = emptyList(),
+    /** Whether you've told us your taste; null for a guest or while unknown. */
+    val tasteSet: Boolean? = null,
 )
 
 class HomeViewModel(private val app: AppContainer) : ViewModel() {
@@ -129,6 +137,12 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
         load()
     }
 
+    /** Follows someone suggested for their taste; they leave the suggestions. */
+    fun followMate(handle: String) {
+        _state.update { s -> s.copy(mates = s.mates.filterNot { it.handle == handle }) }
+        viewModelScope.launch { runCatching { apiCall { app.api.follow(handle) } } }
+    }
+
     fun load() {
         val city = app.city.value ?: return
         viewModelScope.launch {
@@ -137,6 +151,13 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
                 val loc = app.location.value
                 val data = apiCall { app.api.home(city.id, loc?.lat, loc?.lng) }
                 _state.update { it.copy(loading = false, refreshing = false, data = data) }
+                if (app.session.value != null) {
+                    val mates = runCatching { apiCall { app.api.tasteMates(8) } }.getOrDefault(emptyList())
+                    val taste = runCatching { apiCall { app.api.taste() } }.getOrNull()
+                    _state.update { it.copy(mates = mates, tasteSet = taste?.set) }
+                } else {
+                    _state.update { it.copy(mates = emptyList(), tasteSet = null) }
+                }
                 runCatching { apiCall { app.api.stories(city.id) } }.onSuccess { app.storyTray.value = it.items }
                 app.refreshUnreadMessages()
             } catch (e: ApiException) {
@@ -158,6 +179,7 @@ fun HomeScreen(
     onOpenStory: (Int) -> Unit = {},
     onAddStory: () -> Unit = {},
     onInbox: () -> Unit = {},
+    onTaste: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
@@ -184,6 +206,8 @@ fun HomeScreen(
         onAddDish = onAddDish,
         onRefresh = vm::refresh,
         onRetry = vm::load,
+        onTaste = onTaste,
+        onFollowMate = vm::followMate,
     )
 }
 
@@ -230,10 +254,12 @@ fun HomeContent(
     onOpenStory: (Int) -> Unit = {},
     onAddStory: () -> Unit = {},
     onInbox: () -> Unit = {},
+    onTaste: () -> Unit = {},
+    onFollowMate: (String) -> Unit = {},
 ) {
     val d = state.data
     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize().testTag("home_list"), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "stories") {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("FoodFeed", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
@@ -272,6 +298,23 @@ fun HomeContent(
                     }
                 }
                 else -> {
+                    if (d.forYou.isNotEmpty()) {
+                        item(key = "foryou-title", contentType = "header") {
+                            SectionHeader("For you", "Loved by people whose taste matches yours")
+                        }
+                        item(key = "foryou", contentType = "carousel") {
+                            CardCarousel(d.forYou, imageUrl, onOpenDish, onOpenUser, big = true, section = "home:foryou")
+                        }
+                    }
+                    if (state.tasteSet == false) {
+                        item(key = "taste-ask", contentType = "prompt") { TastePrompt(onTaste) }
+                    }
+                    if (state.mates.isNotEmpty()) {
+                        item(key = "mates-title", contentType = "header") {
+                            SectionHeader("People with your taste", "They love what you love. Follow them for more picks")
+                        }
+                        item(key = "mates", contentType = "mates") { MateRow(state.mates, onOpenUser, onFollowMate) }
+                    }
                     if (d.peoplesPicks.isNotEmpty()) {
                         item(key = "picks-title", contentType = "header") {
                             SectionHeader("People's Pick", "Loved most by people who tried them", onMore = onExplore)
@@ -519,6 +562,14 @@ fun PickCard(
             overflow = TextOverflow.Ellipsis,
         )
         when {
+            card.because != null -> Text(
+                becauseLine(card.because),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp).testTag("because"),
+            )
             lovedBy != null -> Text(
                 "Loved by @$lovedBy",
                 style = MaterialTheme.typography.labelMedium,
@@ -527,6 +578,67 @@ fun PickCard(
             )
             card.champion != null -> ChampionLine(card.champion, onOpenUser, Modifier.padding(top = 6.dp))
         }
+    }
+}
+
+/** People whose taste matches yours: a face, how close, what they love, and Follow. */
+@Composable
+private fun MateRow(mates: List<TasteMate>, onOpenUser: (String) -> Unit, onFollow: (String) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(mates, key = { it.handle }) { m ->
+            Column(
+                Modifier
+                    .width(140.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                    .clickable { onOpenUser(m.handle) }
+                    .testTag("mate_${m.handle}")
+                    .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Avatar(m.handle, m.displayName, 56.dp, photo = m.avatarUrl)
+                Spacer(Modifier.height(8.dp))
+                Text("@${m.handle}", style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${m.match}% taste match",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+                m.favourite?.let {
+                    Text("Loves $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(8.dp))
+                PrimaryButton("Follow", { onFollow(m.handle) }, Modifier.fillMaxWidth().height(36.dp))
+            }
+        }
+    }
+}
+
+/** Asks for your taste once you're signed in and haven't said yet. */
+@Composable
+private fun TastePrompt(onTaste: () -> Unit) {
+    Row(
+        Modifier
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(onClick = onTaste)
+            .testTag("taste_prompt")
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("🌶️", fontSize = 28.sp)
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text("Tell us your taste", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                "Veg or not, how spicy, what you love: we'll find people who eat like you.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowForward, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
     }
 }
 

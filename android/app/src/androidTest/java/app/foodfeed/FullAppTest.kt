@@ -24,6 +24,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -420,6 +421,96 @@ class FullAppTest {
             open("foodfeed://activity")
             waitText("started following you", substring = true, timeoutMs = 15_000)
             shot("46_activity_from_link")
+        }
+    }
+
+    @Test
+    fun tasteForYouTasteMatchMapFiltersAndRoute() {
+        val twin = friend("t")
+        val city = container.city.value!!.id
+        val dishes = runBlocking { container.api.feed(city, null, "top", 10, 0, "full", null, null) }.items
+        step("we love the same dishes, and I follow them") {
+            dishes.take(4).forEach { d ->
+                call("PUT", "/dishes/${d.id}/engagements/recommend", me.token)
+                call("PUT", "/dishes/${d.id}/engagements/recommend", twin.token)
+            }
+            call("PUT", "/dishes/${dishes[5].id}/engagements/recommend", twin.token)
+            call("PUT", "/users/${twin.user.handle}/follow", me.token)
+        }
+        step("tell the app my taste") {
+            waitFor(hasTestTag("home_list"), 30_000)
+            compose.onNodeWithTag("home_list").performScrollToNode(hasTestTag("taste_prompt"))
+            compose.onNodeWithTag("taste_prompt").performClick()
+            waitFor(hasTestTag("taste_cat_misal"), 15_000)
+            compose.onNodeWithTag("taste_cat_misal").performClick()
+            compose.onNodeWithTag("taste_cat_snacks").performClick()
+            compose.onNodeWithTag("taste_diet_egg").performClick()
+            compose.onNodeWithTag("taste_spice_4").performClick()
+            waitText("Spice: Spicy")
+            shot("50_taste_profile")
+            compose.onNodeWithTag("taste_diet_nonveg").performClick()
+            compose.onNodeWithTag("taste_save").performClick()
+            waitFor(hasTestTag("home_list"), 15_000)
+        }
+        step("For you and people with your taste on Home") {
+            compose.waitUntil(20_000) {
+                runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasTestTag("because")) }.isSuccess
+            }
+            Thread.sleep(1200)
+            shot("51_home_for_you")
+            runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasText("People with your taste")) }
+            Thread.sleep(800)
+            shot("52_home_taste_mates")
+        }
+        step("Taste Match on their profile") {
+            open("foodfeed://user/${twin.user.handle}")
+            waitFor(hasTestTag("taste_match"), 15_000)
+            shot("53_profile_taste_match")
+            compose.onNodeWithTag("taste_match").performClick()
+            waitText("You both voted on 4 of the same dishes", substring = true)
+            shot("54_taste_match_details")
+            compose.onNodeWithText("OK").performClick()
+        }
+        step("For you in Explore") {
+            backTo(hasTestTag("home_list"), presses = 4)
+            tab("Explore")
+            waitFor(hasText("For you"), 15_000)
+            compose.onAllNodes(hasText("For you")).onFirst().performClick()
+            waitFor(hasTestTag("feed_pager"), 20_000)
+            Thread.sleep(2000)
+            shot("55_explore_for_you")
+        }
+        step("map: my friends' picks") {
+            compose.onAllNodes(hasText("Nearby")).onFirst().performClick()
+            waitFor(hasTestTag("food_map"), 15_000)
+            compose.waitUntil(60_000) { app.foodfeed.ui.map.FoodMapProbe.styleReady }
+            compose.onNodeWithTag("map_filter_friends").performClick()
+            // Only the places the person I follow loved, each with who loved it.
+            val probe = app.foodfeed.ui.map.FoodMapProbe
+            compose.waitUntil(20_000) { probe.places.isNotEmpty() && probe.places.all { it.lovedBy?.handle == twin.user.handle } }
+            assertTrue(probe.places.any { it.id == dishes[5].restaurant.id })
+            val first = probe.places.first { it.dishCount > 0 }
+            waitFor(hasTestTag("map_card_${first.id}"), 10_000)
+            Thread.sleep(1500)
+            shot("56_map_friends_picks")
+            compose.onNodeWithTag("map_card_${first.id}").performClick()
+            waitFor(hasTestTag("loved_by"), 10_000)
+            Thread.sleep(1200)
+            shot("57_map_loved_by_friend")
+            compose.onNodeWithContentDescription("Close").performClick()
+            compose.onNodeWithTag("map_filter_friends").performClick()
+        }
+        step("map: food on the way") {
+            compose.onNodeWithTag("map_route").performClick()
+            waitFor(hasTestTag("route_to"))
+            compose.onNodeWithTag("route_to").performTextInput("Pune")
+            waitFor(hasTestTag("route_city_pune"), 15_000)
+            compose.onNodeWithTag("route_city_pune").performClick()
+            waitFor(hasTestTag("route_banner"), 40_000)
+            Thread.sleep(2500)
+            shot("58_map_food_on_the_way")
+            compose.onNodeWithContentDescription("End the drive").performClick()
+            gone(hasTestTag("route_banner"))
         }
     }
 

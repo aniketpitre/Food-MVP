@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -349,6 +350,7 @@ fun ProfileContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    profile.tasteMatch?.let { TasteMatchPill(it, Modifier.padding(top = 10.dp)) }
                 }
                 if (profile.tasteBadges.isNotEmpty()) {
                     Row(
@@ -571,5 +573,60 @@ private fun DishTile(c: DishCard, thumb: String?, index: Int, onClick: () -> Uni
             Text(c.restaurant.name, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (c.rating.percent != null) RatingPill(c.rating, Modifier.align(Alignment.TopStart).padding(6.dp), onPhoto = true)
+    }
+}
+
+/**
+ * How alike your taste and theirs are, with what it's based on. Tap for the details:
+ * how many dishes you both voted on and agreed about, and the dish types you share.
+ */
+@Composable
+private fun TasteMatchPill(m: app.foodfeed.data.TasteMatch, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable { open = true }
+            .testTag("taste_match")
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("🍽️", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "${m.percent}% taste match",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        m.shared.firstOrNull()?.let {
+            Text(
+                " · both love ${it.name}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+            )
+        }
+    }
+    if (open) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("${m.percent}% taste match") },
+            text = {
+                Text(
+                    buildString {
+                        if (m.coVotes > 0) {
+                            append("You both voted on ${m.coVotes} of the same ${if (m.coVotes == 1) "dish" else "dishes"} and agreed on ${m.agreed}.")
+                        } else {
+                            append("You haven't voted on the same dishes yet.")
+                        }
+                        if (m.shared.isNotEmpty()) append(" You both love ${m.shared.joinToString(", ") { it.name }}.")
+                        append("\n\nIt also counts the dish types you each love and what you told us about your taste (veg or not, spice). The more you both vote, the surer it gets.")
+                    },
+                )
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { open = false }) { Text("OK") } },
+        )
     }
 }

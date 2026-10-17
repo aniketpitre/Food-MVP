@@ -12,6 +12,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -193,7 +195,7 @@ private fun RoundIconButton(icon: ImageVector, description: String, onClick: () 
  * travels (the phase follows the position), then redraws itself from the left.
  */
 @Composable
-fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit) {
+fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit, tabs: List<FeedTab> = FeedTab.entries) {
     val density = LocalDensity.current
     val positions = remember { mutableStateMapOf<FeedTab, Pair<Float, Float>>() } // x, width in px
     val target = positions[selected]
@@ -211,6 +213,8 @@ fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
+            // Scrolls sideways when the tabs don't fit (the squiggle scrolls with them).
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
             .padding(top = 10.dp, bottom = 12.dp)
             .drawBehind {
@@ -223,7 +227,7 @@ fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit) {
             },
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
-            FeedTab.entries.forEach { tab ->
+            tabs.forEach { tab ->
                 val on = tab == selected
                 val color by animateColorAsState(
                     if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
@@ -325,11 +329,31 @@ private fun FilterOption(label: String, on: Boolean, index: Int, onClick: () -> 
     }
 }
 
+/** For You's short reason, for a sticker: "@diya · 92% match", "@kabir's pick", "You like Thali". */
+fun becauseSticker(b: app.foodfeed.data.Because): String = when {
+    b.handle != null && b.match != null -> "@${b.handle} · ${b.match}% match"
+    b.handle != null -> "@${b.handle}'s pick"
+    b.category != null -> "You like ${b.category}"
+    else -> "For you"
+}
+
+/** For You's reason in full, for a caption under a card. */
+fun becauseLine(b: app.foodfeed.data.Because): String = when {
+    b.handle != null && b.followed && b.match != null -> "Loved by @${b.handle}, who you follow · ${b.match}% taste match"
+    b.handle != null && b.followed -> "Loved by @${b.handle}, who you follow"
+    b.handle != null && b.match != null ->
+        "Loved by @${b.handle} · ${b.match}% taste match" + if (b.people > 1) " and ${b.people - 1} more like you" else ""
+    b.handle != null -> "Loved by @${b.handle}"
+    b.category != null -> "Because you like ${b.category}"
+    else -> "Picked for you"
+}
+
 /** What to stamp on a card's corner, if anything. Only claims the data supports. */
 private data class StickerSpec(val text: String, val bg: Color, val fg: Color, val icon: ImageVector?)
 
 private fun stickerFor(card: DishCard, recommenders: Int): StickerSpec? = when {
     card.cover?.isSponsored == true -> StickerSpec("Sponsored", Color.White, Ink, null)
+    card.because != null -> StickerSpec(becauseSticker(card.because), Turmeric, Ink, AppIcons.Heart)
     card.lane == "gem" -> StickerSpec("Hidden gem", Lagoon, Color.White, AppIcons.Gem)
     card.lane == "fresh" && recommenders < 3 -> StickerSpec("Just posted", Turmeric, Ink, AppIcons.Sparkle)
     recommenders >= 25 -> StickerSpec("Crowd favourite", Chili, Color.White, AppIcons.Heart)

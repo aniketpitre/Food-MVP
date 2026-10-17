@@ -1,5 +1,7 @@
 package app.foodfeed.ui
 
+import app.foodfeed.ui.taste.TasteScreen
+import app.foodfeed.ui.taste.TasteViewModel
 import app.foodfeed.ui.messages.InboxScreen
 import app.foodfeed.ui.messages.InboxViewModel
 import app.foodfeed.ui.messages.ChatScreen
@@ -175,6 +177,8 @@ object Routes {
     const val STORIES = "stories/{start}"
     const val USER_STORIES = "user-stories/{handle}"
     const val NEW_STORY = "new-story"
+    const val TASTE = "taste?first={first}"
+    fun taste(first: Boolean = false) = "taste?first=$first"
     fun chat(id: String) = "chat/$id"
     fun stories(start: Int) = "stories/$start"
     fun userStories(handle: String) = "user-stories/$handle"
@@ -371,8 +375,16 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                                 onOpenStory = { nav.go(Routes.stories(it)) },
                                 onAddStory = { if (app.session.value == null) signIn() else nav.go(Routes.NEW_STORY) },
                                 onInbox = { nav.go(Routes.INBOX) },
+                                onTaste = { nav.go(Routes.taste()) },
                             )
                         }
+                    }
+                }
+                composable(Routes.TASTE, arguments = listOf(navArgument("first") { type = NavType.BoolType; defaultValue = false })) { entry ->
+                    val first = entry.arguments?.getBoolean("first") ?: false
+                    val vm = appViewModel { TasteViewModel(it) }
+                    Box(Modifier.statusBarsPadding()) {
+                        TasteScreen(vm, first, onDone = { nav.back() }, showMessage = showMessage)
                     }
                 }
                 composable(Routes.CRAVING, arguments = listOf(navArgument("q") { type = NavType.StringType })) { entry ->
@@ -477,7 +489,15 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     val vm = appViewModel { AuthViewModel(it) }
                     AuthScreen(
                         vm,
-                        onDone = { showMessage("You're signed in."); nav.back() },
+                        onDone = {
+                            showMessage("You're signed in.")
+                            // New here (or never said)? Ask about their taste once, in place of sign-in.
+                            scope.launch {
+                                val set = runCatching { apiCall { app.api.taste() } }.getOrNull()?.set
+                                if (set == false) nav.navigate(Routes.taste(first = true)) { popUpTo(Routes.AUTH) { inclusive = true } }
+                                else nav.back()
+                            }
+                        },
                         onClose = { app.setPendingAction(null); nav.back() },
                         onOpenTerms = { openUrl(context, "${app.serverUrl.value}/terms") },
                     )
@@ -493,6 +513,7 @@ fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         onEditProfile = { nav.go(Routes.EDIT_PROFILE) },
                         onPassword = { nav.go(Routes.PASSWORD) },
                         onBlocked = { nav.go(Routes.BLOCKED) },
+                        onTaste = { nav.go(Routes.taste()) },
                     )
                 }
                 composable(Routes.ADMIN) {

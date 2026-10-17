@@ -139,7 +139,24 @@ interface FoodFeedApi {
     @GET("home")
     suspend fun home(@Query("city") city: Int, @Query("lat") lat: Double?, @Query("lng") lng: Double?): HomeData
 
-    @GET("map") suspend fun map(@Query("city") city: Int, @Query("all") all: Boolean = false): MapPlaces
+    @GET("map") suspend fun map(
+        @Query("city") city: Int,
+        @Query("all") all: Boolean = false,
+        @Query("filter") filter: String = "all",
+    ): MapPlaces
+
+    // ---------- Taste ----------
+    @GET("me/taste") suspend fun taste(): TasteProfile
+    @PUT("me/taste") suspend fun setTaste(@Body body: TasteBody): OkResult
+    @GET("people/taste") suspend fun tasteMates(@Query("limit") limit: Int = 12): List<TasteMate>
+    @GET("route/stops")
+    suspend fun routeStops(
+        @Query("fromLat") fromLat: Double,
+        @Query("fromLng") fromLng: Double,
+        @Query("toLat") toLat: Double,
+        @Query("toLng") toLng: Double,
+        @Query("corridorKm") corridorKm: Double = 3.0,
+    ): RouteStops
 
     @GET("restaurants/{id}/google-photos") suspend fun googlePhotos(@Path("id") id: String): GooglePhotos
 

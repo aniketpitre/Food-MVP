@@ -122,7 +122,7 @@ fun FeedScreen(
         nearbyContent = {
             val mapVm = appViewModel { MapViewModel(it) }
             val location by app.location.collectAsState()
-            FoodMap(mapVm, location, onOpenDish, onOpenRestaurant)
+            FoodMap(mapVm, location, onOpenDish, onOpenRestaurant, onNeedSignIn = onNeedSignIn)
         },
         onComments = { card ->
             val post = card.cover?.postId
@@ -195,7 +195,7 @@ fun FeedContent(
             onSearch = onSearch,
             onFilter = { showFilter = true },
         )
-        FeedTabs(state.tab, onTab)
+        FeedTabs(state.tab, onTab, state.tabs)
         ActiveFilterChip(selectedCategory) { onCategory(null) }
 
         val body = when {
@@ -270,6 +270,10 @@ private fun EmptyFeed(state: FeedUiState, onAddDish: () -> Unit) {
         FeedTab.Gems -> CenteredMessage(
             title = "No hidden gems yet",
             body = "A dish becomes a gem when at least five people back it at a place few people post about.",
+        )
+        FeedTab.ForYou -> CenteredMessage(
+            title = "Nothing picked for you yet",
+            body = "Love a few dishes and follow people whose taste you trust: their picks show up here. Tell us your taste in Settings to get started.",
         )
         FeedTab.Trending -> CenteredMessage(
             title = "Quiet week",
