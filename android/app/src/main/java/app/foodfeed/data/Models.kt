@@ -349,11 +349,36 @@ data class User(
     val avatarUrl: String? = null,
     val commentPolicy: String = "everyone",
     val dmPolicy: String = "everyone",
+    /** Two-step sign-in: a code by email at every sign-in. */
+    val twoFactor: Boolean = false,
+    val emailVerified: Boolean = false,
     val createdAt: String = "",
 )
 
 @Serializable
 data class AuthResult(val token: String, val user: User)
+
+/** Signing in: a session straight away, or (two-step sign-in on) a code to enter first. */
+@Serializable
+data class LoginResult(
+    val token: String? = null,
+    val user: User? = null,
+    val twoFactor: Boolean = false,
+    val challengeId: String? = null,
+    val emailHint: String? = null,
+)
+
+@Serializable
+data class CodeChallenge(val challengeId: String, val emailHint: String = "")
+
+@Serializable
+data class CodeBody(val challengeId: String, val code: String)
+
+@Serializable
+data class ChallengeBody(val challengeId: String)
+
+@Serializable
+data class PasswordBody(val password: String)
 
 @Serializable
 data class RegisterBody(
@@ -799,7 +824,12 @@ data class UpdatesPage(
     val reactions: List<UpdateReaction> = emptyList(),
     val activity: List<UpdateActivity> = emptyList(),
     val nearby: List<UpdateNearby> = emptyList(),
+    /** Once a day while two-step sign-in is off: a reminder to turn it on. */
+    val reminder: UpdateReminder? = null,
 )
+
+@Serializable
+data class UpdateReminder(val kind: String)
 
 @Serializable
 data class PushConfig(

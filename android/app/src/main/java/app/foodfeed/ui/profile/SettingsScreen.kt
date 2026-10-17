@@ -62,6 +62,7 @@ fun SettingsScreen(
     onPassword: () -> Unit = {},
     onBlocked: () -> Unit = {},
     onTaste: () -> Unit = {},
+    onTwoFactor: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -86,6 +87,11 @@ fun SettingsScreen(
                 Item(Icons.Filled.Person, "Edit profile", "Photo, name, username, bio", onClick = onEditProfile)
                 Item(AppIcons.Heart, "Your taste", "What you love, veg or not, and how spicy", onClick = onTaste)
                 Item(Icons.Filled.Lock, "Change password", user.email, onClick = onPassword)
+                Item(
+                    AppIcons.Shield, "Two-step sign-in",
+                    if (user.twoFactor) "On: a code by email each time you sign in" else "Off. Turn on to protect your account",
+                    onClick = onTwoFactor,
+                )
                 Item(
                     AppIcons.Bell, "Notifications",
                     if (app.notificationsAllowed()) "Messages, activity, stories and posts, food near you. Tap to choose" else "Off. Tap to turn on in Android settings",

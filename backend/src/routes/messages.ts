@@ -203,7 +203,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const me = userId(req)!;
     const { rows: t } = await db.query<{ now: Date }>('select now() as now');
     const now = t[0]!.now;
-    if (!q.since) return { now, messages: [], reactions: [], activity: [], nearby: [] };
+    if (!q.since) return { now, messages: [], reactions: [], activity: [], nearby: [], reminder: null };
     const notBlocked = (col: string) =>
       `not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = ${col}) or (b.blocker_id = ${col} and b.blocked_id = $1))`;
     const person = (a: string) =>
@@ -246,12 +246,23 @@ export async function messageRoutes(app: FastifyInstance) {
       ),
       newNearby(me, q.since, now, q.lat, q.lng, q.city),
     ]);
+    // Once a day (daytime in India) while two-step sign-in is off: a nudge to turn it on.
+    const [from, to] = app.config.remindHours ?? [10, 20];
+    const { rows: remind } = await db.query(
+      `update profiles set security_reminded_on = (now() at time zone 'Asia/Kolkata')::date
+       where id = $1 and not two_factor
+         and security_reminded_on is distinct from (now() at time zone 'Asia/Kolkata')::date
+         and extract(hour from now() at time zone 'Asia/Kolkata') between $2 and $3
+       returning id`,
+      [me, from, to],
+    );
     return {
       now,
       messages: messages.rows,
       reactions: reactions.rows,
       activity: activity.rows.map((r) => ({ ...r, id: Number(r.id) })),
       nearby,
+      reminder: remind[0] ? { kind: 'two_factor' } : null,
     };
   });
 

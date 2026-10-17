@@ -38,6 +38,24 @@ export async function pushRoutes(app: FastifyInstance) {
   });
 
   if (!push.enabled) return;
+  // Every half hour in the day: wake the phones of people due their daily two-step
+  // sign-in reminder (the phone then hears about it from /updates).
+  const [from, to] = app.config.remindHours ?? [10, 20];
+  const nudge = setInterval(() => {
+    void db
+      .query<{ user_id: string }>(
+        `select distinct t.user_id from push_tokens t join profiles p on p.id = t.user_id
+         where not p.two_factor
+           and p.security_reminded_on is distinct from (now() at time zone 'Asia/Kolkata')::date
+           and extract(hour from now() at time zone 'Asia/Kolkata') between $1 and $2
+         limit 5000`,
+        [from, to],
+      )
+      .then(({ rows }) => push.tickle(rows.map((r) => r.user_id)))
+      .catch((err) => app.log.warn({ err }, 'reminder wake-ups failed'));
+  }, 30 * 60_000);
+  nudge.unref();
+  app.addHook('onClose', async () => clearInterval(nudge));
   // One connection that hears every 'wake'; it reconnects if the database restarts.
   let client: pg.PoolClient | null = null;
   let closed = false;

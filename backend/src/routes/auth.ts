@@ -4,6 +4,7 @@ import { parse } from '../app.js';
 import { hashPassword, requireAuth, userId, verifyPassword } from '../auth.js';
 import { deletePostImages } from '../media.js';
 import { scheduleTrustRefresh } from '../ranking.js';
+import { startChallenge } from './twofactor.js';
 
 const handleSchema = z
   .string()
@@ -35,6 +36,8 @@ interface ProfileRow {
   avatar_path?: string | null;
   comment_policy?: string;
   dm_policy?: string;
+  two_factor?: boolean;
+  email_verified_at?: Date | null;
   created_at: Date;
 }
 
@@ -50,6 +53,8 @@ export function profileJson(p: ProfileRow) {
     avatarUrl: p.avatar_path ?? null,
     commentPolicy: p.comment_policy ?? 'everyone',
     dmPolicy: p.dm_policy ?? 'everyone',
+    twoFactor: p.two_factor ?? false,
+    emailVerified: !!p.email_verified_at,
     createdAt: p.created_at.toISOString(),
   };
 }
@@ -98,6 +103,12 @@ export async function authRoutes(app: FastifyInstance) {
     if (role !== user.role) {
       await db.query('update profiles set role = $2 where id = $1', [user.id, role]);
       user.role = role;
+    }
+    // Two-step sign-in: no token yet; a code goes to their email first.
+    if (user.two_factor) {
+      const challenge = await startChallenge(app, user, 'login');
+      if ('error' in challenge) return reply.code(503).send(challenge);
+      return { twoFactor: true, ...challenge };
     }
     const token = app.jwt.sign({ sub: user.id, role: user.role });
     return { token, user: profileJson(user) };

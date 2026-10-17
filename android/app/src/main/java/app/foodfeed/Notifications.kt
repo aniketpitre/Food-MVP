@@ -44,6 +44,7 @@ object Notifications {
     private const val ACTIVITY = "activity"
     private const val FOLLOWING = "following"
     private const val NEARBY = "nearby"
+    private const val SECURITY = "security"
     private const val WORK = "foodfeed-updates"
 
     /** Lines shown per chat until it's opened, so a burst of messages reads like a thread. */
@@ -70,6 +71,11 @@ object Notifications {
             nm.createNotificationChannel(
                 NotificationChannel(NEARBY, "Food near you", NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "New dishes and places near you (3 a day at most)"
+                },
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(SECURITY, "Account security", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "A daily reminder while two-step sign-in is off"
                 },
             )
         }
@@ -257,6 +263,31 @@ object Notifications {
             }
         } catch (_: SecurityException) {
             // Permission was taken away between the check and the post.
+        }
+    }
+
+    /** The daily nudge to turn on two-step sign-in. Tapping it opens the setting. */
+    @Synchronized
+    @SuppressLint("MissingPermission") // allowed() checks it
+    fun showReminder(context: Context, kind: String) {
+        if (kind != "two_factor" || !allowed(context)) return
+        val text = "Turn on two-step sign-in: we'll email you a code each time you sign in, so your password alone can't open your account. It takes 30 seconds."
+        try {
+            NotificationManagerCompat.from(context).notify(
+                "reminder:two_factor",
+                5,
+                NotificationCompat.Builder(context, SECURITY)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setColor(0xFFF04E23.toInt())
+                    .setContentTitle("🔐 Lock your WorthAbite account")
+                    .setContentText(text)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                    .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                    .setAutoCancel(true)
+                    .setContentIntent(open(context, "foodfeed://security", 5))
+                    .build(),
+            )
+        } catch (_: SecurityException) {
         }
     }
 

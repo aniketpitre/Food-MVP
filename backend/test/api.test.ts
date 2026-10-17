@@ -1556,6 +1556,80 @@ describe('notifications: stories, posts, story likes, new food near you, push', 
   });
 });
 
+describe('two-step sign-in by email code', () => {
+  it('needs email set up on the server', async () => {
+    const u = await signUp();
+    const res = await app.inject({ method: 'POST', url: '/me/2fa/start', headers: u.auth });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toBe('mail_off');
+    expect((await app.inject({ url: '/me', headers: u.auth })).json()).toMatchObject({ twoFactor: false, emailVerified: false });
+  });
+
+  it('turns on by verifying the email, then every sign-in needs a code; reminds daily while off', async () => {
+    const mails: { to: string; subject: string; text: string }[] = [];
+    const mailer = { enabled: true, send: async (to: string, subject: string, text: string) => { mails.push({ to, subject, text }); } };
+    const app2 = await buildApp({ ...app.config, remindHours: [0, 23] }, db, { logger: false, mailer });
+    const codeIn = () => mails.at(-1)!.subject.match(/^(\d{6}) is your WorthAbite code$/)![1]!;
+    try {
+      const u = await signUp({ email: 'twostep@example.com' });
+      // Daily reminder while it's off: once a day, not on the very first check.
+      const t = new Date(Date.now() - 60_000).toISOString();
+      expect((await app2.inject({ url: '/updates', headers: u.auth })).json().reminder).toBeNull();
+      expect((await app2.inject({ url: `/updates?since=${encodeURIComponent(t)}`, headers: u.auth })).json().reminder).toEqual({ kind: 'two_factor' });
+      expect((await app2.inject({ url: `/updates?since=${encodeURIComponent(t)}`, headers: u.auth })).json().reminder).toBeNull();
+
+      // Turning it on sends a code to the account's email; the right code turns it on.
+      const start = (await app2.inject({ method: 'POST', url: '/me/2fa/start', headers: u.auth })).json();
+      expect(start.emailHint).toBe('tw***@example.com');
+      expect(mails.at(-1)!.to).toBe('twostep@example.com');
+      expect(mails.at(-1)!.text).toContain(codeIn());
+      const bad = await app2.inject({ method: 'POST', url: '/me/2fa/confirm', headers: u.auth, payload: { challengeId: start.challengeId, code: codeIn() === '000000' ? '111111' : '000000' } });
+      expect(bad.statusCode).toBe(400);
+      expect(bad.json().message).toMatch(/Wrong code. 4 tries left/);
+      const on = await app2.inject({ method: 'POST', url: '/me/2fa/confirm', headers: u.auth, payload: { challengeId: start.challengeId, code: codeIn() } });
+      expect(on.json()).toMatchObject({ twoFactor: true, emailVerified: true });
+
+      // Signing in now gives no token, only a code by email.
+      const login = (await app2.inject({ method: 'POST', url: '/auth/login', payload: { email: 'twostep@example.com', password: 'correct horse' } })).json();
+      expect(login.token).toBeUndefined();
+      expect(login).toMatchObject({ twoFactor: true, emailHint: 'tw***@example.com' });
+      const loginCode = codeIn();
+      expect((await app2.inject({ method: 'POST', url: '/auth/login/resend', payload: { challengeId: login.challengeId } })).statusCode).toBe(429);
+      const ok = await app2.inject({ method: 'POST', url: '/auth/login/verify', payload: { challengeId: login.challengeId, code: loginCode } });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json().user.handle).toBe(u.handle);
+      expect((await app2.inject({ url: '/me', headers: { authorization: `Bearer ${ok.json().token}` } })).statusCode).toBe(200);
+      // A code works once.
+      expect((await app2.inject({ method: 'POST', url: '/auth/login/verify', payload: { challengeId: login.challengeId, code: loginCode } })).statusCode).toBe(401);
+      // The wrong password still gets nowhere, and sends nothing.
+      const sent = mails.length;
+      expect((await app2.inject({ method: 'POST', url: '/auth/login', payload: { email: 'twostep@example.com', password: 'nope nope' } })).statusCode).toBe(401);
+      expect(mails.length).toBe(sent);
+      // Five wrong codes lock that code.
+      const again = (await app2.inject({ method: 'POST', url: '/auth/login', payload: { email: 'twostep@example.com', password: 'correct horse' } })).json();
+      const right = codeIn();
+      const wrong = right === '123456' ? '654321' : '123456';
+      for (let i = 0; i < 5; i++) {
+        await app2.inject({ method: 'POST', url: '/auth/login/verify', payload: { challengeId: again.challengeId, code: wrong } });
+      }
+      const locked = await app2.inject({ method: 'POST', url: '/auth/login/verify', payload: { challengeId: again.challengeId, code: right } });
+      expect(locked.statusCode).toBe(401);
+      expect(locked.json().message).toMatch(/Too many wrong codes/);
+      // While it's on, no daily reminder.
+      await db.query('update profiles set security_reminded_on = null where id = $1', [u.id]);
+      expect((await app2.inject({ url: `/updates?since=${encodeURIComponent(t)}`, headers: u.auth })).json().reminder).toBeNull();
+
+      // Turning it off needs the password.
+      expect((await app2.inject({ method: 'POST', url: '/me/2fa/disable', headers: u.auth, payload: { password: 'wrong one' } })).statusCode).toBe(401);
+      const off = await app2.inject({ method: 'POST', url: '/me/2fa/disable', headers: u.auth, payload: { password: 'correct horse' } });
+      expect(off.json()).toMatchObject({ twoFactor: false, emailVerified: true });
+      expect((await app2.inject({ method: 'POST', url: '/auth/login', payload: { email: 'twostep@example.com', password: 'correct horse' } })).json().token).toBeTruthy();
+    } finally {
+      await app2.close();
+    }
+  });
+});
+
 async function loginAs(handle: string) {
   const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: `${handle}@example.com`, password: 'correct horse' } });
   return { auth: { authorization: `Bearer ${res.json().token}` } };

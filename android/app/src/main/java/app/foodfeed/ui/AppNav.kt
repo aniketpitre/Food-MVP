@@ -2,6 +2,7 @@ package app.foodfeed.ui
 
 import app.foodfeed.ui.components.LocalNavigateTo
 import app.foodfeed.ui.map.NavTarget
+import app.foodfeed.ui.profile.TwoFactorScreen
 import app.foodfeed.ui.map.NavigateScreen
 import app.foodfeed.ui.taste.TasteScreen
 import app.foodfeed.ui.taste.TasteViewModel
@@ -181,6 +182,7 @@ object Routes {
     const val USER_STORIES = "user-stories/{handle}"
     const val NEW_STORY = "new-story"
     const val TASTE = "taste?first={first}"
+    const val SECURITY = "security"
     const val NAVIGATE = "go/{id}?lat={lat}&lng={lng}&name={name}"
     fun navigate(t: NavTarget) =
         "go/${t.placeId}?lat=${t.lat}&lng=${t.lng}&name=${android.net.Uri.encode(t.name)}"
@@ -548,7 +550,13 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         onPassword = { nav.go(Routes.PASSWORD) },
                         onBlocked = { nav.go(Routes.BLOCKED) },
                         onTaste = { nav.go(Routes.taste()) },
+                        onTwoFactor = { nav.go(Routes.SECURITY) },
                     )
+                }
+                composable(Routes.SECURITY) {
+                    Box(Modifier.statusBarsPadding()) {
+                        TwoFactorScreen({ nav.back() }, showMessage)
+                    }
                 }
                 composable(Routes.ADMIN) {
                     val vm = appViewModel { AdminViewModel(it) }

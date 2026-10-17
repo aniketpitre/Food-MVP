@@ -47,6 +47,13 @@ services:
       FCM_API_KEY: ${FCM_API_KEY:-}
       FCM_APP_ID: ${FCM_APP_ID:-}
       FCM_SENDER_ID: ${FCM_SENDER_ID:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-WorthAbite <no-reply@worthabite.app>}
+      REMIND_HOURS: ${REMIND_HOURS:-10-20}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - media:/data/media
@@ -91,6 +98,13 @@ services:
       - "443:443"
     volumes:
       - caddy_data:/data
+
+  # A pretend inbox for testing sign-in codes (CI): SMTP on mailtest:1025, a web inbox on :8025.
+  mailtest:
+    image: axllent/mailpit:v1.21
+    profiles: ["mailtest"]
+    ports:
+      - "8025:8025"
 
 volumes:
   pgdata:

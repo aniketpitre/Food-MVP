@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
             "user" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user/$it" }
             "stories" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user-stories/$it" }
             "activity" -> "activity"
+            "security" -> "security"
             else -> null
         }
     }

@@ -81,7 +81,12 @@ interface WorthAbiteApi {
 
     @POST("auth/register") suspend fun register(@Body body: RegisterBody): AuthResult
 
-    @POST("auth/login") suspend fun login(@Body body: LoginBody): AuthResult
+    @POST("auth/login") suspend fun login(@Body body: LoginBody): LoginResult
+    @POST("auth/login/verify") suspend fun verifyLogin(@Body body: CodeBody): AuthResult
+    @POST("auth/login/resend") suspend fun resendLogin(@Body body: ChallengeBody): CodeChallenge
+    @POST("me/2fa/start") suspend fun startTwoFactor(): CodeChallenge
+    @POST("me/2fa/confirm") suspend fun confirmTwoFactor(@Body body: CodeBody): User
+    @POST("me/2fa/disable") suspend fun disableTwoFactor(@Body body: PasswordBody): User
 
     @GET("me") suspend fun me(): User
 

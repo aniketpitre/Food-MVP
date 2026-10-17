@@ -288,6 +288,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         prefs.saveUpdatesSince(page.now)
         if (since == null) return@withLock
         Notifications.show(appContext, page.messages, page.reactions, page.activity, openChatId.value)
+        page.reminder?.let { Notifications.showReminder(appContext, it.kind) }
         val nearby = prefs.takeNearbyAllowance(page.nearby.size)
         if (nearby > 0) {
             val items = page.nearby.take(nearby)

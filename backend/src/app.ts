@@ -25,16 +25,19 @@ import { tasteRoutes } from './routes/taste.js';
 import { exploreRoutes } from './routes/explore.js';
 import { pushRoutes } from './routes/push.js';
 import { Push } from './push.js';
+import { type Mailer, SmtpMailer } from './mail.js';
+import { twoFactorRoutes } from './routes/twofactor.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     db: Db;
     config: Config;
     push: Push;
+    mailer: Mailer;
   }
 }
 
-export async function buildApp(config: Config, db: Db, opts: { logger?: boolean; push?: Push } = {}): Promise<FastifyInstance> {
+export async function buildApp(config: Config, db: Db, opts: { logger?: boolean; push?: Push; mailer?: Mailer } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     trustProxy: true,
     bodyLimit: 1024 * 1024,
@@ -62,6 +65,7 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean;
   app.decorate('config', config);
   const push = opts.push ?? new Push(db, config.push ?? null, app.log);
   app.decorate('push', push);
+  app.decorate('mailer', opts.mailer ?? new SmtpMailer(config.mail ?? null));
   app.addHook('onClose', async () => push.stop());
 
   // JSON (feed, home, map) shrinks 5-10x with compression, which matters on mobile data.
@@ -117,6 +121,7 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean;
   await app.register(tasteRoutes);
   await app.register(exploreRoutes);
   await app.register(pushRoutes);
+  await app.register(twoFactorRoutes);
   await app.register(messageRoutes);
   await app.register(storyRoutes);
   await app.register(adminRoutes);

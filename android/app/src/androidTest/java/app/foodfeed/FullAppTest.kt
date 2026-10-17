@@ -12,6 +12,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.longClick
@@ -629,6 +630,91 @@ class FullAppTest {
             open("foodfeed://stories/${cook.user.handle}")
             Thread.sleep(2500)
             shot("69_story_from_notification")
+        }
+    }
+
+    /** The newest sign-in code emailed to [to] that isn't [not], read from the CI test inbox. */
+    private fun emailedCode(to: String, not: String? = null): String {
+        val inbox = server.replace(Regex(":\\d+$"), ":8025")
+        val end = System.currentTimeMillis() + 30_000
+        while (System.currentTimeMillis() < end) {
+            val req = Request.Builder().url("$inbox/api/v1/messages?limit=50").build()
+            val code = runCatching {
+                http.newCall(req).execute().use { res ->
+                    val list = JSONObject(res.body!!.string()).getJSONArray("messages")
+                    (0 until list.length()).map { list.getJSONObject(it) }
+                        .filter { m -> (0 until m.getJSONArray("To").length()).any { m.getJSONArray("To").getJSONObject(it).getString("Address") == to } }
+                        .mapNotNull { Regex("^(\\d{6}) is your WorthAbite code").find(it.getString("Subject"))?.groupValues?.get(1) }
+                        .firstOrNull()
+                }
+            }.getOrNull()
+            if (code != null && code != not) return code
+            Thread.sleep(1500)
+        }
+        throw AssertionError("no code emailed to $to")
+    }
+
+    @Test
+    fun twoStepSignIn_turnOnSignInWithCodeTurnOffAndDailyReminder() {
+        val email = me.user.email
+        val nm = context.getSystemService(NotificationManager::class.java)
+        step("a daily reminder while it's off") {
+            waitFor(hasTestTag("home_list"), 30_000)
+            val end = System.currentTimeMillis() + 30_000
+            while (System.currentTimeMillis() < end && nm.activeNotifications.none { it.tag == "reminder:two_factor" }) {
+                runBlocking { container.checkUpdates() }
+                Thread.sleep(1500)
+            }
+            assertTrue("the two-step reminder", nm.activeNotifications.any { it.tag == "reminder:two_factor" })
+            device.openNotification()
+            Thread.sleep(2000)
+            val shade = instrumentation.uiAutomation.takeScreenshot()
+            File(shots, "80_reminder_notification.png").outputStream().use { shade?.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            device.pressBack()
+            Thread.sleep(800)
+        }
+        lateinit var first: String
+        step("turn it on: a code to my email verifies it") {
+            open("foodfeed://security")
+            waitFor(hasTestTag("twofactor_on"), 15_000)
+            shot("81_two_step_off")
+            compose.onNodeWithTag("twofactor_on").performClick()
+            waitFor(hasTestTag("code_input"), 20_000)
+            first = emailedCode(email)
+            shot("82_two_step_code")
+            compose.onNodeWithTag("code_input").performTextInput(first)
+            waitFor(hasTestTag("twofactor_state") and hasText("ON"), 15_000)
+            waitText("Email verified")
+            assertTrue(container.session.value!!.user.twoFactor)
+            shot("83_two_step_on")
+        }
+        step("signing in now needs the emailed code") {
+            runBlocking { container.signOut() }
+            backTo(hasContentDescription("Profile"), presses = 3)
+            tab("Profile")
+            compose.onAllNodes(hasText("Sign in") and hasClickAction()).onFirst().performClick()
+            waitFor(hasText("Welcome back"), 15_000)
+            compose.onNodeWithText("Email").performTextInput(email)
+            compose.onNodeWithText("Password").performTextInput("correct horse")
+            compose.onAllNodes(hasText("Sign in") and hasClickAction()).onLast().performClick()
+            waitFor(hasTestTag("code_input"), 20_000)
+            waitText("Check your email")
+            shot("84_sign_in_code")
+            compose.onNodeWithTag("code_input").performTextInput("000000".takeIf { it != first } ?: "111111")
+            waitText("Wrong code", substring = true, timeoutMs = 15_000)
+            val code = emailedCode(email, not = first)
+            compose.onNodeWithTag("code_input").performTextInput(code)
+            compose.waitUntil(20_000) { container.session.value != null }
+            assertTrue(container.session.value!!.user.twoFactor)
+        }
+        step("turn it off with my password") {
+            open("foodfeed://security")
+            waitFor(hasTestTag("twofactor_off"), 15_000)
+            compose.onNodeWithTag("twofactor_off").performClick()
+            compose.onNodeWithTag("twofactor_password").performTextInput("correct horse")
+            compose.onNodeWithTag("twofactor_off_confirm").performClick()
+            waitFor(hasTestTag("twofactor_state") and hasText("OFF"), 15_000)
+            shot("85_two_step_off_again")
         }
     }
 
