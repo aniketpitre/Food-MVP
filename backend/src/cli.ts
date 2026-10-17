@@ -3,7 +3,7 @@
 import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { removeDemoActivity, removeDemoCatalog, restoreDemoPlaces, seedCatalog, seedDemoActivity } from './seed.js';
-import { fetchDemoDishPhotos } from './demo-photos.js';
+import { refreshDemoDishPhotos } from './demo-photos.js';
 import { fetchOsmPlaces, importOsmPlaces } from './osm.js';
 import { fetchPlacePhotos } from './photos.js';
 
@@ -36,21 +36,21 @@ try {
     }
     case 'seed-demo': {
       // The demo again: the invented Nashik places and dishes (if removed), the demo_
-      // accounts' activity, and real, credited Wikimedia photos for every demo dish.
+      // accounts' activity, and the real, credited photos (bundled) for every demo dish.
       await migrate(db, log);
       if (!(await seedCatalog(db, config.mediaDir, log)) && !(await restoreDemoPlaces(db, config.mediaDir, log))) {
         log('demo places already present');
       }
       if (!(await seedDemoActivity(db, log))) log('demo activity already present');
-      const r = await fetchDemoDishPhotos(db, config.mediaDir, log, { force: args.includes('--force') });
+      const r = await refreshDemoDishPhotos(db, config.mediaDir, log);
       log(`real photos for ${r.updated} demo dishes` + (r.missing.length ? `; none found for: ${r.missing.join(', ')}` : ''));
       await db.query('select refresh_dish_stats()');
       await db.query('select refresh_people_pick()');
       break;
     }
     case 'demo-photos': {
-      // Only the photos: swap the illustrated demo pictures for real ones (--force redoes all).
-      const r = await fetchDemoDishPhotos(db, config.mediaDir, log, { force: args.includes('--force') });
+      // Only the photos: swap old drawn demo pictures for the bundled real ones.
+      const r = await refreshDemoDishPhotos(db, config.mediaDir, log);
       log(`real photos for ${r.updated} demo dishes` + (r.missing.length ? `; none found for: ${r.missing.join(', ')}` : ''));
       break;
     }

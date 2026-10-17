@@ -6,7 +6,18 @@ import type { Db } from './db.js';
 import { deletePostImages, storePostImage } from './media.js';
 import * as data from './seed-data.js';
 
-const imagesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../seed/images');
+export const imagesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../seed/images');
+
+export interface DemoCredit { title: string; author: string; licence: string; licenceUrl?: string | null; source: string }
+
+/** Who took each bundled demo photo (seed/images/credits.json), by dish key. */
+export async function demoCredits(dir = imagesDir): Promise<Record<string, DemoCredit>> {
+  return JSON.parse(await fs.readFile(path.join(dir, 'credits.json'), 'utf8').catch(() => '{}'));
+}
+
+/** The line shown under a demo photo. */
+export const creditLine = (c: DemoCredit | undefined) =>
+  c ? `Photo: ${c.author}, ${c.licence}, via Wikimedia Commons` : 'FoodFeed demo';
 
 /** Inserts cities, categories, aliases and the demo restaurants/dishes/photos once. */
 export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => void = () => {}): Promise<boolean> {
@@ -48,6 +59,7 @@ export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => 
 
 /** The invented demo places in Nashik, with their dishes and the illustrated demo photos. */
 async function insertDemoPlaces(db: Db, mediaDir: string, nashik: number, catIds: Map<string, number>, log: (m: string) => void) {
+  const credits = await demoCredits();
   for (const r of data.restaurants) {
     const rr = await db.query<{ id: string }>(
       `insert into restaurants (city_id, name, name_norm, locality, geo, price_band, status, source)
@@ -73,8 +85,8 @@ async function insertDemoPlaces(db: Db, mediaDir: string, nashik: number, catIds
       await db.query(
         `insert into posts (id, dish_id, caption, image_path, thumb_path, placeholder_color, width, height,
                             source, photo_credit)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'seed', 'FoodFeed demo')`,
-        [postId, dishId, d.caption, stored.imagePath, stored.thumbPath, stored.placeholderColor, stored.width, stored.height],
+         values ($1, $2, $3, $4, $5, $6, $7, $8, 'seed', $9)`,
+        [postId, dishId, d.caption, stored.imagePath, stored.thumbPath, stored.placeholderColor, stored.width, stored.height, creditLine(credits[d.key])],
       );
       await db.query('update dishes set cover_post_id = $2 where id = $1', [dishId, postId]);
     }
