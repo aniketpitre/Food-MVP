@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { hashPassword, optionalAuth, requireAuth, userId, verifyPassword } from '../auth.js';
 import { loadDishCards, wholePicks } from '../cards.js';
+import { tasteMatch } from './taste.js';
 import { deleteAvatar, storeAvatar } from '../media.js';
 import { notify } from '../notify.js';
 
@@ -69,8 +70,9 @@ export async function socialRoutes(app: FastifyInstance) {
       backers: b.backers,
       isExpert: b.expert,
     }));
+    const match = viewer && !isMe ? await tasteMatch(db, viewer, u.id) : null;
     delete u.id;
-    return { ...u, isMe, posts, tasteBadges };
+    return { ...u, isMe, posts, tasteBadges, tasteMatch: match };
   });
 
   // Dishes someone loved, newest first: the "Loved" tab on a profile.

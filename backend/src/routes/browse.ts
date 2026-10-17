@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
+import { forYouCards } from './taste.js';
 import { inCity, nearestCity } from '../geo.js';
 import { googlePlaceId, googlePlacePhotos } from '../photos.js';
 
@@ -59,7 +60,7 @@ export async function browseRoutes(app: FastifyInstance) {
       z.object({
         city: z.coerce.number().int().positive(),
         category: z.coerce.number().int().positive().optional(),
-        tab: z.enum(['top', 'trending', 'gems', 'nearby']).default('top'),
+        tab: z.enum(['top', 'trending', 'gems', 'nearby', 'foryou']).default('top'),
         limit: z.coerce.number().int().min(1).max(50).default(20),
         offset: z.coerce.number().int().min(0).max(5000).default(0),
         seed: z.string().max(64).default(''),
@@ -73,6 +74,10 @@ export async function browseRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'location_required', message: 'Nearby needs your location.' });
     }
     const viewer = userId(req);
+    if (q.tab === 'foryou') {
+      if (!viewer) return reply.code(401).send({ error: 'sign_in', message: 'Sign in to see dishes picked for you.' });
+      return forYouCards(db, viewer, q.city, q.limit, q.offset, q.lat, q.lng);
+    }
     const { rows } = await db.query<{ dish_id: string; lane: string }>(
       'select * from get_feed($1, $2, $3, $4, $5, $6, $7, $8, $9)',
       [q.city, q.category ?? null, q.tab, q.lat ?? null, q.lng ?? null, q.limit, q.offset, q.seed, viewer],

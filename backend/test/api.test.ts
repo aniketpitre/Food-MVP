@@ -54,6 +54,7 @@ beforeAll(async () => {
     mapillaryToken: '',
     googlePlacesApiKey: '',
     googlePhotosDailyLimit: 30,
+    routingUrl: '',
   };
   await migrate(db);
   await seedCatalog(db, mediaDir);
@@ -911,7 +912,7 @@ describe("People's Pick", () => {
 
   it('serves the home sections and the map', async () => {
     const home = (await app.inject(`/home?city=${cityId}&lat=20.0&lng=73.78`)).json();
-    expect(Object.keys(home).sort()).toEqual(['cravings', 'following', 'fresh', 'nearby', 'peoplesPicks', 'tasters', 'trending']);
+    expect(Object.keys(home).sort()).toEqual(['cravings', 'following', 'forYou', 'fresh', 'nearby', 'peoplesPicks', 'tasters', 'trending']);
     expect(home.peoplesPicks.length).toBeGreaterThan(0);
     expect(home.peoplesPicks[0].rating.loves).toBeGreaterThan(0);
     expect(home.cravings.length).toBeGreaterThan(0);
@@ -1150,6 +1151,171 @@ describe('fair ranking', () => {
     await app.inject({ method: 'DELETE', url: '/me', headers: champ.auth });
     const r = (await db.query('select loves from dish_rating where dish_id = $1', [dish])).rows[0];
     expect(r.loves).toBe(0);
+  });
+});
+
+describe('people-based recommendation', () => {
+  async function category(slug: string): Promise<number> {
+    return (await db.query('select id from dish_categories where slug = $1', [slug])).rows[0].id;
+  }
+  async function mkDish(name: string, slug: string, isVeg: boolean, lng = 73.78, lat = 20.0): Promise<string> {
+    const r = await db.query(
+      `insert into restaurants (city_id, name, name_norm, geo, status)
+       values ($1, $2, norm_name($2), st_setsrid(st_makepoint($3, $4), 4326)::geography, 'active') returning id`,
+      [cityId, `Taste Place ${name}`, lng, lat],
+    );
+    const d = await db.query(
+      `insert into dishes (restaurant_id, city_id, category_id, name, name_norm, is_veg)
+       values ($1, $2, $3, $4, norm_name($4), $5) returning id`,
+      [r.rows[0].id, cityId, await category(slug), name, isVeg],
+    );
+    await db.query(`insert into posts (dish_id, image_path, thumb_path) values ($1, '/media/t.webp', '/media/t.webp')`, [d.rows[0].id]);
+    return d.rows[0].id;
+  }
+  async function person() {
+    const u = await signUp();
+    await db.query("update profiles set created_at = now() - interval '30 days' where id = $1", [u.id]);
+    return u;
+  }
+  async function vote(userId: string, dish: string, kind: string, hoursAgo = 1) {
+    await db.query(
+      'insert into engagements (user_id, dish_id, kind, created_at) values ($1, $2, $3, now() - make_interval(hours => $4)) on conflict do nothing',
+      [userId, dish, kind, hoursAgo],
+    );
+  }
+
+  afterAll(async () => {
+    await db.query("update restaurants set status = 'hidden' where name like 'Taste Place %'");
+  });
+
+  it('keeps a taste profile and learns from what you love', async () => {
+    const u = await person();
+    const misal = await category('misal');
+    expect((await app.inject({ url: '/me/taste' })).statusCode).toBe(401);
+    let taste = (await app.inject({ url: '/me/taste', headers: u.auth })).json();
+    expect(taste).toMatchObject({ set: false, categories: [], diet: 'nonveg', spice: 3 });
+    const put = await app.inject({ method: 'PUT', url: '/me/taste', headers: u.auth, payload: { categories: [misal, 99999], diet: 'veg', spice: 4 } });
+    expect(put.statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/me/taste', headers: u.auth, payload: { categories: [], diet: 'vegan', spice: 9 } })).statusCode).toBe(400);
+    const chai = await mkDish('Taste Kadak Chai', 'chai-coffee', true);
+    await vote(u.id, chai, 'recommend');
+    taste = (await app.inject({ url: '/me/taste', headers: u.auth })).json();
+    expect(taste).toMatchObject({ set: true, categories: [misal], diet: 'veg', spice: 4 });
+    expect(taste.learned.map((l: { name: string }) => l.name)).toEqual(expect.arrayContaining(['Misal', 'Chai & Coffee']));
+  });
+
+  it('shows a Taste Match on profiles and suggests people with your taste', async () => {
+    const dishes = [];
+    for (let i = 0; i < 5; i++) dishes.push(await mkDish(`Taste Match ${i}`, 'street-food', true));
+    const me = await person();
+    const twin = await person();
+    const opposite = await person();
+    const stranger = await person();
+    for (const [i, d] of dishes.entries()) {
+      await vote(me.id, d, i < 4 ? 'recommend' : 'pass', 48 + i);
+      await vote(twin.id, d, i < 4 ? 'recommend' : 'pass', 10 + i * 5);
+      await vote(opposite.id, d, i < 4 ? 'pass' : 'recommend', 20 + i * 5);
+    }
+    const profile = async (h: string, auth = me.auth) => (await app.inject({ url: `/users/${h}`, headers: auth })).json();
+    const t = (await profile(twin.handle)).tasteMatch;
+    const o = (await profile(opposite.handle)).tasteMatch;
+    expect(t.percent).toBeGreaterThanOrEqual(70);
+    expect(t).toMatchObject({ coVotes: 5, agreed: 5 });
+    expect(t.shared.map((x: { name: string }) => x.name)).toContain('Street Food');
+    expect(o.percent).toBeLessThan(t.percent);
+    expect((await profile(stranger.handle)).tasteMatch).toBeNull(); // nothing to go on yet
+    expect((await profile(me.handle)).tasteMatch).toBeNull(); // not with yourself
+    expect((await app.inject(`/users/${twin.handle}`)).json().tasteMatch).toBeNull(); // guests have no taste
+
+    const suggested = (await app.inject({ url: '/people/taste', headers: me.auth })).json().map((p: { handle: string }) => p.handle);
+    expect(suggested[0]).toBe(twin.handle);
+    expect(suggested).not.toContain(opposite.handle);
+    await app.inject({ method: 'PUT', url: `/users/${twin.handle}/follow`, headers: me.auth });
+    const after = (await app.inject({ url: '/people/taste', headers: me.auth })).json().map((p: { handle: string }) => p.handle);
+    expect(after).not.toContain(twin.handle); // already followed
+  });
+
+  it('recommends what people like you and people you follow loved', async () => {
+    const shared = [];
+    for (let i = 0; i < 4; i++) shared.push(await mkDish(`Taste Shared ${i}`, 'misal', true));
+    const theirFind = await mkDish('Taste Their Find', 'misal', true);
+    const meaty = await mkDish('Taste Chicken Find', 'biryani', false);
+    const friendsFind = await mkDish('Taste Friends Find', 'desserts', true);
+    const disliked = await mkDish('Taste Disliked', 'misal', true);
+    const me = await person();
+    const alike = await person();
+    const friend = await person();
+    for (const [i, d] of shared.entries()) {
+      await vote(me.id, d, 'recommend', 60 + i);
+      await vote(alike.id, d, 'recommend', 20 + i * 5);
+    }
+    await vote(alike.id, theirFind, 'recommend');
+    await vote(alike.id, meaty, 'recommend');
+    await vote(alike.id, disliked, 'pass');
+    await vote(friend.id, friendsFind, 'recommend');
+    await app.inject({ method: 'PUT', url: `/users/${friend.handle}/follow`, headers: me.auth });
+
+    const forYou = async () => (await app.inject({ url: `/foryou?city=${cityId}&limit=50`, headers: me.auth })).json().items as {
+      id: string; lane: string; because: { handle: string | null; match: number | null; followed: boolean };
+    }[];
+    let items = await forYou();
+    const find = items.find((i) => i.id === theirFind)!;
+    expect(find.lane).toBe('foryou');
+    expect(find.because).toMatchObject({ handle: alike.handle, followed: false });
+    expect(find.because.match).toBeGreaterThanOrEqual(55);
+    expect(items.find((i) => i.id === friendsFind)?.because).toMatchObject({ handle: friend.handle, followed: true });
+    expect(items.some((i) => shared.includes(i.id))).toBe(false); // already loved
+    expect(items.some((i) => i.id === disliked)).toBe(false); // they said "not for me"
+    expect(items.some((i) => i.id === meaty)).toBe(true);
+    // A vegetarian never sees non-veg dishes.
+    await app.inject({ method: 'PUT', url: '/me/taste', headers: me.auth, payload: { categories: [], diet: 'veg', spice: 3 } });
+    items = await forYou();
+    expect(items.some((i) => i.id === meaty)).toBe(false);
+
+    expect((await app.inject(`/feed?city=${cityId}&tab=foryou`)).statusCode).toBe(401);
+    const tab = (await app.inject({ url: `/feed?city=${cityId}&tab=foryou`, headers: me.auth })).json();
+    expect(tab.items.map((i: { id: string }) => i.id)).toContain(theirFind);
+    const home = (await app.inject({ url: `/home?city=${cityId}`, headers: me.auth })).json();
+    expect(home.forYou.map((i: { id: string }) => i.id)).toContain(theirFind);
+  });
+
+  it('fills For You from the dish types you like when there is nobody to go on yet', async () => {
+    const pick = await mkDish('Taste Lone Thali', 'thali', true);
+    const me = await person();
+    await app.inject({ method: 'PUT', url: '/me/taste', headers: me.auth, payload: { categories: [await category('thali')], diet: 'nonveg', spice: 2 } });
+    const items = (await app.inject({ url: `/foryou?city=${cityId}&limit=50`, headers: me.auth })).json().items;
+    const it = items.find((i: { id: string }) => i.id === pick);
+    expect(it.because).toMatchObject({ handle: null, category: 'Thali' });
+  });
+
+  it("filters the map to friends' and taste matches' picks", async () => {
+    const dish = await mkDish('Taste Map Pick', 'chinese', true, 73.81, 20.01);
+    const me = await person();
+    const friend = await person();
+    await vote(friend.id, dish, 'recommend');
+    await app.inject({ method: 'PUT', url: `/users/${friend.handle}/follow`, headers: me.auth });
+    expect((await app.inject(`/map?city=${cityId}&filter=friends`)).statusCode).toBe(401);
+    const places = (await app.inject({ url: `/map?city=${cityId}&filter=friends`, headers: me.auth })).json().places;
+    const place = places.find((p: { name: string }) => p.name === 'Taste Place Taste Map Pick');
+    expect(place.topDish.dishId).toBe(dish);
+    expect(place.lovedBy.handle).toBe(friend.handle);
+    expect(place.emoji).toBe('🥡');
+    const taste = (await app.inject({ url: `/map?city=${cityId}&filter=taste`, headers: me.auth })).json().places;
+    expect(Array.isArray(taste)).toBe(true);
+  });
+
+  it('finds the best dishes along a drive, in order', async () => {
+    const early = await mkDish('Taste Highway Early', 'misal', true, 73.70, 20.0005);
+    const late = await mkDish('Taste Highway Late', 'misal', true, 73.95, 19.9995);
+    await mkDish('Taste Far Away', 'misal', true, 73.80, 20.2);
+    const res = (await app.inject(`/route/stops?fromLat=20.0&fromLng=73.6&toLat=20.0&toLng=74.0&corridorKm=1`)).json();
+    expect(res.route.source).toBe('straight'); // no routing server in tests
+    const ids = res.stops.map((s: { card: { id: string } }) => s.card.id);
+    expect(ids).toContain(early);
+    expect(ids).toContain(late);
+    expect(ids.indexOf(early)).toBeLessThan(ids.indexOf(late));
+    expect(res.stops.some((s: { card: { name: string } }) => s.card.name === 'Taste Far Away')).toBe(false);
+    for (const s of res.stops) expect(s.offRouteM).toBeLessThanOrEqual(1000);
   });
 });
 

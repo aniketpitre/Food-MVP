@@ -23,6 +23,7 @@ export interface Config {
   mapillaryToken: string;
   googlePlacesApiKey: string;
   googlePhotosDailyLimit: number;
+  routingUrl: string;
 }
 
 export function loadConfig(): Config {
@@ -49,5 +50,7 @@ export function loadConfig(): Config {
     googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? '',
     // 30 a day stays inside Google's 1,000 free photo loads a month.
     googlePhotosDailyLimit: Number(process.env.GOOGLE_PHOTOS_DAILY_LIMIT ?? 30),
+    // Driving routes for "food stops along the way" (an OSRM server; empty = straight lines).
+    routingUrl: process.env.ROUTING_URL ?? 'https://router.project-osrm.org',
   };
 }

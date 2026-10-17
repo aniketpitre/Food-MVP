@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { optionalAuth, userId } from '../auth.js';
 import { loadDishCards, wholePicks } from '../cards.js';
+import { forYouCards } from './taste.js';
 
 const coords = {
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -185,15 +186,17 @@ export async function discoverRoutes(app: FastifyInstance) {
     const followedRows = following.slice(0, 10);
     const sections = [picks, nearby, followedRows, trending, fresh];
     const unique = [...new Set(sections.flatMap((rows) => rows.map((r) => r.id)))];
-    const [all, tasters] = await Promise.all([
+    const [all, tasters, forYou] = await Promise.all([
       loadDishCards(db, unique, viewer, q.lat, q.lng),
       tastersFor(app, cityDishes.map((d) => d.id), viewer, 10),
+      viewer ? forYouCards(db, viewer, q.city, 10, 0, q.lat, q.lng).then((r) => r.items) : Promise.resolve([]),
     ]);
     const byId = new Map(all.map((c) => [c.id, c]));
     const cards = (rows: { id: string }[]) => rows.map((r) => byId.get(r.id)!).filter(Boolean);
     const followedCards = cards(followedRows);
     return {
       cravings: cravingsRes.rows,
+      forYou,
       peoplesPicks: cards(picks),
       nearby: cards(nearby),
       following: followedCards.map((c) => ({ card: c, lovedBy: followedRows.find((r) => r.id === c.id)!.handle })),
@@ -208,11 +211,20 @@ export async function discoverRoutes(app: FastifyInstance) {
   // With all=true, also real places nobody has posted from yet (imported from OpenStreetMap).
   app.get('/map', { preHandler: optionalAuth }, async (req, reply) => {
     const q = parse(
-      z.object({ city: z.coerce.number().int().positive(), all: z.enum(['true', 'false']).default('false') }),
+      z.object({
+        city: z.coerce.number().int().positive(),
+        all: z.enum(['true', 'false']).default('false'),
+        filter: z.enum(['all', 'friends', 'taste']).default('all'),
+      }),
       req.query,
       reply,
     );
     if (!q) return;
+    const viewer = userId(req);
+    if (q.filter !== 'all') {
+      if (!viewer) return reply.code(401).send({ error: 'sign_in', message: 'Sign in to see your friends\' and taste matches\' picks.' });
+      return { places: await pickedPlaces(q.city, viewer, q.filter) };
+    }
     const { rows } = await db.query(
       `select r.id, r.name, r.locality, r.cuisine, r.address, r.opening_hours as "openingHours",
               (r.source = 'seed') as demo,
@@ -245,6 +257,56 @@ export async function discoverRoutes(app: FastifyInstance) {
     );
     return { places: rows.map((r) => ({ ...r, emoji: r.topDish?.emoji ?? foodLogo(r.cuisine, r.name) })) };
   });
+
+  /**
+   * The map filtered to people: places where someone you follow (friends) or someone whose
+   * taste matches yours (taste) loved a dish. Each place shows that dish and who loved it.
+   */
+  async function pickedPlaces(city: number, viewer: string, filter: 'friends' | 'taste') {
+    const people =
+      filter === 'friends'
+        ? `select followee_id as id, null::float8 as match from follows where follower_id = $2`
+        : `select other_id as id, match from taste_matches($2) where match >= 0.55 order by match desc limit 50`;
+    const { rows } = await db.query(
+      `with people as (${people}),
+       loved as (
+         select distinct on (r.id) r.id as place_id, d.id as dish_id, e.user_id, pe.match
+         from engagements e
+         join people pe on pe.id = e.user_id
+         join dishes d on d.id = e.dish_id and d.status = 'live' and d.city_id = $1
+         join restaurants r on r.id = d.restaurant_id and r.status = 'active'
+         left join dish_rating dr on dr.dish_id = d.id
+         where e.kind = 'recommend'
+           and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
+           and not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = e.user_id)
+         order by r.id, pe.match desc nulls last, coalesce(dr.confidence, 0) desc, e.created_at desc, d.id
+       )
+       select r.id, r.name, r.locality, r.cuisine, r.address, r.opening_hours as "openingHours",
+              (r.source = 'seed') as demo, st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
+              (select count(*)::int from dishes dd where dd.restaurant_id = r.id and dd.status = 'live') as "dishCount",
+              (select count(distinct e2.user_id)::int from engagements e2 join dishes de on de.id = e2.dish_id
+               where de.restaurant_id = r.id and e2.kind = 'recommend') as lovers,
+              (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
+               order by (rp.source = 'owner') desc, rp.created_at limit 1) as "photoUrl",
+              json_build_object('dishId', d.id, 'name', d.name, 'loves', coalesce(dr.loves, 0),
+                'percent', case when coalesce(dr.loves, 0) + coalesce(dr.passes, 0) > 0
+                                then round(100.0 * dr.loves / (dr.loves + dr.passes)) end,
+                'priceInr', d.price_inr, 'isVeg', d.is_veg, 'emoji', c.emoji,
+                'thumbUrl', (select p.thumb_path from posts p where p.dish_id = d.id and p.status = 'live'
+                             order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1)) as "topDish",
+              json_build_object('handle', pr.handle, 'displayName', pr.display_name, 'avatarUrl', pr.avatar_path,
+                'match', case when l.match is not null then round(100 * l.match)::int end) as "lovedBy"
+       from loved l
+       join restaurants r on r.id = l.place_id
+       join dishes d on d.id = l.dish_id
+       join profiles pr on pr.id = l.user_id
+       left join dish_rating dr on dr.dish_id = d.id
+       left join dish_categories c on c.id = d.category_id
+       order by r.id`,
+      [city, viewer],
+    );
+    return rows.map((r) => ({ ...r, emoji: r.topDish?.emoji ?? foodLogo(r.cuisine, r.name) }));
+  }
 }
 
 const LOGOS: [RegExp, string][] = [
