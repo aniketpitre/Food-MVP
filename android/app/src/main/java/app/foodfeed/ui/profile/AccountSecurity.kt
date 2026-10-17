@@ -248,8 +248,11 @@ fun ChangeEmailScreen(onBack: () -> Unit, showMessage: (String) -> Unit) {
                 val r = apiCall { app.api.confirmEmailChange(EmailChangeConfirm(c.oldChallengeId, oldCode, c.newChallengeId, newCode)) }
                 r.token?.let { app.replaceToken(it) }
                 app.updatedMe(r.user)
-                showMessage("Your email is now ${r.user.email}. Other devices were signed out.")
-                onBack()
+                // Navigation must happen on the main thread, whatever thread the reply came on.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    showMessage("Your email is now ${r.user.email}. Other devices were signed out.")
+                    onBack()
+                }
             } catch (e: ApiException) {
                 error = e.message
             }
