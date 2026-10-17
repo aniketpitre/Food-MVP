@@ -197,7 +197,7 @@ private fun RoundIconButton(icon: ImageVector, description: String, onClick: () 
  * travels (the phase follows the position), then redraws itself from the left.
  */
 @Composable
-fun FeedTabs(selected: FeedTab, onSelect: (FeedTab) -> Unit, tabs: List<FeedTab> = FeedTab.entries) {
+fun FeedTabs(selected: FeedTab, tabs: List<FeedTab> = FeedTab.entries - FeedTab.ForYou, onSelect: (FeedTab) -> Unit) {
     val density = LocalDensity.current
     val positions = remember { mutableStateMapOf<FeedTab, Pair<Float, Float>>() } // x, width in px
     val target = positions[selected]

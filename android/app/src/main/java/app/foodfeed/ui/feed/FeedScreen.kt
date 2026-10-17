@@ -195,7 +195,7 @@ fun FeedContent(
             onSearch = onSearch,
             onFilter = { showFilter = true },
         )
-        FeedTabs(state.tab, onTab, state.tabs)
+        FeedTabs(state.tab, state.tabs, onTab)
         ActiveFilterChip(selectedCategory) { onCategory(null) }
 
         val body = when {
