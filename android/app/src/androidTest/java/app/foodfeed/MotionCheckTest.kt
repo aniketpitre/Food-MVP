@@ -41,7 +41,7 @@ class MotionCheckTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
-    private val container: AppContainer get() = (context.applicationContext as FoodFeedApp).container
+    private val container: AppContainer get() = (context.applicationContext as WorthAbiteApp).container
     private val shots by lazy { File(context.filesDir, "device-shots").apply { mkdirs() } }
     private lateinit var scenario: ActivityScenario<MainActivity>
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +55,7 @@ import app.foodfeed.data.UserRef
 import app.foodfeed.ui.Format
 import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.Motion
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.TextFamily
 import app.foodfeed.ui.theme.NonVegRed
 import app.foodfeed.ui.theme.VegGreen
@@ -294,16 +296,31 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** The logo: "food" in ink, "feed" in saffron, with a chili full stop. */
+/** The logo: the bitten pan with its chef's hat, then "Worth" in ink and "Abite" in ember. */
 @Composable
-fun Wordmark(large: Boolean = false) {
+fun Wordmark(large: Boolean = false, modifier: Modifier = Modifier) {
     val ink = MaterialTheme.colorScheme.onSurface
-    Text(
-        buildAnnotatedString {
-            withStyle(SpanStyle(color = ink)) { append("food") }
-            withStyle(SpanStyle(color = Saffron)) { append("feed") }
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.tertiary)) { append(".") }
-        },
-        style = if (large) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineMedium,
-    )
+    val style = if (large) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineSmall
+    androidx.compose.foundation.layout.Row(
+        modifier.semantics(mergeDescendants = true) { contentDescription = "WorthAbite" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // On a dark background the charcoal pan sits on a cream tile, like the app icon.
+        val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(app.foodfeed.R.drawable.logo_mark),
+            contentDescription = null,
+            modifier = (if (dark) Modifier.clip(RoundedCornerShape(10.dp)).background(app.foodfeed.ui.theme.Cream).padding(3.dp) else Modifier)
+                .height(if (large) 52.dp else 30.dp),
+        )
+        androidx.compose.foundation.layout.Spacer(Modifier.width(if (large) 10.dp else 6.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = ink)) { append("Worth") }
+                withStyle(SpanStyle(color = app.foodfeed.ui.theme.EmberLogo)) { append("Abite") }
+            },
+            style = style,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+        )
+    }
 }

@@ -27,7 +27,7 @@ fun Throwable.toApiException(): ApiException = when (this) {
         val parsed = body?.let { runCatching { AppJson.decodeFromString(ApiError.serializer(), it) }.getOrNull() }
         ApiException(parsed?.error ?: "http_${code()}", parsed?.message ?: "The server answered ${code()}.", code())
     }
-    is IOException -> ApiException("offline", "Can't reach the FoodFeed server. Check your connection.")
+    is IOException -> ApiException("offline", "Can't reach the WorthAbite server. Check your connection.")
     is kotlinx.serialization.SerializationException ->
         ApiException("bad_response", "The server sent something this app version doesn't understand.")
     else -> ApiException("unknown", message ?: "Something went wrong.")
@@ -69,10 +69,10 @@ class NetworkFactory(private val tokenProvider: () -> String?, private val serve
         })
         .build()
 
-    fun api(baseUrl: String): FoodFeedApi = Retrofit.Builder()
+    fun api(baseUrl: String): WorthAbiteApi = Retrofit.Builder()
         .baseUrl("${normaliseServerUrl(baseUrl)}/")
         .client(okHttp)
         .addConverterFactory(AppJson.asConverterFactory("application/json".toMediaType()))
         .build()
-        .create(FoodFeedApi::class.java)
+        .create(WorthAbiteApi::class.java)
 }

@@ -53,14 +53,14 @@ import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.Mint
 import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.RollingNumber
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.TextFamily
 import app.foodfeed.ui.theme.Turmeric
 import app.foodfeed.ui.theme.accent
 import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.launch
 
-/** The one filled button: a saffron pill with ink text that squashes when pressed. */
+/** The one filled button: a ember pill with ink text that squashes when pressed. */
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, leading: ImageVector? = null) {
     val interaction = remember { MutableInteractionSource() }
@@ -125,7 +125,7 @@ private fun fillFor(kind: Engagement?): Color = when (kind) {
     Engagement.Save -> Turmeric
     Engagement.Tried -> Mint
     Engagement.Pass -> MaterialTheme.colorScheme.onSurfaceVariant
-    null -> Saffron
+    null -> Ember
 }
 
 /**
@@ -190,7 +190,7 @@ fun EngageAction(
         Engagement.Pass -> if (active) AppIcons.ThumbDown else AppIcons.ThumbDownOutline
         null -> Icons.Outlined.Share
     }
-    val burstColors = listOf(fill, Turmeric, Saffron, Mint)
+    val burstColors = listOf(fill, Turmeric, Ember, Mint)
     val lite = app.foodfeed.ui.theme.LocalLiteMode.current
     val box = when (look) {
         ActionLook.Glass -> 48.dp

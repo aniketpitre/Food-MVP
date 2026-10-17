@@ -131,7 +131,7 @@ fun ExpertBadge(label: String = "Expert") {
     )
 }
 
-/** Saffron "Follow" that turns into an outlined "Following", with a little squash on tap. */
+/** Ember "Follow" that turns into an outlined "Following", with a little squash on tap. */
 @Composable
 fun FollowButton(isFollowing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, small: Boolean = false, followsYou: Boolean = false) {
     val interaction = remember { MutableInteractionSource() }

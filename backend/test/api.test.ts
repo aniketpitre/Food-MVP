@@ -1539,7 +1539,7 @@ describe('removing demo content', () => {
     expect(credited.rows[0]!.n).toBe(30);
 
     // A server seeded with the old drawn pictures: its demo posts carry the old credit.
-    await db.query("update posts set photo_credit = 'FoodFeed demo' where source = 'seed'");
+    await db.query("update posts set photo_credit = 'WorthAbite demo' where source = 'seed'");
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ff-demo-'));
     const jpeg = await sharp({ create: { width: 1080, height: 1350, channels: 3, background: { r: 140, g: 80, b: 20 } } }).jpeg().toBuffer();
     const credits: Record<string, object> = {};

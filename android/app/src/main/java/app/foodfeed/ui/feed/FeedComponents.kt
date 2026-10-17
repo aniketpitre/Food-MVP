@@ -106,7 +106,7 @@ import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.Lagoon
 import app.foodfeed.ui.theme.LocalLiteMode
 import app.foodfeed.ui.theme.Motion
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.Turmeric
 import app.foodfeed.ui.theme.dishHero
 import app.foodfeed.ui.theme.pressScale
@@ -192,7 +192,7 @@ private fun RoundIconButton(icon: ImageVector, description: String, onClick: () 
 }
 
 /**
- * Text tabs underlined by a hand-drawn saffron squiggle. Switching tabs, the squiggle
+ * Text tabs underlined by a hand-drawn ember squiggle. Switching tabs, the squiggle
  * slides to the new label on a spring, stretching to its width, and its wave rolls as it
  * travels (the phase follows the position), then redraws itself from the left.
  */
@@ -256,7 +256,7 @@ fun FeedTabs(selected: FeedTab, tabs: List<FeedTab> = FeedTab.entries - FeedTab.
     }
 }
 
-/** The active dish-type filter as a saffron chip that pops in and shrinks away. */
+/** The active dish-type filter as a ember chip that pops in and shrinks away. */
 @Composable
 fun ActiveFilterChip(category: Category?, onClear: () -> Unit) {
     AnimatedVisibility(
@@ -302,7 +302,7 @@ fun CategorySheet(categories: List<Category>, selected: Int?, onSelect: (Int?) -
     }
 }
 
-/** A chip that pops in a beat after the one before it, and fills saffron when chosen. */
+/** A chip that pops in a beat after the one before it, and fills ember when chosen. */
 @Composable
 private fun FilterOption(label: String, on: Boolean, index: Int, onClick: () -> Unit) {
     val bg by animateColorAsState(
@@ -656,7 +656,7 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
     val tilt = if (trigger % 2 == 0) 12f else -12f
     val density = LocalDensity.current
     val heart = with(density) { 110.dp.toPx() }
-    val burstColors = remember { listOf(Chili, Turmeric, Saffron, Color.White) }
+    val burstColors = remember { listOf(Chili, Turmeric, Ember, Color.White) }
     val lite = LocalLiteMode.current
     // Read the fade in a derived state, so the heart's frames don't recompose the card.
     val showHeart by remember { derivedStateOf { alpha.value > 0.01f } }

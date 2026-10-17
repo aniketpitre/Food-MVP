@@ -14,10 +14,10 @@ import app.foodfeed.ui.theme.LocalLiteMode
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import app.foodfeed.ui.FoodFeedRoot
+import app.foodfeed.ui.WorthAbiteRoot
 import app.foodfeed.ui.components.LocalApp
 import app.foodfeed.ui.components.LocalMediaUrl
-import app.foodfeed.ui.theme.FoodFeedTheme
+import app.foodfeed.ui.theme.WorthAbiteTheme
 
 class MainActivity : ComponentActivity() {
     private var deepLink by mutableStateOf<String?>(null)
@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         deepLink = routeFrom(intent)
-        val container = (application as FoodFeedApp).container
+        val container = (application as WorthAbiteApp).container
         setContent {
             val mode by container.themeMode.collectAsState()
             val lite by container.liteModeSetting.collectAsState()
@@ -35,14 +35,14 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 else -> isSystemInDarkTheme()
             }
-            FoodFeedTheme(darkTheme = dark) {
+            WorthAbiteTheme(darkTheme = dark) {
                 CompositionLocalProvider(
                     LocalApp provides container,
                     LocalMediaUrl provides container::mediaUrl,
                     LocalLiteMode provides (lite == "on" || (lite == "auto" && container.isLowEndDevice)),
                 ) {
                     Surface(color = MaterialTheme.colorScheme.background) {
-                        FoodFeedRoot(deepLink) { deepLink = null }
+                        WorthAbiteRoot(deepLink) { deepLink = null }
                     }
                 }
             }
@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        (application as FoodFeedApp).container.flushImpressions()
+        (application as WorthAbiteApp).container.flushImpressions()
     }
 
     /**

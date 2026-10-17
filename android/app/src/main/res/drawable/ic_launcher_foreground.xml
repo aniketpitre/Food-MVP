@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A bowl with steam and a dot: "the dish, here". -->
+<!-- WorthAbite: a frying pan with a bite out of its rim, a chef's hat and a sizzle. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M30,52h48c0,13.25 -10.75,24 -24,24S30,65.25 30,52z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M27,48h54a2,2 0,0 1,2 2v0a2,2 0,0 1,-2 2H27a2,2 0,0 1,-2 -2v0a2,2 0,0 1,2 -2z" />
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:pathData="M44,42c-3,-4 3,-6 0,-11M54,42c-3,-4 3,-6 0,-11M64,42c-3,-4 3,-6 0,-11" />
-    <path
-        android:fillColor="#FFD7C2"
-        android:pathData="M49,58a5,5 0,1 1,10 0a5,5 0,1 1,-10 0z" />
+    <group android:scaleX="0.36" android:scaleY="0.36" android:translateX="15.5" android:translateY="23">
+        <path android:strokeColor="#2E2C2A" android:strokeWidth="13" android:strokeLineCap="round"
+            android:pathData="M80,116 L34,138" />
+        <path android:fillColor="#FBF6EF" android:pathData="M40,135m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" />
+        <path android:fillColor="#2E2C2A"
+            android:pathData="M136.23,61.96 A11.5,11.5 0 0,0 149.90,77.13 A10.5,10.5 0 0,0 160.47,90.49 A44,44 0 1,1 136.23,61.96 Z" />
+        <path android:fillColor="#3A3835" android:pathData="M116,104m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0" />
+        <path android:strokeColor="#EC4E20" android:strokeWidth="5" android:strokeLineCap="round"
+            android:pathData="M160,58 L168,46 M168,70 L182,64 M150,50 L151,36" />
+        <group android:rotation="-14" android:pivotX="92" android:pivotY="58">
+            <path android:fillColor="#FFFFFF" android:strokeColor="#2E2C2A" android:strokeWidth="3.2" android:strokeLineJoin="round"
+                android:pathData="M80,64 L80,56 C72,55 70,44 79,41 C81,33 92,30 96,37 C101,31 112,34 111,43 C118,45 116,56 108,56 L108,64 Z" />
+            <path android:strokeColor="#2E2C2A" android:strokeWidth="3.2" android:pathData="M80,60 L108,60" />
+        </group>
+    </group>
 </vector>

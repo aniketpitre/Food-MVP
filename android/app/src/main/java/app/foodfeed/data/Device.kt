@@ -177,7 +177,7 @@ object DeviceLocation {
     /** A sentence for the person when we could not get a location. */
     fun explain(result: LocationResult): String? = when (result) {
         is LocationResult.Found -> null
-        LocationResult.NoPermission -> "Location permission is off for FoodFeed. Allow it in the prompt or in Android settings."
+        LocationResult.NoPermission -> "Location permission is off for WorthAbite. Allow it in the prompt or in Android settings."
         LocationResult.Off -> "Your phone's location is switched off. Turn it on and try again."
         LocationResult.Unavailable -> "Couldn't get a location fix. Try again near a window or with mobile data on."
     }

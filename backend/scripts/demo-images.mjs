@@ -12,7 +12,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
-const UA = { 'user-agent': 'FoodFeed/1.0 (demo photos; https://github.com/aniketpitre/Food-MVP)' };
+const UA = { 'user-agent': 'WorthAbite/1.0 (demo photos; https://github.com/aniketpitre/Food-MVP)' };
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 // Dish key -> Wikipedia article (its lead photo) and Commons searches.

@@ -152,9 +152,9 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     /** An action a guest tried before signing in; it runs right after sign-in. */
     private var pendingAction: (suspend () -> Unit)? = null
 
-    @Volatile private var apiCache: Pair<String, FoodFeedApi>? = null
+    @Volatile private var apiCache: Pair<String, WorthAbiteApi>? = null
 
-    val api: FoodFeedApi
+    val api: WorthAbiteApi
         get() {
             val url = _serverUrl.value
             apiCache?.let { (cachedUrl, api) -> if (cachedUrl == url) return api }

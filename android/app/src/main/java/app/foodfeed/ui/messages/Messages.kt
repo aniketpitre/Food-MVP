@@ -824,7 +824,7 @@ private fun Bubble(
                     Modifier.size(200.dp, 250.dp).clip(cardShape).cardTaps(onDoubleTap, onLongPress) { onOpenPhoto(photo.imageUrl) },
                 )
                 m.kind in setOf("dish", "place", "post", "photo") -> Text(
-                    "This is no longer on FoodFeed", style = MaterialTheme.typography.labelMedium,
+                    "This is no longer on WorthAbite", style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(10.dp),
                 )
@@ -896,7 +896,7 @@ fun SendToSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
             Text("Send to", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
             if (session == null) {
-                Text("Sign in to share dishes with friends in FoodFeed.", style = MaterialTheme.typography.bodyMedium)
+                Text("Sign in to share dishes with friends in WorthAbite.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PrimaryButton("Sign in", { onDismiss(); onNeedSignIn() }, Modifier.weight(1f))

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs DeviceJourneyTest and FullAppTest (the real app on a running emulator against a local FoodFeed
+# Runs DeviceJourneyTest and FullAppTest (the real app on a running emulator against a local WorthAbite
 # server) and collects the screenshots it takes into ./device-shots.
 # usage: scripts/device-journey.sh app-debug.apk app-debug-androidTest.apk
 set -u

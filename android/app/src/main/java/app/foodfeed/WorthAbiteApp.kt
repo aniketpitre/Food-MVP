@@ -16,7 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class FoodFeedApp : Application(), SingletonImageLoader.Factory {
+class WorthAbiteApp : Application(), SingletonImageLoader.Factory {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     lateinit var container: AppContainer
         private set

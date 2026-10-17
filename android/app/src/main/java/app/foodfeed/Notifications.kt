@@ -129,7 +129,7 @@ object Notifications {
                     1,
                     NotificationCompat.Builder(context, MESSAGES)
                         .setSmallIcon(R.drawable.ic_notification)
-                        .setColor(0xFFE8572A.toInt())
+                        .setColor(0xFFEC4E20.toInt())
                         .setStyle(style)
                         .setContentTitle(name(from))
                         .setContentText(lines.last().second)
@@ -147,7 +147,7 @@ object Notifications {
                     2,
                     NotificationCompat.Builder(context, MESSAGES)
                         .setSmallIcon(R.drawable.ic_notification)
-                        .setColor(0xFFE8572A.toInt())
+                        .setColor(0xFFEC4E20.toInt())
                         .setContentTitle(name(r.from))
                         .setContentText("Reacted ${r.emoji} to your message" + if (about.isNotBlank()) ": $about" else "")
                         .setCategory(NotificationCompat.CATEGORY_SOCIAL)
@@ -163,7 +163,7 @@ object Notifications {
                     3,
                     NotificationCompat.Builder(context, ACTIVITY)
                         .setSmallIcon(R.drawable.ic_notification)
-                        .setColor(0xFFE8572A.toInt())
+                        .setColor(0xFFEC4E20.toInt())
                         .setContentTitle(name(a.actor))
                         .setContentText(activityText(a))
                         .setStyle(NotificationCompat.BigTextStyle().bigText(activityText(a)))
@@ -196,7 +196,7 @@ object Notifications {
 /** Runs in the background every 15 minutes: asks the server what's new and notifies. */
 class UpdatesWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val container = (applicationContext as FoodFeedApp).container
+        val container = (applicationContext as WorthAbiteApp).container
         container.ready.first { it }
         container.checkUpdates()
         return Result.success()

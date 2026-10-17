@@ -348,7 +348,7 @@ private fun visibleReplies(c: Comment, expanded: Map<String, Boolean>, fresh: Se
 private fun moreCount(c: Comment, expanded: Map<String, Boolean>, fresh: Set<String>): Int =
     c.replies.size - visibleReplies(c, expanded, fresh).size
 
-/** Body text with @mentions picked out in saffron. */
+/** Body text with @mentions picked out in ember. */
 @Composable
 private fun withMentions(body: String) = buildAnnotatedString {
     val mention = Regex("@[a-z0-9_]{3,20}")
@@ -362,7 +362,7 @@ private fun withMentions(body: String) = buildAnnotatedString {
 }
 
 /**
- * One comment. New ones (yours) slide up into place with a bounce and glow saffron for a
+ * One comment. New ones (yours) slide up into place with a bounce and glow ember for a
  * moment. The heart on the right pops when liked. Long-press for delete or report.
  */
 @Composable

@@ -83,7 +83,7 @@ export async function fetchOsmPlaces(lat: number, lng: number, radiusKm: number,
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'FoodFeed/1.0 (self-hosted food app)' },
+          headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'WorthAbite/1.0 (self-hosted food app)' },
           body,
           signal: AbortSignal.timeout(120_000),
         });
@@ -100,7 +100,7 @@ export async function fetchOsmPlaces(lat: number, lng: number, radiusKm: number,
 }
 
 /**
- * Adds real places to a city. A place already in FoodFeed (same name within 80 m) is
+ * Adds real places to a city. A place already in WorthAbite (same name within 80 m) is
  * linked instead of duplicated; places imported before are skipped. They go live at once:
  * they are real, and they only show dishes once people post them.
  */

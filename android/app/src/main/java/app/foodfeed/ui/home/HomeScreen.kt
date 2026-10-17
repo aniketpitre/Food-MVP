@@ -268,7 +268,7 @@ fun HomeContent(
         LazyColumn(Modifier.fillMaxSize().testTag("home_list"), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "stories") {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("FoodFeed", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                    app.foodfeed.ui.components.Wordmark(modifier = Modifier.weight(1f))
                     MessagesButton(unreadMessages, onInbox)
                 }
                 StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))

@@ -207,7 +207,7 @@ fun EditProfileScreen(onBack: () -> Unit, showMessage: (String) -> Unit) {
     }
 }
 
-/** A pill row of choices with a saffron thumb that slides to the chosen one. */
+/** A pill row of choices with a ember thumb that slides to the chosen one. */
 @Composable
 fun Segmented(options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
     BoxWithConstraints(
@@ -263,7 +263,7 @@ fun FollowListScreen(
 /** Loads a list of people and lets you follow or unfollow each one in place. */
 @Composable
 fun PeopleList(
-    load: suspend (app.foodfeed.data.FoodFeedApi) -> List<Person>,
+    load: suspend (app.foodfeed.data.WorthAbiteApi) -> List<Person>,
     empty: String,
     onOpenUser: (String) -> Unit,
     onNeedSignIn: () -> Unit,

@@ -209,7 +209,7 @@ inline fun <reified VM : ViewModel> appViewModel(key: String? = null, crossinlin
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun FoodFeedRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
+fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
     val app = LocalApp.current
     val ready by app.ready.collectAsState()
     val city by app.city.collectAsState()
@@ -583,7 +583,7 @@ private fun AnimatedContentScope.NavScoped(content: @Composable () -> Unit) {
 }
 
 /**
- * A floating ink dock with a saffron blob behind the current tab. The blob is liquid: its
+ * A floating ink dock with a ember blob behind the current tab. The blob is liquid: its
  * leading edge races to the new tab on a stiff spring while the trailing edge follows on a
  * soft one, so it stretches as it travels (and thins, keeping its volume), then snaps back
  * into a round pill. The icon that gains the blob pops and wiggles.

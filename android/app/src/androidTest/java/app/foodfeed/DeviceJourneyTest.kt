@@ -46,7 +46,7 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * Runs the real app on an emulator against a real FoodFeed server (CI starts one with
+ * Runs the real app on an emulator against a real WorthAbite server (CI starts one with
  * Docker, demo data on): signs a tester up, opens Explore → Nearby, waits for the map and
  * its food logos, taps a logo, checks the 3D place card, and that Take me there asks
  * Google Maps for directions. Also visits stories and messages. Screenshots of each step
@@ -59,7 +59,7 @@ class DeviceJourneyTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device = UiDevice.getInstance(instrumentation)
-    private val app get() = instrumentation.targetContext.applicationContext as FoodFeedApp
+    private val app get() = instrumentation.targetContext.applicationContext as WorthAbiteApp
     private val container: AppContainer get() = app.container
     private val shots by lazy {
         File(instrumentation.targetContext.filesDir, "device-shots").apply { mkdirs() }

@@ -1,6 +1,6 @@
 # Real photos of cafes and restaurants
 
-FoodFeed can show real photos of places from three sources. All three are legal to use,
+WorthAbite can show real photos of places from three sources. All three are legal to use,
 each with different rules. Photos copied from Google Maps, Zomato, Swiggy or Instagram
 are not used: their terms forbid copying, and every photo belongs to the person who took it.
 
@@ -36,7 +36,7 @@ often covered, small lanes may not be.
 
 Google's terms allow showing Places photos only if you fetch them through the API, show the
 photographers' names, don't store the photos, and **don't show them on a non-Google map**.
-So FoodFeed shows them on the **place page only** (not on our map), with "Google Maps" and
+So WorthAbite shows them on the **place page only** (not on our map), with "Google Maps" and
 each photographer's name under the photo.
 
 1. In https://console.cloud.google.com create a project, turn on billing, enable

@@ -38,7 +38,7 @@ import app.foodfeed.ui.components.EngageAction
 import app.foodfeed.ui.feed.DishPage
 import app.foodfeed.ui.feed.FeedTab
 import app.foodfeed.ui.feed.FeedTabs
-import app.foodfeed.ui.theme.FoodFeedTheme
+import app.foodfeed.ui.theme.WorthAbiteTheme
 import app.foodfeed.data.Comment
 import app.foodfeed.data.UserRef as Person
 import app.foodfeed.ui.comments.CommentsContent
@@ -74,7 +74,7 @@ class InteractionTest {
     )
 
     private fun setContent(content: @Composable () -> Unit) = compose.setContent {
-        FoodFeedTheme { Surface(color = MaterialTheme.colorScheme.background) { content() } }
+        WorthAbiteTheme { Surface(color = MaterialTheme.colorScheme.background) { content() } }
     }
 
     @Test

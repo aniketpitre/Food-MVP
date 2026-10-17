@@ -91,7 +91,7 @@ object Updates {
     suspend fun download(context: Context, update: AppUpdate, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
-        val file = File(dir, "FoodFeed-${update.version}.apk")
+        val file = File(dir, "WorthAbite-${update.version}.apk")
         val req = Request.Builder().url(update.apkUrl).build()
         http.newCall(req).execute().use { res ->
             if (!res.isSuccessful) throw ApiException("download_failed", "Couldn't download the update (${res.code}).")

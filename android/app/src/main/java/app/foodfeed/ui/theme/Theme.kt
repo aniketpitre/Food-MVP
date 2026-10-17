@@ -19,38 +19,42 @@ import androidx.compose.ui.unit.sp
 import app.foodfeed.R
 
 /*
- * Design language: "street-food zine". Warm cream paper, tamarind-dark ink, a saffron
- * signature colour and a few loud spice accents used like stickers on a menu board.
- * Big characterful type (Bricolage Grotesque) does the talking; photos stay the hero.
+ * WorthAbite's look, taken from its logo: a charcoal frying pan with a bite out of it, a
+ * red-orange sizzle and a chef's hat on warm cream. Charcoal ink, ember accents, cream
+ * paper. Big characterful type (Bricolage Grotesque) does the talking; photos stay the hero.
  *
  * Colour roles:
- *  - Saffron: brand, primary buttons (ink text on saffron), selection, the liquid tab blob.
+ *  - Ember: brand, primary buttons (charcoal text on ember), selection, the liquid tab blob.
  *  - Chili: only "recommended" (the heart) and its count.
  *  - Turmeric: price tags and highlight stickers.
  *  - Mint: veg, "tried".
  */
 
-val Saffron = Color(0xFFFF7A1A)
-val SaffronDeep = Color(0xFFE85D04)
+/** The logo's sizzle and the "Abite" in the wordmark. */
+val EmberLogo = Color(0xFFEC4E20)
+/** Ember for surfaces with charcoal text on them (4.8:1). */
+val Ember = Color(0xFFF47040)
+val EmberDeep = Color(0xFFD23D17)
 val Turmeric = Color(0xFFFFC23D)
-val Chili = Color(0xFFE5362A)
-val ChiliBright = Color(0xFFFF5A47)
+val Chili = Color(0xFFD61F45)
+val ChiliBright = Color(0xFFFF5C7A)
 val Mint = Color(0xFF13A05B)
 val Lagoon = Color(0xFF16B3A6)
-val Ink = Color(0xFF22140D)
-val Cream = Color(0xFFFFF8F0)
+/** The pan: charcoal ink. */
+val Ink = Color(0xFF2E2C2A)
+val Cream = Color(0xFFFBF6EF)
 
 val VegGreen = Mint
 val NonVegRed = Color(0xFFC62828)
 
 private val Light = lightColorScheme(
-    primary = Saffron,
+    primary = Ember,
     onPrimary = Ink,
-    primaryContainer = Color(0xFFFFE2CC),
-    onPrimaryContainer = Ink,
-    secondary = Color(0xFF8A5A00),
+    primaryContainer = Color(0xFFFCE1D6),
+    onPrimaryContainer = Color(0xFF3B1206),
+    secondary = Color(0xFF4A4744),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFFEDC2),
+    secondaryContainer = Color(0xFFEDE6DD),
     onSecondaryContainer = Ink,
     tertiary = Chili,
     onTertiary = Color.White,
@@ -58,46 +62,46 @@ private val Light = lightColorScheme(
     onBackground = Ink,
     surface = Cream,
     onSurface = Ink,
-    surfaceVariant = Color(0xFFF7E6D8),
-    onSurfaceVariant = Color(0xFF7A6152),
+    surfaceVariant = Color(0xFFF1EBE3),
+    onSurfaceVariant = Color(0xFF6B645D),
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFFFF1E5),
-    surfaceContainer = Color(0xFFFCEADB),
-    surfaceContainerHigh = Color(0xFFF7E2D1),
-    surfaceContainerHighest = Color(0xFFF1D9C6),
+    surfaceContainerLow = Color(0xFFF7F2EB),
+    surfaceContainer = Color(0xFFF2ECE4),
+    surfaceContainerHigh = Color(0xFFECE5DC),
+    surfaceContainerHighest = Color(0xFFE5DDD3),
     inverseSurface = Ink,
     inverseOnSurface = Cream,
-    outline = Color(0xFFE6CDBA),
-    outlineVariant = Color(0xFFF2E1D3),
+    outline = Color(0xFFDCD3C8),
+    outlineVariant = Color(0xFFEAE3DA),
     error = NonVegRed,
 )
 
 private val Dark = darkColorScheme(
-    primary = Color(0xFFFF8A3D),
-    onPrimary = Color(0xFF1A0F0A),
-    primaryContainer = Color(0xFF4A2513),
-    onPrimaryContainer = Color(0xFFFFE2CC),
-    secondary = Color(0xFFFFC94D),
-    onSecondary = Color(0xFF1A0F0A),
-    secondaryContainer = Color(0xFF3D2E12),
-    onSecondaryContainer = Color(0xFFFFF0C7),
+    primary = Color(0xFFFF7A4D),
+    onPrimary = Color(0xFF1A0C06),
+    primaryContainer = Color(0xFF4A1D0D),
+    onPrimaryContainer = Color(0xFFFFDCCF),
+    secondary = Color(0xFFD6D0C9),
+    onSecondary = Color(0xFF1B1A19),
+    secondaryContainer = Color(0xFF34312E),
+    onSecondaryContainer = Color(0xFFF1ECE6),
     tertiary = ChiliBright,
     onTertiary = Color.White,
-    background = Color(0xFF140D0A),
-    onBackground = Color(0xFFFFF1E6),
-    surface = Color(0xFF140D0A),
-    onSurface = Color(0xFFFFF1E6),
-    surfaceVariant = Color(0xFF2A1E18),
-    onSurfaceVariant = Color(0xFFC2AA99),
-    surfaceContainerLowest = Color(0xFF0D0806),
-    surfaceContainerLow = Color(0xFF1C130F),
-    surfaceContainer = Color(0xFF221813),
-    surfaceContainerHigh = Color(0xFF2B1F19),
-    surfaceContainerHighest = Color(0xFF34261F),
-    inverseSurface = Color(0xFFFFF1E6),
+    background = Color(0xFF141312),
+    onBackground = Color(0xFFF6F1EA),
+    surface = Color(0xFF141312),
+    onSurface = Color(0xFFF6F1EA),
+    surfaceVariant = Color(0xFF2A2826),
+    onSurfaceVariant = Color(0xFFB5ADA4),
+    surfaceContainerLowest = Color(0xFF0E0D0C),
+    surfaceContainerLow = Color(0xFF1B1A18),
+    surfaceContainer = Color(0xFF211F1D),
+    surfaceContainerHigh = Color(0xFF2A2826),
+    surfaceContainerHighest = Color(0xFF33302D),
+    inverseSurface = Color(0xFFF6F1EA),
     inverseOnSurface = Ink,
-    outline = Color(0xFF4A3A30),
-    outlineVariant = Color(0xFF33261F),
+    outline = Color(0xFF4A4541),
+    outlineVariant = Color(0xFF34312E),
     error = Color(0xFFFFB4AB),
 )
 
@@ -158,7 +162,7 @@ val CardTitle = TextStyle(
 val Kicker = TextStyle(fontFamily = TextFamily, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 1.6.sp)
 
 @Composable
-fun FoodFeedTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun WorthAbiteTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (darkTheme) Dark else Light,
         typography = AppTypography,

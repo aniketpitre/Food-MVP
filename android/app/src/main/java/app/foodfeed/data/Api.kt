@@ -12,8 +12,8 @@ import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/** The FoodFeed self-hosted API (see backend/src/routes). */
-interface FoodFeedApi {
+/** The WorthAbite self-hosted API (see backend/src/routes). */
+interface WorthAbiteApi {
     @GET("health") suspend fun health(): OkResult
 
     @GET("cities") suspend fun cities(@Query("q") q: String? = null, @Query("limit") limit: Int? = null): List<City>

@@ -56,7 +56,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Walks through every part of the app on an emulator against a real FoodFeed server (CI
+ * Walks through every part of the app on an emulator against a real WorthAbite server (CI
  * starts one with demo data): the Explore deck (scrolling, love, save, send, tabs), a dish
  * page (real photo credit, comments, share, Take me there on a demo place, the place page),
  * craving search (typos and nothing found), sharing a dish with a friend (double-tap
@@ -73,7 +73,7 @@ class FullAppTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device = UiDevice.getInstance(instrumentation)
     private val context get() = instrumentation.targetContext
-    private val container: AppContainer get() = (context.applicationContext as FoodFeedApp).container
+    private val container: AppContainer get() = (context.applicationContext as WorthAbiteApp).container
     private val shots by lazy { File(context.filesDir, "device-shots").apply { mkdirs() } }
     private val http = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
     private lateinit var scenario: ActivityScenario<MainActivity>

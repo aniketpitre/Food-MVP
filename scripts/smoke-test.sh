@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end check of a running FoodFeed stack through its public HTTP API.
+# End-to-end check of a running WorthAbite stack through its public HTTP API.
 # usage: scripts/smoke-test.sh [base-url]      (default http://localhost:8080)
 set -euo pipefail
 BASE="${1:-http://localhost:8080}"
@@ -20,7 +20,7 @@ print("true" if o is True else "false" if o is False else o)' "$1"
   fi
 }
 
-echo "FoodFeed smoke test against $BASE"
+echo "WorthAbite smoke test against $BASE"
 [ "$(curl -fsS "$BASE/health" | json .ok)" = "true" ] && pass "health" || fail "health"
 
 CITY=$(curl -fsS "$BASE/cities/nearest?lat=20.0&lng=73.78" | json .city.id)

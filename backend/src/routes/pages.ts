@@ -4,19 +4,36 @@ import { z } from 'zod';
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
+/** The WorthAbite mark: a frying pan with a bite out of its rim, a chef's hat and a sizzle. */
+export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="22 20 170 136" width="40" height="32" aria-hidden="true">
+<path d="M80 116 L34 138" stroke="#2E2C2A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="40" cy="135" r="2.6" fill="#FBF6EF"/>
+<path fill="#2E2C2A" d="M136.23,61.96 A11.5,11.5 0 0,0 149.90,77.13 A10.5,10.5 0 0,0 160.47,90.49 A44,44 0 1,1 136.23,61.96 Z"/>
+<circle cx="116" cy="104" r="30" fill="#3A3835"/>
+<path stroke="#EC4E20" stroke-width="5" stroke-linecap="round" d="M160 58 L168 46 M168 70 L182 64 M150 50 L151 36"/>
+<g transform="rotate(-14 92 58)" stroke="#2E2C2A" stroke-width="3.2" stroke-linejoin="round"><path fill="#fff" d="M80 64 L80 56 C72 55 70 44 79 41 C81 33 92 30 96 37 C101 31 112 34 111 43 C118 45 116 56 108 56 L108 64 Z"/><path d="M80 60 L108 60"/></g>
+</svg>`;
+
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="#FBF6EF"/>${LOGO_MARK.replace(/<svg[^>]*>|<\/svg>/g, '')}</svg>`,
+)}`;
+
 function page(title: string, body: string, head = ''): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${head}
+<link rel="icon" href="${FAVICON}">
+<meta name="theme-color" content="#FBF6EF">
 <style>
-  :root { --brand:#E8430C; --ink:#1B1B1F; --muted:#6B6B73; --bg:#FFF8F4; --card:#fff; }
-  @media (prefers-color-scheme: dark) { :root { --ink:#F2F0EE; --muted:#A8A6A3; --bg:#141210; --card:#1F1C1A; } }
+  :root { --brand:#D23D17; --ember:#EC4E20; --ink:#2E2C2A; --muted:#6B645D; --bg:#FBF6EF; --card:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --brand:#FF7A4D; --ink:#F6F1EA; --muted:#B5ADA4; --bg:#141312; --card:#211F1D; } }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
   main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 1.6rem; margin: .2em 0; } h2 { font-size: 1.15rem; margin-top: 1.6em; }
-  .brand { color: var(--brand); font-weight: 800; letter-spacing: -.02em; text-decoration:none; }
+  .brand { display:inline-flex; align-items:center; gap:8px; color: var(--ink); font-weight: 800; font-size: 1.3rem; letter-spacing: -.02em; text-decoration:none; }
+  .brand b { color: var(--ember); }
   .card { background: var(--card); border-radius: 18px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
   .card img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
   .pad { padding: 16px; } .muted { color: var(--muted); }
@@ -24,7 +41,7 @@ function page(title: string, body: string, head = ''): string {
   .btn.alt { background: transparent; color: var(--brand); border: 2px solid var(--brand); }
   .note { background: #fff3cd; color:#5c4400; padding: 10px 12px; border-radius: 10px; font-size: .9rem; }
 </style></head>
-<body><main><a class="brand" href="/">FoodFeed</a>${body}</main></body></html>`;
+<body><main><a class="brand" href="/">${LOGO_MARK}<span>Worth<b>Abite</b></span></a>${body}</main></body></html>`;
 }
 
 const DRAFT_NOTE =
@@ -36,9 +53,9 @@ export async function pageRoutes(app: FastifyInstance) {
   app.get('/', async (_req, reply) =>
     reply.type('text/html').send(
       page(
-        'FoodFeed',
-        `<h1>The dishes your city recommends</h1>
-         <p class="muted">A local feed of specific dishes at specific places, ranked by how many real people recommend them.</p>
+        'WorthAbite',
+        `<h1>Is it worth a bite?</h1>
+         <p class="muted">Ask the people who tried it. Specific dishes at specific places, ranked by what real people decided.</p>
          <a class="btn" href="${esc(config.appDownloadUrl)}">Download the Android app</a>
          <p><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/delete-account">Delete your account</a></p>`,
       ),
@@ -62,7 +79,7 @@ export async function pageRoutes(app: FastifyInstance) {
     if (!d) return reply.code(404).type('text/html').send(page('Not found', '<h1>Dish not found</h1>'));
     const img = d.img ? `${config.publicUrl}${d.img}` : '';
     const title = `${d.name} at ${d.place}`;
-    const rec = Number(d.n) > 0 ? `Recommended by ${Number(d.n)} ${Number(d.n) === 1 ? 'person' : 'people'}` : 'New on FoodFeed';
+    const rec = Number(d.n) > 0 ? `Recommended by ${Number(d.n)} ${Number(d.n) === 1 ? 'person' : 'people'}` : 'New on WorthAbite';
     const head = `
       <meta property="og:title" content="${esc(title)}">
       <meta property="og:description" content="${esc(rec)}${d.locality ? ' · ' + esc(d.locality) : ''}">
@@ -86,7 +103,7 @@ export async function pageRoutes(app: FastifyInstance) {
       page(
         'Privacy Policy',
         `<h1>Privacy Policy</h1>${DRAFT_NOTE}
-         <p>[Your name or company] runs FoodFeed. Contact: <a href="mailto:${esc(config.contactEmail)}">${esc(config.contactEmail)}</a>.</p>
+         <p>[Your name or company] runs WorthAbite. Contact: <a href="mailto:${esc(config.contactEmail)}">${esc(config.contactEmail)}</a>.</p>
          <h2>What we collect</h2>
          <ul><li>Account: email, a password (stored only as a salted hash), your handle and optional display name.</li>
          <li>What you post: dish photos (we remove photo location data on upload), dish names, captions, prices and places you add.</li>
@@ -97,7 +114,7 @@ export async function pageRoutes(app: FastifyInstance) {
          <h2>Where it is stored</h2><p>On servers we operate ([hosting location]). Nothing is shared with third parties.</p>
          <h2>How long</h2><p>Until you delete your account. Deleting it removes your profile, photos and actions immediately; backups roll off within [30] days.</p>
          <h2>Your choices</h2><p>You can withdraw location permission at any time in Android settings, and delete your account in the app (Profile → Settings → Delete account) or as described on <a href="/delete-account">this page</a>.</p>
-         <h2>Age</h2><p>FoodFeed is for adults aged 18 or over. We don't knowingly collect data from anyone younger; if you believe a child has an account, write to us and we will delete it.</p>
+         <h2>Age</h2><p>WorthAbite is for adults aged 18 or over. We don't knowingly collect data from anyone younger; if you believe a child has an account, write to us and we will delete it.</p>
          <h2>Grievance officer</h2><p>[Name], ${esc(config.contactEmail)}. We acknowledge complaints within 24 hours.</p>`,
       ),
     ),
@@ -109,7 +126,7 @@ export async function pageRoutes(app: FastifyInstance) {
         'Terms of Use',
         `<h1>Terms of Use</h1>${DRAFT_NOTE}
          <ul><li>You must be 18 or older.</li>
-         <li>Post only photos you took or have permission to use. You keep ownership and give FoodFeed a licence to show them in the app and in share links.</li>
+         <li>Post only photos you took or have permission to use. You keep ownership and give WorthAbite a licence to show them in the app and in share links.</li>
          <li>Mark a post as sponsored if you were paid or got the food or anything else for free.</li>
          <li>No fake recommendations, multiple accounts, spam, abuse, or photos of people without their consent.</li>
          <li>Allergen and veg/non-veg information is provided by users and is not verified. Check with the restaurant.</li>
@@ -122,7 +139,7 @@ export async function pageRoutes(app: FastifyInstance) {
   app.get('/delete-account', async (_req, reply) =>
     reply.type('text/html').send(
       page(
-        'Delete your FoodFeed account',
+        'Delete your WorthAbite account',
         `<h1>Delete your account</h1>
          <p>In the app: <strong>Profile → Settings → Delete my account</strong>. Deletion is immediate.</p>
          <p>If you can no longer open the app, email <a href="mailto:${esc(config.contactEmail)}">${esc(config.contactEmail)}</a> from the address you signed up with and we will delete it within 7 days.</p>

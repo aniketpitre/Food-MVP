@@ -136,9 +136,9 @@ class LogicTest {
 
     @Test
     fun readsWhatsNewFromReleaseNotes() {
-        val body = "### What's new\n- Comments on posts\n- Location everywhere in India\n\n**FoodFeed pilot build 0.5.0**\n1. Download"
+        val body = "### What's new\n- Comments on posts\n- Location everywhere in India\n\n**WorthAbite pilot build 0.5.0**\n1. Download"
         assertEquals(listOf("Comments on posts", "Location everywhere in India"), app.foodfeed.data.Updates.whatsNew(body))
-        assertEquals(emptyList<String>(), app.foodfeed.data.Updates.whatsNew("**FoodFeed pilot build**"))
+        assertEquals(emptyList<String>(), app.foodfeed.data.Updates.whatsNew("**WorthAbite pilot build**"))
     }
 
     @Test

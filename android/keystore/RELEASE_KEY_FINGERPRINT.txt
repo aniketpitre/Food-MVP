@@ -1,4 +1,4 @@
-# SHA-256 fingerprint of the FoodFeed release signing key (public information).
+# SHA-256 fingerprint of the WorthAbite release signing key (public information).
 # Owner: CN=Aniket Pitre, OU=Food-Feed, O=Food-Feed, L=Nashik, ST=Maharashtra, C=IN
 # Created 2026-10-15, valid until 2054-03-02. The key itself is NOT in this repository:
 # it lives in GitHub Actions secrets and in the owner's private backups.

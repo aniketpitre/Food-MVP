@@ -1,5 +1,5 @@
 // Catalog used to seed a fresh database. Restaurant names, dishes and coordinates are
-// invented for the demo (see docs/FoodFeed_Android_MVP_Plan.md); replace them with the
+// invented for the demo (see docs/WorthAbite_Android_MVP_Plan.md); replace them with the
 // places you actually visit before inviting real users.
 
 export const cities = [

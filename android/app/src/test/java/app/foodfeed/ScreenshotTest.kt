@@ -88,7 +88,7 @@ import app.foodfeed.ui.saved.SavedContent
 import app.foodfeed.ui.search.SearchContent
 import app.foodfeed.ui.search.SearchUiState
 import app.foodfeed.data.SearchResult
-import app.foodfeed.ui.theme.FoodFeedTheme
+import app.foodfeed.ui.theme.WorthAbiteTheme
 import app.foodfeed.data.Comment
 import app.foodfeed.ui.comments.CommentsContent
 import app.foodfeed.ui.comments.CommentsUiState
@@ -130,7 +130,7 @@ class ScreenshotTest {
     private fun shoot(name: String, dark: Boolean = false, frozenClockMs: Long? = null, content: @Composable () -> Unit) {
         if (frozenClockMs != null) compose.mainClock.autoAdvance = false
         compose.setContent {
-            FoodFeedTheme(darkTheme = dark) {
+            WorthAbiteTheme(darkTheme = dark) {
                 CompositionLocalProvider(LocalImageOverride provides ::load) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
                 }

@@ -1,5 +1,5 @@
--- FoodFeed schema v1 (self-hosted Postgres 16 + PostGIS).
--- Derived from Appendix A of docs/FoodFeed_Android_MVP_Plan.md, with the review fixes:
+-- WorthAbite schema v1 (self-hosted Postgres 16 + PostGIS).
+-- Derived from Appendix A of docs/WorthAbite_Android_MVP_Plan.md, with the review fixes:
 --   * the database is never exposed to clients; only the API talks to it, so every
 --     permission check lives in the API instead of Supabase row-level security
 --   * a hidden cover photo falls back to the newest live photo

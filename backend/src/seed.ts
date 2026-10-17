@@ -17,7 +17,7 @@ export async function demoCredits(dir = imagesDir): Promise<Record<string, DemoC
 
 /** The line shown under a demo photo. */
 export const creditLine = (c: DemoCredit | undefined) =>
-  c ? `Photo: ${c.author}, ${c.licence}, via Wikimedia Commons` : 'FoodFeed demo';
+  c ? `Photo: ${c.author}, ${c.licence}, via Wikimedia Commons` : 'WorthAbite demo';
 
 /** Inserts cities, categories, aliases and the demo restaurants/dishes/photos once. */
 export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => void = () => {}): Promise<boolean> {

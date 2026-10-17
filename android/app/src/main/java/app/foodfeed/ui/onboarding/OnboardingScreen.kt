@@ -28,7 +28,7 @@ import app.foodfeed.ui.theme.Ink
 import app.foodfeed.ui.theme.Lagoon
 import app.foodfeed.ui.theme.Mint
 import app.foodfeed.ui.theme.Motion
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.Turmeric
 import app.foodfeed.ui.theme.pressScale
 import kotlinx.coroutines.delay
@@ -103,7 +103,7 @@ data class OnboardingUiState(
 )
 
 /**
- * First-run setup: which FoodFeed server to use (skipped when the build has one baked in)
+ * First-run setup: which WorthAbite server to use (skipped when the build has one baked in)
  * and which city to show. Also reused from Settings to change either.
  */
 class OnboardingViewModel(private val app: AppContainer, startAt: OnboardingStep?) : ViewModel() {
@@ -187,7 +187,7 @@ class OnboardingViewModel(private val app: AppContainer, startAt: OnboardingStep
                     choose(SelectedCity(city.id, city.name))
                 } else {
                     _state.update {
-                        it.copy(detecting = false, message = "FoodFeed covers cities in India for now. Pick one below to browse.")
+                        it.copy(detecting = false, message = "WorthAbite covers cities in India for now. Pick one below to browse.")
                     }
                 }
             } catch (e: ApiException) {
@@ -249,7 +249,7 @@ fun OnboardingContent(
 
         when (state.step) {
             OnboardingStep.Server -> {
-                Text("Connect to your FoodFeed server", style = MaterialTheme.typography.titleMedium)
+                Text("Connect to your WorthAbite server", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "This pilot app talks to a self-hosted server. Enter the address you were given, e.g. http://192.168.1.20:8080",
                     style = MaterialTheme.typography.bodyMedium,
@@ -318,7 +318,7 @@ fun OnboardingContent(
 }
 
 /**
- * The welcome block: a saffron panel where the wordmark's letters drop in one by one with a
+ * The welcome block: a ember panel where the wordmark's letters drop in one by one with a
  * bounce, the promise rises in, and three stickers slap on at angles.
  */
 @Composable
@@ -329,20 +329,29 @@ private fun WelcomeHero() {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(bottomStart = 40.dp, bottomEnd = 40.dp))
-            .background(Saffron)
+            .background(app.foodfeed.ui.theme.Cream)
             .statusBarsPadding()
-            .padding(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 30.dp),
+            .padding(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 30.dp),
     ) {
+        // The pan lands first, then the name drops in letter by letter.
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(app.foodfeed.R.drawable.logo_mark),
+            contentDescription = "WorthAbite logo",
+            modifier = Modifier.height(72.dp).graphicsLayer {
+                val p = Motion.window(t.value, 0f, 0.3f) { Motion.backOut(it, 2.4f) }
+                scaleX = 0.6f + 0.4f * p
+                scaleY = 0.6f + 0.4f * p
+                alpha = p.coerceIn(0f, 1f)
+                rotationZ = (1f - p) * -20f
+            },
+        )
+        Spacer(Modifier.height(8.dp))
         Row {
-            "foodfeed.".forEachIndexed { i, ch ->
+            "WorthAbite".forEachIndexed { i, ch ->
                 Text(
                     ch.toString(),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = when {
-                        ch == '.' -> Chili
-                        i < 4 -> Ink
-                        else -> Color.White
-                    },
+                    style = MaterialTheme.typography.displayMedium,
+                    color = if (i < 5) Ink else app.foodfeed.ui.theme.EmberLogo,
                     modifier = Modifier.graphicsLayer {
                         val p = Motion.window(t.value, 0.04f * i, 0.3f) { Motion.backOut(it, 2.4f) }
                         translationY = (1f - p) * -140f
@@ -353,7 +362,7 @@ private fun WelcomeHero() {
             }
         }
         Text(
-            "Eat what your city swears by.",
+            "Is it worth a bite?",
             style = MaterialTheme.typography.headlineSmall,
             color = Ink,
             modifier = Modifier.graphicsLayer {
@@ -364,7 +373,7 @@ private fun WelcomeHero() {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Dishes ranked by how many real people recommend them, whatever the restaurant's rating.",
+            "Ask the people who tried it. Dishes ranked by real people's verdicts, whatever the restaurant's rating.",
             style = MaterialTheme.typography.bodyMedium,
             color = Ink.copy(alpha = 0.75f),
             modifier = Modifier.graphicsLayer {

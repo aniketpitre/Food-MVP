@@ -206,7 +206,7 @@ export async function discoverRoutes(app: FastifyInstance) {
     };
   });
 
-  // Places for the map: the ones with dishes on FoodFeed, each with its best dish, a food
+  // Places for the map: the ones with dishes on WorthAbite, each with its best dish, a food
   // logo (the best dish's category, else a guess from the cuisine) and what the popup shows.
   // With all=true, also real places nobody has posted from yet (imported from OpenStreetMap).
   app.get('/map', { preHandler: optionalAuth }, async (req, reply) => {

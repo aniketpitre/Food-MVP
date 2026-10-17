@@ -43,7 +43,7 @@ import java.io.File
 /**
  * "A new version is here": what's new, then one button that downloads the update inside
  * the app (with progress) and opens Android's installer on it. The first time, Android asks
- * to allow FoodFeed to install apps; the sheet sends people there and explains why.
+ * to allow WorthAbite to install apps; the sheet sends people there and explains why.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,7 +56,7 @@ fun UpdateSheet(update: AppUpdate, onDismiss: () -> Unit) {
 
     fun installNow(file: File) {
         if (!Updates.canInstall(context)) {
-            note = "Allow FoodFeed to install updates on the next screen, then come back and tap Install."
+            note = "Allow WorthAbite to install updates on the next screen, then come back and tap Install."
             Updates.openInstallPermission(context)
         } else {
             runCatching { Updates.install(context, file) }.onFailure { note = "Couldn't open the installer." }
@@ -71,7 +71,7 @@ fun UpdateSheet(update: AppUpdate, onDismiss: () -> Unit) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp).padding(bottom = 20.dp)) {
             Sticker("New version", Turmeric, icon = AppIcons.Sparkle, tilt = -4f)
             Spacer(Modifier.height(14.dp))
-            Text("FoodFeed ${update.version} is here", style = MaterialTheme.typography.headlineMedium)
+            Text("WorthAbite ${update.version} is here", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(10.dp))
             if (update.notes.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

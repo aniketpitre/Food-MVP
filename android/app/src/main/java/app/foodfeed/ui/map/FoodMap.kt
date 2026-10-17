@@ -271,8 +271,8 @@ object FoodMapProbe {
 }
 
 /**
- * The in-app map, Swiggy style: our own cream-and-saffron map with no shop icons from the
- * map data, and a food logo per FoodFeed place (its best dish's category, or a guess from
+ * The in-app map, Swiggy style: our own cream-and-ember map with no shop icons from the
+ * map data, and a food logo per WorthAbite place (its best dish's category, or a guess from
  * the cuisine). Tap a logo and a small card flips up in 3D with the place, its best dish,
  * the people's rating and Take me there. The strip of cards along the bottom does the same.
  */
@@ -410,7 +410,7 @@ fun FoodMap(
         }
     }
 
-    // The drive: a saffron line under the pins, framed whole when it's planned.
+    // The drive: a ember line under the pins, framed whole when it's planned.
     LaunchedEffect(map, styleReady, route) {
         val m = map ?: return@LaunchedEffect
         if (!styleReady) return@LaunchedEffect
@@ -612,10 +612,10 @@ fun FoodMap(
         if (!state.loading && places.isEmpty()) {
             Text(
                 when {
-                    route != null -> "No dishes on FoodFeed along this drive yet"
+                    route != null -> "No dishes on WorthAbite along this drive yet"
                     state.filter == "friends" -> "No picks from people you follow here yet"
                     state.filter == "taste" -> "No picks from your taste matches here yet"
-                    else -> "No places on FoodFeed here yet"
+                    else -> "No places on WorthAbite here yet"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.align(Alignment.Center)
@@ -804,7 +804,7 @@ fun MapPopup(
         if (p.dishCount > 0 || p.lovers > 0) {
             Text(
                 listOfNotNull(
-                    if (p.dishCount == 1) "1 dish on FoodFeed" else "${p.dishCount} dishes on FoodFeed",
+                    if (p.dishCount == 1) "1 dish on WorthAbite" else "${p.dishCount} dishes on WorthAbite",
                     if (p.lovers > 0) "loved by ${Format.compact(p.lovers)} people" else null,
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
@@ -1023,8 +1023,8 @@ private fun styleJson(context: Context, dark: Boolean): String =
 private fun logoId(emoji: String, selected: Boolean) = "logo-${if (selected) "on" else "off"}-$emoji"
 
 /**
- * A food-logo pin: the emoji on a round cream badge with a saffron ring and a little pointer,
- * or on solid saffron when selected. Drawn once per logo at the screen's density.
+ * A food-logo pin: the emoji on a round cream badge with a ember ring and a little pointer,
+ * or on solid ember when selected. Drawn once per logo at the screen's density.
  */
 internal fun logoBitmap(context: Context, emoji: String, selected: Boolean): Bitmap {
     val d = context.resources.displayMetrics.density
@@ -1037,21 +1037,21 @@ internal fun logoBitmap(context: Context, emoji: String, selected: Boolean): Bit
     val c = Canvas(bmp)
     val cx = w / 2f
     val cy = pad + badge / 2f
-    val saffron = 0xFFFF7A1A.toInt()
+    val ember = 0xFFEC4E20.toInt()
     val cream = 0xFFFFF7EC.toInt()
     val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x33000000
         style = Paint.Style.FILL
     }
     c.drawOval(RectF(cx - badge * 0.32f, h - pad - 2.5f * d, cx + badge * 0.32f, h - pad + 0.5f * d), shadow)
-    val body = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (selected) saffron else cream }
+    val body = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (selected) ember else cream }
     val tip = Path().apply {
         moveTo(cx - pointer, cy + badge / 2f - pointer * 0.6f)
         lineTo(cx, cy + badge / 2f + pointer)
         lineTo(cx + pointer, cy + badge / 2f - pointer * 0.6f)
         close()
     }
-    val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (selected) 0xFFFFFFFF.toInt() else saffron }
+    val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (selected) 0xFFFFFFFF.toInt() else ember }
     c.drawPath(tip, ring)
     c.drawCircle(cx, cy, badge / 2f, ring)
     c.drawCircle(cx, cy, badge / 2f - 2.5f * d, body)
@@ -1071,7 +1071,7 @@ private fun addLayers(style: Style) {
     style.addSource(GeoJsonSource(ROUTE))
     style.addLayer(
         LineLayer("ff-route-line", ROUTE).withProperties(
-            PropertyFactory.lineColor("#FF7A1A"),
+            PropertyFactory.lineColor("#EC4E20"),
             PropertyFactory.lineWidth(5f),
             PropertyFactory.lineOpacity(0.85f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),

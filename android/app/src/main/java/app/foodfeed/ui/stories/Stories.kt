@@ -112,7 +112,7 @@ import app.foodfeed.ui.components.PrimaryButton
 import app.foodfeed.ui.components.QuietButton
 import app.foodfeed.ui.theme.Chili
 import app.foodfeed.ui.theme.LocalLiteMode
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.Turmeric
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -194,7 +194,7 @@ private fun StoryBubble(
                 .clickable(onClick = onClick)
                 .then(
                     when (ring) {
-                        RingState.New -> Modifier.border(3.dp, Brush.sweepGradient(listOf(Saffron, Turmeric, Chili, Saffron)), CircleShape)
+                        RingState.New -> Modifier.border(3.dp, Brush.sweepGradient(listOf(Ember, Turmeric, Chili, Ember)), CircleShape)
                         RingState.Seen -> Modifier.border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         RingState.None -> Modifier
                     },

@@ -1,8 +1,10 @@
-# FoodFeed
+<p align="center"><img src="docs/brand/worthabite-logo-1024.png" width="180" alt="WorthAbite logo"></p>
+
+# WorthAbite
 
 A local food app where the unit is **a specific dish at a specific place**, ranked by how many real
 people recommend it, whatever the restaurant's overall rating. The full idea, research and plan are in
-[`docs/FoodFeed_Android_MVP_Plan.md`](docs/FoodFeed_Android_MVP_Plan.md).
+[`docs/WorthAbite_Android_MVP_Plan.md`](docs/WorthAbite_Android_MVP_Plan.md).
 
 The repository has two parts:
 
@@ -34,7 +36,7 @@ Rendered by the app's screenshot tests with the illustrated demo data (refresh w
 ### On a real (emulated) phone
 
 The **Device smoke test** workflow also runs the app on an Android emulator against a real
-FoodFeed server and walks through it: Home and stories, a story, messages, the map with its
+WorthAbite server and walks through it: Home and stories, a story, messages, the map with its
 food logos, tapping a logo, the 3D place card, and Take me there (checked to open Google Maps
 directions). Its screenshots land in [`docs/device`](docs/device).
 
@@ -73,11 +75,11 @@ The motion rules (all in `ui/theme/Motion.kt`):
 
 - **Home asks "What are you craving?"** Type pav bhaji (or tap a chip) and get the best pav bhaji in your city ranked by **People's Pick**: votes from people who ate it, weighted by how often a taster's picks are later agreed with. Each result shows its rating, "loved by N", and whose top pick it is. The algorithm is explained in [`docs/PEOPLES_PICK.md`](docs/PEOPLES_PICK.md).
 - **Loved it / Not for me** votes on every dish, so a rating means something.
-- **Explore** keeps the dish deck (Top, Trending, Hidden gems); **Nearby** is now an in-app map (MapLibre with free OpenFreeMap tiles, recoloured to the app's theme) that shows only places in FoodFeed, with a swipeable card strip.
+- **Explore** keeps the dish deck (Top, Trending, Hidden gems); **Nearby** is now an in-app map (MapLibre with free OpenFreeMap tiles, recoloured to the app's theme) that shows only places in WorthAbite, with a swipeable card strip.
 - **Real places from OpenStreetMap:** `docker compose exec api node dist/cli.js import-places <city-slug> [km]` imports cafes and restaurants (name, cuisine, hours, location). Photos come from people who post there.
 - **Instagram-style social:** profiles with photo, bio and username; followers/following; follow from anywhere; people search; an Activity tab (follows, comments, replies, likes, mentions, recommends, agreements); comment controls (everyone, people you follow, off); blocked accounts; change password; theme (light/dark/system).
 - **Food-logo map:** each place on the map is a little badge with its food (🌶️ misal, ☕ cafe, 🍕 pizza…). Tap one and a card swings up in 3D with the photo, the best dish, the people's rating, hours, distance and **Take me there** (Google Maps directions).
-- **Direct messages, Instagram style:** send posts, dishes, places and photos from your gallery; reply to a message (long-press → Reply), react with a double-tap ❤️ or any emoji, seen receipts, unsend, copy, message requests, block and report. Every post has a **Send** (paper-plane) button that shares it to friends in FoodFeed or to other apps; place pages can be sent too.
+- **Direct messages, Instagram style:** send posts, dishes, places and photos from your gallery; reply to a message (long-press → Reply), react with a double-tap ❤️ or any emoji, seen receipts, unsend, copy, message requests, block and report. Every post has a **Send** (paper-plane) button that shares it to friends in WorthAbite or to other apps; place pages can be sent too.
 - **Notifications** for new messages, message requests, reactions and all Activity (follows, comments, replies, mentions, likes). No push service needed: the app checks the server every 30 seconds while open and every 15 minutes in the background. Tapping one opens the chat, dish or profile.
 - **Home's headline changes with the time of day** (breakfast, lunch, chai time, dinner, late-night munchies) and picks a new line each time you open Home.
 - **Stories:** 24-hour photo stories with a dish or place tag, a stories row on Home, a full-screen viewer (cube swipe between people, tap to step, hold to pause), likes and replies that arrive as messages, and who watched yours.
@@ -129,7 +131,7 @@ The database is not exposed outside Docker; only the API is. Photos are stored i
 
 ## Install the Android app
 
-Every push builds an APK in GitHub Actions (artifact **FoodFeed-apk**). To publish one on the
+Every push builds an APK in GitHub Actions (artifact **WorthAbite-apk**). To publish one on the
 [Releases page](https://github.com/aniketpitre/Food-MVP/releases), either run **Actions → Android → Run
 workflow** with a version such as `0.2.0`, or push a tag:
 
@@ -137,7 +139,7 @@ workflow** with a version such as `0.2.0`, or push a tag:
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-On the phone: download the APK from Releases, allow "Install unknown apps", open FoodFeed and pick a city.
+On the phone: download the APK from Releases, allow "Install unknown apps", open WorthAbite and pick a city.
 The server address is built into the app from `serverUrl` in `android/gradle.properties`
 (currently `https://foodfeed-aniket.eastus.cloudapp.azure.com`). If the server moves, change that line and
 publish a new release. Builds with an empty `serverUrl` ask for the address on first launch instead, which

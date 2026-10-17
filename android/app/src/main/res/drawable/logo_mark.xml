@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The WorthAbite mark, full colour, for the app's own screens. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="32dp"
+    android:viewportWidth="170"
+    android:viewportHeight="136">
+    <group android:translateX="-22" android:translateY="-20">
+        <path android:strokeColor="#2E2C2A" android:strokeWidth="13" android:strokeLineCap="round" android:pathData="M80,116 L34,138" />
+        <path android:fillColor="#FBF6EF" android:pathData="M40,135m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" />
+        <path android:fillColor="#2E2C2A"
+            android:pathData="M136.23,61.96 A11.5,11.5 0 0,0 149.90,77.13 A10.5,10.5 0 0,0 160.47,90.49 A44,44 0 1,1 136.23,61.96 Z" />
+        <path android:fillColor="#3A3835" android:pathData="M116,104m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0" />
+        <path android:strokeColor="#EC4E20" android:strokeWidth="5" android:strokeLineCap="round"
+            android:pathData="M160,58 L168,46 M168,70 L182,64 M150,50 L151,36" />
+        <group android:rotation="-14" android:pivotX="92" android:pivotY="58">
+            <path android:fillColor="#FFFFFF" android:strokeColor="#2E2C2A" android:strokeWidth="3.2" android:strokeLineJoin="round"
+                android:pathData="M80,64 L80,56 C72,55 70,44 79,41 C81,33 92,30 96,37 C101,31 112,34 111,43 C118,45 116,56 108,56 L108,64 Z" />
+            <path android:strokeColor="#2E2C2A" android:strokeWidth="3.2" android:pathData="M80,60 L108,60" />
+        </group>
+    </group>
+</vector>

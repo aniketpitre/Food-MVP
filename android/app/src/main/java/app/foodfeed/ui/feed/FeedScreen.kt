@@ -145,7 +145,7 @@ fun FeedScreen(
     commentsFor?.let { post ->
         CommentsSheet(post, onDismiss = { commentsFor = null }, onNeedSignIn = onNeedSignIn, onOpenUser = onOpenUser, showMessage = showMessage)
     }
-    // The paper-plane on a card: send this post to friends in FoodFeed, or share it elsewhere.
+    // The paper-plane on a card: send this post to friends in WorthAbite, or share it elsewhere.
     sendingCard?.let { c ->
         SendToSheet(
             dishId = if (c.cover == null) c.id else null,

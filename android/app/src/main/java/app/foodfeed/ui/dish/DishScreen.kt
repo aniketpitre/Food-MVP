@@ -13,7 +13,7 @@ import app.foodfeed.ui.components.PrimaryButton
 import app.foodfeed.ui.components.PriceTag
 import app.foodfeed.ui.components.RatingPill
 import app.foodfeed.ui.components.ChampionLine
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.accent
 import app.foodfeed.ui.theme.dishHero
 import androidx.compose.animation.core.animateDpAsState
@@ -415,7 +415,7 @@ fun DishContent(
                                         when {
                                             handle != null -> "@$handle"
                                             post.photoCredit != null -> post.photoCredit
-                                            else -> "FoodFeed"
+                                            else -> "WorthAbite"
                                         },
                                         style = MaterialTheme.typography.labelLarge,
                                     )
@@ -554,7 +554,7 @@ private fun PageDots(count: Int, current: Int, modifier: Modifier) {
             val w by animateDpAsState(if (i == current) 16.dp else 6.dp, Motion.glide(), label = "dot")
             Box(
                 Modifier.size(width = w, height = 6.dp)
-                    .background(if (i == current) Saffron else Color.White.copy(alpha = 0.6f), CircleShape),
+                    .background(if (i == current) Ember else Color.White.copy(alpha = 0.6f), CircleShape),
             )
         }
     }

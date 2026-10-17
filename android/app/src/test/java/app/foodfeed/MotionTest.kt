@@ -42,7 +42,7 @@ import app.foodfeed.ui.components.LocalImageOverride
 import app.foodfeed.ui.feed.DishPage
 import app.foodfeed.ui.feed.FeedTab
 import app.foodfeed.ui.feed.FeedTabs
-import app.foodfeed.ui.theme.FoodFeedTheme
+import app.foodfeed.ui.theme.WorthAbiteTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
@@ -82,7 +82,7 @@ class MotionTest {
     private fun stage(content: @Composable () -> Unit) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
-            FoodFeedTheme {
+            WorthAbiteTheme {
                 CompositionLocalProvider(LocalImageOverride provides ::load) {
                     Surface(color = MaterialTheme.colorScheme.background) { content() }
                 }
@@ -126,7 +126,7 @@ class MotionTest {
         frames("double_tap", 40, 26)
     }
 
-    /** The dock's saffron blob stretches toward the new tab and snaps back round. */
+    /** The dock's ember blob stretches toward the new tab and snaps back round. */
     @Test
     fun liquidDock() {
         var route by mutableStateOf(Routes.FEED)

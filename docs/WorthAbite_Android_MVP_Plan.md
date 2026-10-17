@@ -1,9 +1,9 @@
-# FoodFeed (working name): Idea, Research and Android MVP Plan
+# WorthAbite (working name): Idea, Research and Android MVP Plan
 
 **Document date:** 15 October 2026
 **Status:** Planning document. No code has been written yet.
 **Audience:** You (founder and sole engineer) and, later, any friend, tester or co-builder you share it with.
-**Working name:** "FoodFeed" is a placeholder taken from your project notes. Availability of the name on the Play Store, as a domain and as a trademark has **not** been checked.
+**Working name:** "WorthAbite" is a placeholder taken from your project notes. Availability of the name on the Play Store, as a domain and as a trademark has **not** been checked.
 
 ### How to read this document
 
@@ -318,7 +318,7 @@ These are turned into concrete checks in section 13.
 
 ### 4.2 Positioning statement **[Proposal]**
 
-> For people in [city] who want to know what to order and not just where to go, FoodFeed is a fast, local dish feed ranked by how many real people recommend each dish. Unlike rating apps, it does not hide a great dish behind a restaurant's average score, and unlike social feeds, it is organised around food and place and labels anything paid.
+> For people in [city] who want to know what to order and not just where to go, WorthAbite is a fast, local dish feed ranked by how many real people recommend each dish. Unlike rating apps, it does not hide a great dish behind a restaurant's average score, and unlike social feeds, it is organised around food and place and labels anything paid.
 
 ### 4.3 The differentiators
 
@@ -368,7 +368,7 @@ Each differentiator below lists why it matters, the evidence, how we build it an
 
 ### 4.4 Comparison matrix
 
-| Capability | FoodFeed (planned) | FavHiker | Foodspotting (historic) | Beli | Swiggy Eatlists | Google Maps | Instagram |
+| Capability | WorthAbite (planned) | FavHiker | Foodspotting (historic) | Beli | Swiggy Eatlists | Google Maps | Instagram |
 |---|---|---|---|---|---|---|---|
 | Dish is the main unit | Yes | Yes | Yes | No (restaurant) | Yes (lists) | Partly | No |
 | Ranked by community recommendation count | Yes | Partly (awards, filters) | Partly | No (personal and friend scores) | No | No (reviews and ML) | No |
@@ -387,7 +387,7 @@ Honestly, **not very, on technology alone.** The formula, the feed and the UI ca
 
 1. **Local content and relationships** in a specific city.
 2. **A reputation for honesty**, built over time.
-3. **A community habit**, for example "I check FoodFeed before I order."
+3. **A community habit**, for example "I check WorthAbite before I order."
 4. **Speed of iteration** by a focused small team.
 
 So the plan puts the effort in seeding, community and measurement, not in clever technology.
@@ -736,7 +736,7 @@ Implement the score as a database function and a scheduled refresh (section 8.4)
    - Ask local creators to contribute with credit.
    Do **not** copy photos from Google Maps, Zomato or Instagram.
 4. **Record consent and source** for every photo in the seed spreadsheet (who took it, how consent was given, date).
-5. **Attribute posts** to a real handle (your own account or the contributor's) so every card has a face behind it, not "FoodFeed team".
+5. **Attribute posts** to a real handle (your own account or the contributor's) so every card has a face behind it, not "WorthAbite team".
 6. **Add endorsements honestly.** Do not create fake accounts that recommend your own seeds. Recommendations must come from real people. If the feed looks too empty, show fewer, better dishes, not fake numbers. Early on, show "New" and "Be the first to recommend" instead of a "Recommended by 0" count.
 
 ### 7.2 Getting the first 100 real users (pilot)
@@ -986,7 +986,7 @@ Choose the one that holds 60 frames per second on a low-cost Android test phone 
 1. On first launch, show a one-screen explanation: "We use your approximate location to show dishes near you."
 2. Request **coarse (approximate)** location permission only. City-level matching does not need precise GPS.
 3. Compute the nearest active city client-side from a small bundled list (city centres and radii), or by an RPC. Do not call a paid reverse-geocoding API.
-4. If the user is more than the city radius away from every active city, show "FoodFeed is live in [city] only for now" with the option to browse that city.
+4. If the user is more than the city radius away from every active city, show "WorthAbite is live in [city] only for now" with the option to browse that city.
 5. Never store raw coordinates on the server, other than the coordinates of *restaurants* and optionally the user's chosen city. Distances are computed on the device from restaurant coordinates.
 6. A vendor whitepaper reports higher opt-in when the app explains the benefit before the system prompt. **[Research]** (undated, not food-specific)
 
@@ -1373,7 +1373,7 @@ All amounts must be confirmed against current price pages. **[Verify]**
 | # | Decision | Options | My default **[Proposal]** |
 |---|---|---|---|
 | D1 | **Launch city** | Your own city, or a larger one | The city where you can personally visit 40 to 60 places. If that is Nashik, plan for hand-seeding because creator density looked low in directory data. |
-| D2 | **App name** | FoodFeed (placeholder) or another | Pick a name, then check Play Store, domain and trademark search |
+| D2 | **App name** | WorthAbite (placeholder) or another | Pick a name, then check Play Store, domain and trademark search |
 | D3 | **Scope option** | Lite, Standard or Full | Standard in three phases; stop after Phase A if the alpha shows no pull |
 | D4 | **Feed style** | Vertical paging (recommended) or right/left swipe cards (your original) | Vertical as default. If you love swipe cards, build them as an optional mode (C1) after launch so you can compare |
 | D5 | **Instagram** | No scraping; link-out only (recommended) or scrape | No scraping in the MVP |

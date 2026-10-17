@@ -103,7 +103,7 @@ async function route(base: string, from: [number, number], to: [number, number])
   if (cached) return cached;
   try {
     const url = `${base.replace(/\/+$/, '')}/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=simplified&geometries=geojson`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'FoodFeed/1.0' } });
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'WorthAbite/1.0' } });
     if (!res.ok) return straight;
     const body = (await res.json()) as { routes?: { geometry: { coordinates: [number, number][] }; distance: number; duration: number }[] };
     const r = body.routes?.[0];

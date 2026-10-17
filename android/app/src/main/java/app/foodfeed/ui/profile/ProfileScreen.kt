@@ -96,7 +96,7 @@ import app.foodfeed.ui.components.Tag
 import app.foodfeed.ui.theme.Chili
 import app.foodfeed.ui.theme.Motion
 import app.foodfeed.ui.theme.RollingNumber
-import app.foodfeed.ui.theme.Saffron
+import app.foodfeed.ui.theme.Ember
 import app.foodfeed.ui.theme.Turmeric
 import app.foodfeed.ui.theme.HeroOrigin
 import app.foodfeed.ui.theme.dishHero
@@ -261,7 +261,7 @@ fun ProfileScreen(
             onShare = { handle ->
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "See what @$handle recommends on FoodFeed 🍛\n${app.serverUrl.value}")
+                    putExtra(Intent.EXTRA_TEXT, "See what @$handle recommends on WorthAbite 🍛\n${app.serverUrl.value}")
                 }
                 context.startActivity(Intent.createChooser(send, "Share profile").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             },
@@ -426,7 +426,7 @@ private fun SpiceRingAvatar(profile: UserProfile, hasStory: Boolean = false, sto
     val spin = remember { Animatable(0f) }
     LaunchedEffect(Unit) { spin.animateTo(1f, tween(1000, easing = Motion.EmphasizedDecelerate)) }
     // A live story thickens the ring (grey once watched) and makes the photo open it.
-    val ring = if (hasStory && storySeen) listOf(Color.Gray, Color.Gray) else listOf(Saffron, Turmeric, Chili, Saffron)
+    val ring = if (hasStory && storySeen) listOf(Color.Gray, Color.Gray) else listOf(Ember, Turmeric, Chili, Ember)
     Box(
         Modifier
             .size(92.dp)
@@ -463,7 +463,7 @@ private fun Count(value: Int, label: String, onClick: (() -> Unit)?) {
     }
 }
 
-/** Icon tabs with a saffron bar that slides under the selected one. */
+/** Icon tabs with a ember bar that slides under the selected one. */
 @Composable
 private fun ProfileTabs(tabs: List<ProfileTab>, selected: ProfileTab, onTab: (ProfileTab) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 6.dp).height(48.dp)) {

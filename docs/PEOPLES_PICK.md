@@ -1,7 +1,7 @@
-# People's Pick: how FoodFeed decides what you should eat
+# People's Pick: how WorthAbite decides what you should eat
 
-The question FoodFeed answers is "I want pav bhaji, where should I go?". Star ratings
-don't answer it: they rate a whole restaurant, and anyone can leave one. FoodFeed ranks
+The question WorthAbite answers is "I want pav bhaji, where should I go?". Star ratings
+don't answer it: they rate a whole restaurant, and anyone can leave one. WorthAbite ranks
 **one dish at one place** by **what people who actually tried it decided**, and it trusts
 some people more than others because of their track record.
 
@@ -100,7 +100,7 @@ the ranking timer.
 
 ## People like you: Taste Match and For You
 
-FoodFeed recommends through **people**, not just through the crowd.
+WorthAbite recommends through **people**, not just through the crowd.
 
 **Your taste.** A short profile (dish types you love, veg / egg / non-veg, spice 1 to 5),
 asked once after signing in and editable in Settings. Your votes teach the rest: per dish

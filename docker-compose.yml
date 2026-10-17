@@ -1,4 +1,4 @@
-# FoodFeed self-hosted stack.
+# WorthAbite self-hosted stack.
 #   cp .env.example .env   # then fill in the secrets
 #   docker compose up -d --build
 # Optional extras:

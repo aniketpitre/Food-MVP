@@ -103,10 +103,10 @@ fun takeMeThere(context: Context, lat: Double, lng: Double, name: String, google
 }
 
 /**
- * Take me there for a FoodFeed place: asks our server for the place's Google id (a second
+ * Take me there for a WorthAbite place: asks our server for the place's Google id (a second
  * at most), then opens directions; falls back to the coordinates.
  */
-fun directionsTo(scope: kotlinx.coroutines.CoroutineScope, api: app.foodfeed.data.FoodFeedApi, context: Context, restaurantId: String, lat: Double, lng: Double, name: String) {
+fun directionsTo(scope: kotlinx.coroutines.CoroutineScope, api: app.foodfeed.data.WorthAbiteApi, context: Context, restaurantId: String, lat: Double, lng: Double, name: String) {
     scope.launch {
         val id = kotlinx.coroutines.withTimeoutOrNull(2_500) {
             runCatching { api.mapsLink(restaurantId).googlePlaceId }.getOrNull()
@@ -152,7 +152,7 @@ fun rememberTakeMeThere(): TakeMeThere {
         AlertDialog(
             onDismissRequest = { t.pendingDemo = null },
             title = { Text("This is a demo place") },
-            text = { Text("It was made up to show how FoodFeed works, so it isn't a real business and there is nothing at this spot on the map.") },
+            text = { Text("It was made up to show how WorthAbite works, so it isn't a real business and there is nothing at this spot on the map.") },
             confirmButton = { TextButton(onClick = { t.pendingDemo = null }) { Text("OK") } },
             dismissButton = { TextButton(onClick = { t.pendingDemo = null; run() }) { Text("Open the map anyway") } },
         )

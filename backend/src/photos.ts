@@ -16,7 +16,7 @@ import { storeImage } from './media.js';
  */
 
 export type Fetch = typeof fetch;
-const UA = { 'user-agent': 'FoodFeed/1.0 (self-hosted food app; photo attribution kept)' };
+const UA = { 'user-agent': 'WorthAbite/1.0 (self-hosted food app; photo attribution kept)' };
 
 export interface FoundPhoto {
   source: 'wikimedia' | 'mapillary';

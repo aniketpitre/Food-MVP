@@ -1,4 +1,4 @@
-# FoodFeed release shrinking rules.
+# WorthAbite release shrinking rules.
 
 # API models are created by kotlinx.serialization and passed through Retrofit; keep them whole.
 -keep class app.foodfeed.data.** { *; }
