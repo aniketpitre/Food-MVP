@@ -5,13 +5,17 @@ const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** The WorthAbite mark: a frying pan with a bite out of its rim, a chef's hat and a sizzle. */
-export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="22 20 170 136" width="40" height="32" aria-hidden="true">
-<path d="M80 116 L34 138" stroke="#2E2C2A" stroke-width="13" stroke-linecap="round"/>
-<circle cx="40" cy="135" r="2.6" fill="#FBF6EF"/>
-<path fill="#2E2C2A" d="M136.23,61.96 A11.5,11.5 0 0,0 149.90,77.13 A10.5,10.5 0 0,0 160.47,90.49 A44,44 0 1,1 136.23,61.96 Z"/>
-<circle cx="116" cy="104" r="30" fill="#3A3835"/>
-<path stroke="#EC4E20" stroke-width="5" stroke-linecap="round" d="M160 58 L168 46 M168 70 L182 64 M150 50 L151 36"/>
-<g transform="rotate(-14 92 58)" stroke="#2E2C2A" stroke-width="3.2" stroke-linejoin="round"><path fill="#fff" d="M80 64 L80 56 C72 55 70 44 79 41 C81 33 92 30 96 37 C101 31 112 34 111 43 C118 45 116 56 108 56 L108 64 Z"/><path d="M80 60 L108 60"/></g>
+export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 28 140 116" width="40" height="33" aria-hidden="true">
+<path d="M80,98 L42,84" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round" fill="none"/>
+<circle cx="46" cy="85.6" r="2.4" fill="#FBF6EF"/>
+<path d="M131.55,78.42 A35,35 0 1,0 144.66,110.87 A4.97,4.97 0 0,1 137.48,107.3 A4.97,4.97 0 0,1 132.04,101.42 A4.97,4.97 0 0,1 129.03,93.99 A4.97,4.97 0 0,1 128.86,85.97 A4.97,4.97 0 0,1 131.55,78.42 Z" fill="#2B2B2B"/>
+<path d="M109.08,79.52 A26.5,26.5 0 0,0 88.03,120.82" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" fill="none"/>
+<path d="M142,70 L148,61 M151,79 L163,69 M154,90 L167,87" stroke="#F04E23" stroke-width="4.6" stroke-linecap="round" fill="none"/>
+<g transform="translate(82,66) rotate(10) scale(0.86)" stroke-linejoin="round">
+<path d="M-13,-10 C-24,-11 -25,-28 -12,-28 C-10,-39 7,-41 9,-31 C15,-38 28,-32 22,-21 C28,-17 25,-10 13,-10 Z" fill="#FFFFFF" stroke="#2B2B2B" stroke-width="3"/>
+<path d="M-11,-10 L11,-10 L11,1 L-11,1 Z" fill="#FFFFFF" stroke="#F04E23" stroke-width="3"/>
+<path d="M-12,-10 L12,-10" stroke="#2B2B2B" stroke-width="3" stroke-linecap="round"/>
+</g>
 </svg>`;
 
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(
@@ -24,16 +28,17 @@ function page(title: string, body: string, head = ''): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${head}
 <link rel="icon" href="${FAVICON}">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@600&display=swap">
 <meta name="theme-color" content="#FBF6EF">
 <style>
-  :root { --brand:#D23D17; --ember:#EC4E20; --ink:#2E2C2A; --muted:#6B645D; --bg:#FBF6EF; --card:#fff; }
+  :root { --brand:#D23D17; --ember:#F04E23; --ink:#2B2B2B; --muted:#6B645D; --bg:#FBF6EF; --card:#fff; }
   @media (prefers-color-scheme: dark) { :root { --brand:#FF7A4D; --ink:#F6F1EA; --muted:#B5ADA4; --bg:#141312; --card:#211F1D; } }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
   main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 1.6rem; margin: .2em 0; } h2 { font-size: 1.15rem; margin-top: 1.6em; }
-  .brand { display:inline-flex; align-items:center; gap:8px; color: var(--ink); font-weight: 800; font-size: 1.3rem; letter-spacing: -.02em; text-decoration:none; }
-  .brand b { color: var(--ember); }
+  .brand { display:inline-flex; align-items:center; gap:8px; color: var(--ink); font-family: Poppins, system-ui, sans-serif; font-weight: 600; font-size: 1.35rem; text-decoration:none; }
+  .brand b { color: var(--ember); font-weight: 600; }
   .card { background: var(--card); border-radius: 18px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
   .card img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
   .pad { padding: 16px; } .muted { color: var(--muted); }

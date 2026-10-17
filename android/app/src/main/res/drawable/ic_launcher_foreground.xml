@@ -1,23 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WorthAbite: a frying pan with a bite out of its rim, a chef's hat and a sizzle. -->
+<!-- WorthAbite: a frying pan with a bite out of it, a chef's hat and a sizzle. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:scaleX="0.36" android:scaleY="0.36" android:translateX="15.5" android:translateY="23">
-        <path android:strokeColor="#2E2C2A" android:strokeWidth="13" android:strokeLineCap="round"
-            android:pathData="M80,116 L34,138" />
-        <path android:fillColor="#FBF6EF" android:pathData="M40,135m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" />
-        <path android:fillColor="#2E2C2A"
-            android:pathData="M136.23,61.96 A11.5,11.5 0 0,0 149.90,77.13 A10.5,10.5 0 0,0 160.47,90.49 A44,44 0 1,1 136.23,61.96 Z" />
-        <path android:fillColor="#3A3835" android:pathData="M116,104m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0" />
-        <path android:strokeColor="#EC4E20" android:strokeWidth="5" android:strokeLineCap="round"
-            android:pathData="M160,58 L168,46 M168,70 L182,64 M150,50 L151,36" />
-        <group android:rotation="-14" android:pivotX="92" android:pivotY="58">
-            <path android:fillColor="#FFFFFF" android:strokeColor="#2E2C2A" android:strokeWidth="3.2" android:strokeLineJoin="round"
-                android:pathData="M80,64 L80,56 C72,55 70,44 79,41 C81,33 92,30 96,37 C101,31 112,34 111,43 C118,45 116,56 108,56 L108,64 Z" />
-            <path android:strokeColor="#2E2C2A" android:strokeWidth="3.2" android:pathData="M80,60 L108,60" />
-        </group>
+    <group android:scaleX="0.42" android:scaleY="0.42" android:translateX="10.7" android:translateY="17.9">
+        <path android:strokeColor="#2B2B2B" android:strokeWidth="12" android:strokeLineCap="round" android:pathData="M80,98 L42,84" />
+        <path android:fillColor="#FBF6EF" android:pathData="M46.0,85.6m-2.4,0a2.4,2.4 0,1 1,4.8 0a2.4,2.4 0,1 1,-4.8 0" />
+        <path android:fillColor="#2B2B2B" android:pathData="M131.55,78.42 A35,35 0 1,0 144.66,110.87 A4.97,4.97 0 0,1 137.48,107.3 A4.97,4.97 0 0,1 132.04,101.42 A4.97,4.97 0 0,1 129.03,93.99 A4.97,4.97 0 0,1 128.86,85.97 A4.97,4.97 0 0,1 131.55,78.42 Z" />
+        <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6" android:strokeLineCap="round" android:pathData="M109.08,79.52 A26.5,26.5 0 0,0 88.03,120.82" />
+        <path android:strokeColor="#F04E23" android:strokeWidth="4.6" android:strokeLineCap="round" android:pathData="M142,70 L148,61 M151,79 L163,69 M154,90 L167,87" />
+        <group android:translateX="82" android:translateY="66" android:rotation="10" android:scaleX="0.86" android:scaleY="0.86"><path android:fillColor="#FFFFFF" android:strokeColor="#2B2B2B" android:strokeWidth="3" android:strokeLineJoin="round" android:pathData="M-13,-10 C-24,-11 -25,-28 -12,-28 C-10,-39 7,-41 9,-31 C15,-38 28,-32 22,-21 C28,-17 25,-10 13,-10 Z" /><path android:fillColor="#FFFFFF" android:strokeColor="#F04E23" android:strokeWidth="3" android:strokeLineJoin="round" android:pathData="M-11,-10 L11,-10 L11,1 L-11,1 Z" /><path android:strokeColor="#2B2B2B" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M-12,-10 L12,-10" /></group>
     </group>
 </vector>

@@ -350,7 +350,11 @@ private fun WelcomeHero() {
             "WorthAbite".forEachIndexed { i, ch ->
                 Text(
                     ch.toString(),
-                    style = MaterialTheme.typography.displayMedium,
+                    style = MaterialTheme.typography.displayMedium.copy(
+                        fontFamily = app.foodfeed.ui.theme.WordmarkFamily,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        letterSpacing = 0.sp,
+                    ),
                     color = if (i < 5) Ink else app.foodfeed.ui.theme.EmberLogo,
                     modifier = Modifier.graphicsLayer {
                         val p = Motion.window(t.value, 0.04f * i, 0.3f) { Motion.backOut(it, 2.4f) }

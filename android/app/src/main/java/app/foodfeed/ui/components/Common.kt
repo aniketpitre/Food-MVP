@@ -319,8 +319,8 @@ fun Wordmark(large: Boolean = false, modifier: Modifier = Modifier) {
                 withStyle(SpanStyle(color = ink)) { append("Worth") }
                 withStyle(SpanStyle(color = app.foodfeed.ui.theme.EmberLogo)) { append("Abite") }
             },
-            style = style,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+            style = style.copy(fontFamily = app.foodfeed.ui.theme.WordmarkFamily, letterSpacing = 0.sp),
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
         )
     }
 }

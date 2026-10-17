@@ -129,7 +129,7 @@ object Notifications {
                     1,
                     NotificationCompat.Builder(context, MESSAGES)
                         .setSmallIcon(R.drawable.ic_notification)
-                        .setColor(0xFFEC4E20.toInt())
+                        .setColor(0xFFF04E23.toInt())
                         .setStyle(style)
                         .setContentTitle(name(from))
                         .setContentText(lines.last().second)
@@ -147,7 +147,7 @@ object Notifications {
                     2,
                     NotificationCompat.Builder(context, MESSAGES)
                         .setSmallIcon(R.drawable.ic_notification)
-                        .setColor(0xFFEC4E20.toInt())
+                        .setColor(0xFFF04E23.toInt())
                         .setContentTitle(name(r.from))
                         .setContentText("Reacted ${r.emoji} to your message" + if (about.isNotBlank()) ": $about" else "")
                         .setCategory(NotificationCompat.CATEGORY_SOCIAL)
@@ -163,7 +163,7 @@ object Notifications {
                     3,
                     NotificationCompat.Builder(context, ACTIVITY)
                         .setSmallIcon(R.drawable.ic_notification)
-                        .setColor(0xFFEC4E20.toInt())
+                        .setColor(0xFFF04E23.toInt())
                         .setContentTitle(name(a.actor))
                         .setContentText(activityText(a))
                         .setStyle(NotificationCompat.BigTextStyle().bigText(activityText(a)))

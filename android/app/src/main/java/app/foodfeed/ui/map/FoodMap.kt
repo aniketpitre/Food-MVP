@@ -1037,7 +1037,7 @@ internal fun logoBitmap(context: Context, emoji: String, selected: Boolean): Bit
     val c = Canvas(bmp)
     val cx = w / 2f
     val cy = pad + badge / 2f
-    val ember = 0xFFEC4E20.toInt()
+    val ember = 0xFFF04E23.toInt()
     val cream = 0xFFFFF7EC.toInt()
     val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x33000000
@@ -1071,7 +1071,7 @@ private fun addLayers(style: Style) {
     style.addSource(GeoJsonSource(ROUTE))
     style.addLayer(
         LineLayer("ff-route-line", ROUTE).withProperties(
-            PropertyFactory.lineColor("#EC4E20"),
+            PropertyFactory.lineColor("#F04E23"),
             PropertyFactory.lineWidth(5f),
             PropertyFactory.lineOpacity(0.85f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),

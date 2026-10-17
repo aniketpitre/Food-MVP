@@ -31,7 +31,7 @@ import app.foodfeed.R
  */
 
 /** The logo's sizzle and the "Abite" in the wordmark. */
-val EmberLogo = Color(0xFFEC4E20)
+val EmberLogo = Color(0xFFF04E23)
 /** Ember for surfaces with charcoal text on them (4.8:1). */
 val Ember = Color(0xFFF47040)
 val EmberDeep = Color(0xFFD23D17)
@@ -41,7 +41,7 @@ val ChiliBright = Color(0xFFFF5C7A)
 val Mint = Color(0xFF13A05B)
 val Lagoon = Color(0xFF16B3A6)
 /** The pan: charcoal ink. */
-val Ink = Color(0xFF2E2C2A)
+val Ink = Color(0xFF2B2B2B)
 val Cream = Color(0xFFFBF6EF)
 
 val VegGreen = Mint
@@ -104,6 +104,9 @@ private val Dark = darkColorScheme(
     outlineVariant = Color(0xFF34312E),
     error = Color(0xFFFFB4AB),
 )
+
+/** Poppins SemiBold: the WorthAbite wordmark's typeface (SIL Open Font License). */
+val WordmarkFamily = FontFamily(Font(R.font.poppins_semibold, FontWeight.SemiBold))
 
 /** Bricolage Grotesque, cut at a large optical size for headlines. */
 val DisplayFamily = FontFamily(
