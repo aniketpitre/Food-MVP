@@ -371,7 +371,8 @@ fun NavigateScreen(target: NavTarget, onBack: () -> Unit, onOpenPlace: (String) 
                         Icon(AppIcons.Directions, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            val toNext = progress?.toNextM?.let { Format.distance(it.toInt()) }
+                            // Turn by turn needs the metres even when close ("60 m", not "Nearby").
+                            val toNext = progress?.toNextM?.let { m -> if (m < 100) "${(m.toInt() + 5) / 10 * 10} m" else Format.distance(m.toInt()) }
                             if (toNext != null) {
                                 Text(toNext, style = MaterialTheme.typography.titleLarge, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
                             }
