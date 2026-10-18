@@ -215,7 +215,8 @@ export async function commentRoutes(app: FastifyInstance) {
     if (c.author_id !== me && c.post_author !== me && !(await isAdmin(me))) {
       return reply.code(403).send({ error: 'forbidden', message: "You can't delete this comment." });
     }
-    await db.query("update comments set status = 'removed' where id = $1", [p.id]);
+    // Its replies go with it, so every count matches what the comments sheet shows.
+    await db.query("update comments set status = 'removed' where id = $1 or (parent_id = $1 and status = 'live')", [p.id]);
     return { ok: true };
   });
 

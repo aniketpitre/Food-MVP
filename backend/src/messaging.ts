@@ -51,16 +51,20 @@ export const SHARE_KINDS = ['dish', 'post'] as const;
 export async function canMessage(db: Pick<Db, 'query'>, me: string, other: string): Promise<boolean> {
   if (me === other) return false;
   if (await blockedEither(db, me, other)) return false;
-  const { rows } = await db.query<{ policy: string; connected: boolean }>(
+  const { rows } = await db.query<{ policy: string; connected: boolean; they_follow_me: boolean }>(
     `select p.dm_policy as policy,
             exists (select 1 from follows where (follower_id = $1 and followee_id = $2)
-                                              or (follower_id = $2 and followee_id = $1)) as connected
+                                              or (follower_id = $2 and followee_id = $1)) as connected,
+            exists (select 1 from follows where follower_id = $2 and followee_id = $1) as they_follow_me
      from profiles p where p.id = $2`,
     [me, other],
   );
   const r = rows[0];
-  if (!r) return false;
-  return r.connected && r.policy !== 'off';
+  if (!r || !r.connected) return false;
+  // Their setting: everyone they're connected to (either way), only people they follow, or nobody.
+  if (r.policy === 'off') return false;
+  if (r.policy === 'following') return r.they_follow_me;
+  return true;
 }
 
 /** Sends a message from [me] to [other], opening the conversation if needed. Returns its id. */

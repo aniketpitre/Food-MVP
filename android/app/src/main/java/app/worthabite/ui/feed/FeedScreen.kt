@@ -88,6 +88,8 @@ fun FeedScreen(
     val commentCounts by app.commentCounts.collectAsState()
     var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var sendingCard by remember { mutableStateOf<DishCard?>(null) }
+    // From the Following feed: the photo you were looking at, not the dish's cover.
+    var sendingPost by remember { mutableStateOf<String?>(null) }
 
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.any { it }) {
@@ -115,7 +117,7 @@ fun FeedScreen(
         onOpenDish = { id -> app.recordOpen(id, state.tab.api); onOpenDish(id) },
         onOpenRestaurant = onOpenRestaurant,
         onToggle = actions::toggle,
-        onShare = { sendingCard = it },
+        onShare = { sendingPost = null; sendingCard = it },
         onChangeCity = onChangeCity,
         onSearch = onSearch,
         onAddDish = onAddDish,
@@ -130,7 +132,7 @@ fun FeedScreen(
                 onOpenUser = onOpenUser,
                 onToggle = actions::toggle,
                 engagementOf = { card -> overrides[card.id] ?: card.engagement() },
-                onShare = { sendingCard = it },
+                onShare = { card, postId -> sendingPost = postId; sendingCard = card },
                 onComments = { postId -> commentsFor = postId },
             )
         },
@@ -171,9 +173,9 @@ fun FeedScreen(
     // The paper-plane on a card: send this post to friends in WorthAbite, or share it elsewhere.
     sendingCard?.let { c ->
         SendToSheet(
-            dishId = if (c.cover == null) c.id else null,
-            postId = c.cover?.postId,
-            onDismiss = { sendingCard = null },
+            dishId = if (c.cover == null && sendingPost == null) c.id else null,
+            postId = sendingPost ?: c.cover?.postId,
+            onDismiss = { sendingCard = null; sendingPost = null },
             onShareElsewhere = { actions.share(c) },
             onNeedSignIn = onNeedSignIn,
             showMessage = showMessage,

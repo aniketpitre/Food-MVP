@@ -200,6 +200,11 @@ export async function actionRoutes(app: FastifyInstance) {
     if (!target) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
     if (target.id === userId(req)) return reply.code(400).send({ error: 'invalid_input', message: 'You cannot block yourself.' });
     await db.query('insert into blocks (blocker_id, blocked_id) values ($1, $2) on conflict do nothing', [userId(req), target.id]);
+    // Blocking ends following both ways, so neither sees the other's posts in Following.
+    await db.query(
+      'delete from follows where (follower_id = $1 and followee_id = $2) or (follower_id = $2 and followee_id = $1)',
+      [userId(req), target.id],
+    );
     return { ok: true };
   });
 

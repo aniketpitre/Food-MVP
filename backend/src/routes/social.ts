@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { hashPassword, optionalAuth, passwordProblem, requireAuth, sessionId, userId, verifyPassword } from '../auth.js';
 import { noticeEmail } from '../mail.js';
-import { endSessions, startSession } from './auth.js';
+import { endSessions, profileJson, startSession } from './auth.js';
 import { loadDishCards, wholePicks } from '../cards.js';
 import { tasteMatch } from './taste.js';
 import { deleteAvatar, storeAvatar } from '../media.js';
 import { notify } from '../notify.js';
+import { blockedEither } from '../messaging.js';
 
 const username = z.string().trim().toLowerCase().max(20);
 
@@ -37,18 +38,23 @@ export async function socialRoutes(app: FastifyInstance) {
     const { rows } = await db.query(
       `select id, handle, display_name as "displayName", bio, avatar_path as "avatarUrl", role, created_at as "createdAt",
               comment_policy as "commentPolicy",
-              (select count(*) from posts where author_id = profiles.id and status = 'live')::int as posts,
+              -- The same posts the grid shows everyone (live, of a live dish at an open place).
+              (select count(*) from posts po join dishes d on d.id = po.dish_id join restaurants r on r.id = d.restaurant_id
+               where po.author_id = profiles.id and po.status = 'live' and d.status = 'live' and r.status = 'active')::int as posts,
               (select count(*) from engagements where user_id = profiles.id and kind = 'recommend')::int as recommendations,
               (select count(*) from follows where followee_id = profiles.id)::int as followers,
               (select count(*) from follows where follower_id = profiles.id)::int as following,
               ($2::uuid is not null and exists (select 1 from follows where follower_id = $2 and followee_id = profiles.id)) as "isFollowing",
               ($2::uuid is not null and exists (select 1 from follows where follower_id = profiles.id and followee_id = $2)) as "followsYou",
-              ($2::uuid is not null and exists (select 1 from blocks where blocker_id = $2 and blocked_id = profiles.id)) as "blockedByMe"
+              ($2::uuid is not null and exists (select 1 from blocks where blocker_id = $2 and blocked_id = profiles.id)) as "blockedByMe",
+              ($2::uuid is not null and exists (select 1 from blocks where blocker_id = profiles.id and blocked_id = $2)) as "blockedMe"
        from profiles where handle = $1`,
       [p.handle, viewer],
     );
     const u = rows[0];
-    if (!u) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+    // Someone who blocked you is not there for you (like Instagram).
+    if (!u || u.blockedMe) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+    delete u.blockedMe;
     const isMe = viewer === u.id;
     const { rows: posts } = await db.query(
       `select p.id, p.dish_id as "dishId", p.thumb_path as "thumbUrl", p.placeholder_color as "placeholderColor",
@@ -82,7 +88,9 @@ export async function socialRoutes(app: FastifyInstance) {
     const p = parse(z.object({ handle: username }), req.params, reply);
     if (!p) return;
     const id = await profileId(p.handle);
-    if (!id) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+    if (!id || (userId(req) && (await blockedEither(db, userId(req)!, id)))) {
+      return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+    }
     const { rows } = await db.query<{ dish_id: string }>(
       `select e.dish_id from engagements e join dishes d on d.id = e.dish_id
        where e.user_id = $1 and e.kind = 'recommend' and d.status = 'live'
@@ -204,14 +212,11 @@ export async function socialRoutes(app: FastifyInstance) {
     return rows;
   });
 
+  // The whole signed-in user, exactly as sign-in returns it: the app replaces its copy with
+  // this, so a field left out here (the sharing setting, two-step) would read as the default.
   async function meJson(id: string) {
-    const { rows } = await db.query(
-      `select id, email, handle, display_name as "displayName", bio, avatar_path as "avatarUrl", role,
-              home_city_id as "homeCityId", comment_policy as "commentPolicy", created_at as "createdAt"
-       from profiles where id = $1`,
-      [id],
-    );
-    return rows[0];
+    const { rows } = await db.query('select * from profiles where id = $1', [id]);
+    return profileJson(rows[0]);
   }
 
   // ---------- Follow ----------
@@ -287,9 +292,12 @@ export async function socialRoutes(app: FastifyInstance) {
        join restaurants r on r.id = d.restaurant_id and r.status = 'active'
        where p.status = 'live'
          and (p.author_id = $1 or p.author_id in (select followee_id from follows where follower_id = $1))
-         and not exists (select 1 from blocks b where b.blocker_id = $1 and b.blocked_id = p.author_id)
-         and ($2::timestamptz is null or (p.created_at, p.id) < ($2::timestamptz, coalesce($3::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
-       order by p.created_at desc, p.id desc
+         and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.author_id)
+                                                or (b.blocker_id = p.author_id and b.blocked_id = $1))
+         -- Paged on milliseconds (what the cursor carries), so no post falls between pages.
+         and ($2::timestamptz is null
+              or (date_trunc('milliseconds', p.created_at), p.id) < ($2::timestamptz, coalesce($3::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+       order by date_trunc('milliseconds', p.created_at) desc, p.id desc
        limit $4`,
       [me, q.before ?? null, q.beforeId ?? null, q.limit],
     );
@@ -328,8 +336,10 @@ export async function socialRoutes(app: FastifyInstance) {
       const p = parse(z.object({ handle: username }), req.params, reply);
       if (!p) return;
       const id = await profileId(p.handle);
-      if (!id) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
       const viewer = userId(req);
+      if (!id || (viewer && viewer !== id && (await blockedEither(db, viewer, id)))) {
+        return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+      }
       const [mine, theirs] = which === 'followers' ? ['followee_id', 'follower_id'] : ['follower_id', 'followee_id'];
       const { rows } = await db.query(
         `select ${personSql('p')},
@@ -395,7 +405,9 @@ export async function socialRoutes(app: FastifyInstance) {
 
   app.get('/notifications/unread', { preHandler: requireAuth }, async (req) => {
     const { rows } = await db.query<{ n: number }>(
-      'select count(*)::int as n from notifications where user_id = $1 and read_at is null',
+      // Only what the Activity list can show: nothing from people you blocked.
+      `select count(*)::int as n from notifications n where n.user_id = $1 and n.read_at is null
+         and not exists (select 1 from blocks b where b.blocker_id = $1 and b.blocked_id = n.actor_id)`,
       [userId(req)],
     );
     return { count: rows[0]!.n };

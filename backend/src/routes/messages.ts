@@ -290,7 +290,7 @@ export async function messageRoutes(app: FastifyInstance) {
       [[me, other].sort().join(':'), me],
     );
     if (!existing && !(await canMessage(db, me, other))) {
-      return reply.code(403).send({ error: 'cannot_message', message: 'You can share dishes only with friends: people you follow who follow you back.' });
+      return reply.code(403).send({ error: 'cannot_message', message: 'You can share dishes with your followers and the people you follow, unless they turned sharing off.' });
     }
     const id = await conversationWith(db, me, other);
     return { id };
@@ -383,9 +383,15 @@ export async function messageRoutes(app: FastifyInstance) {
     );
     if (!body) return;
     const me = userId(req)!;
+    // What's shared must still be there, or nothing goes out (not half the list, then an error).
+    const { rowCount: exists } = body.postId
+      ? await db.query("select 1 from posts where id = $1 and status = 'live'", [body.postId])
+      : await db.query("select 1 from dishes where id = $1 and status = 'live'", [body.dishId]);
+    if (!exists) return reply.code(404).send({ error: 'not_found', message: 'That dish is no longer on WorthAbite.' });
     const { rows } = await db.query<{ id: string; handle: string }>('select id, handle from profiles where handle = any($1)', [body.handles]);
     const sent: string[] = [];
-    const failed: string[] = [];
+    // Anyone not found (say, they just changed their username) is reported, never silently skipped.
+    const failed: string[] = body.handles.filter((h) => !rows.some((r) => r.handle === h));
     for (const r of rows) {
       try {
         if (body.postId) await sendMessage(db, me, r.id, { kind: 'post', postId: body.postId });
@@ -419,7 +425,10 @@ export async function messageRoutes(app: FastifyInstance) {
        from connected cn
        join profiles p on p.id = cn.id
        left join conversations c on c.pair_key = least(p.id, $1::uuid)::text || ':' || greatest(p.id, $1::uuid)::text
-       where p.dm_policy <> 'off'
+       -- Exactly the people canMessage allows: sharing not turned off, and for "only people I
+       -- follow", only if they follow you.
+       where (p.dm_policy = 'everyone'
+              or (p.dm_policy = 'following' and exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1)))
          and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.id)
                                                 or (b.blocker_id = p.id and b.blocked_id = $1))
          and ($2 = '' or p.handle like $2 || '%' or lower(coalesce(p.display_name, '')) like '%' || $2 || '%')

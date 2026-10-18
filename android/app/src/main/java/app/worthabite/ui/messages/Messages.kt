@@ -882,16 +882,24 @@ fun SendToSheet(
     val session by app.session.collectAsState()
     val scope = rememberCoroutineScope()
     var friends by remember { mutableStateOf<List<Person>?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableStateOf(0) }
     val picked = remember { mutableStateListOf<String>() }
     var query by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
-    LaunchedEffect(session) {
-        if (session != null) friends = runCatching { apiCall { app.api.friends() } }.getOrDefault(emptyList())
+    // Fresh from the server each time (a new follower shows at once), and the search asks the
+    // server too, so someone beyond the first 200 connections is still found.
+    LaunchedEffect(session, query, attempt) {
+        if (session == null) return@LaunchedEffect
+        if (query.isNotBlank()) delay(250)
+        try {
+            friends = apiCall { app.api.friends(query.trim().removePrefix("@").ifBlank { null }) }
+            loadError = null
+        } catch (e: ApiException) {
+            loadError = e.message
+        }
     }
-    val shown = remember(friends, query) {
-        val q = query.trim().removePrefix("@").lowercase()
-        friends.orEmpty().filter { q.isEmpty() || it.handle.contains(q) || (it.displayName ?: "").lowercase().contains(q) }
-    }
+    val shown = friends.orEmpty()
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
             Text("Send to", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
@@ -904,7 +912,7 @@ fun SendToSheet(
                 }
                 return@Column
             }
-            if (friends.orEmpty().size > 6) {
+            if (friends.orEmpty().size > 6 || query.isNotBlank()) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it.take(30) },
@@ -917,10 +925,24 @@ fun SendToSheet(
             }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                 when {
+                    loadError != null && friends == null -> item {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(loadError!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            androidx.compose.material3.TextButton(onClick = { attempt++ }) { Text("Try again") }
+                        }
+                    }
                     friends == null -> item { LoadingBox(Modifier.fillMaxWidth().height(120.dp)) }
+                    friends!!.isEmpty() && query.isNotBlank() -> item {
+                        Text(
+                            "Nobody by that name among your followers and the people you follow.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 24.dp),
+                        )
+                    }
                     friends!!.isEmpty() -> item {
                         Text(
-                            "Nobody to share with yet. You can share dishes with your followers and the people you follow.",
+                            "Nobody to share with yet. You can share dishes with your followers and the people you follow (unless they turned sharing off in their settings).",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 24.dp),

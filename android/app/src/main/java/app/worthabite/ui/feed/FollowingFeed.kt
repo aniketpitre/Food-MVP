@@ -139,7 +139,8 @@ fun FollowingFeed(
     onOpenUser: (String) -> Unit,
     onToggle: (DishCard, Engagement) -> Unit,
     engagementOf: (DishCard) -> EngagementState,
-    onShare: (DishCard) -> Unit,
+    /** Send this photo (by its post id) of this dish. */
+    onShare: (DishCard, String) -> Unit,
     onComments: (String) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -167,7 +168,7 @@ fun FollowingFeed(
                         onOpenRestaurant = { onOpenRestaurant(p.dish.restaurant.id) },
                         onOpenUser = { onOpenUser(p.author.handle) },
                         onToggle = { onToggle(p.dish, it) },
-                        onShare = { onShare(p.dish) },
+                        onShare = { onShare(p.dish, p.id) },
                         onComments = { onComments(p.id) },
                         modifier = Modifier.animateItem(),
                     )
