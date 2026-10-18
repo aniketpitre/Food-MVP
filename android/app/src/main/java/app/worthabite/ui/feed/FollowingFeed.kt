@@ -61,6 +61,7 @@ import app.worthabite.ui.components.DishImage
 import app.worthabite.ui.components.EngageAction
 import app.worthabite.ui.components.LoadingBox
 import app.worthabite.ui.components.LocalMediaUrl
+import app.worthabite.ui.components.shownHandle
 import app.worthabite.ui.theme.TextFamily
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -210,7 +211,7 @@ private fun FollowingPostCard(
             Avatar(p.author.handle, p.author.displayName, size = 34.dp, photo = p.author.avatarUrl)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(p.author.handle, fontFamily = TextFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(shownHandle(p.author.handle), fontFamily = TextFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
                     listOfNotNull(p.dish.restaurant.name, Format.timeAgo(p.createdAt).ifBlank { null }).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,

@@ -201,7 +201,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const me = userId(req)!;
     const { rows: t } = await db.query<{ now: Date }>('select now() as now');
     const now = t[0]!.now;
-    if (!q.since) return { now, messages: [], reactions: [], activity: [], nearby: [], reminder: null };
+    if (!q.since) return { now, messages: [], reactions: [], activity: [], nearby: [], reminder: null, people: [] };
     const notBlocked = (col: string) =>
       `not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = ${col}) or (b.blocker_id = ${col} and b.blocked_id = $1))`;
     const person = (a: string) =>
@@ -244,6 +244,17 @@ export async function messageRoutes(app: FastifyInstance) {
       ),
       newNearby(me, q.since, now, q.lat, q.lng, q.city),
     ]);
+    // Anyone whose photo, name or username changed since the last check (with their old
+    // usernames), so the app can update them wherever they already show on screen.
+    const { rows: people } = await db.query(
+      `select p.handle, p.display_name as "displayName", p.avatar_path as "avatarUrl",
+              coalesce((select array_agg(h.old_handle order by h.changed_at)
+                        from handle_history h where h.user_id = p.id and h.changed_at > $2), '{}') as "formerHandles"
+       from profiles p
+       where p.profile_updated_at > $2 and p.profile_updated_at <= $3 and ${notBlocked('p.id')}
+       order by p.profile_updated_at desc limit 200`,
+      [me, q.since, now],
+    );
     // Once a day (daytime in India) while two-step sign-in is off: a nudge to turn it on.
     const [from, to] = app.config.remindHours ?? [10, 20];
     const { rows: remind } = await db.query(
@@ -261,6 +272,7 @@ export async function messageRoutes(app: FastifyInstance) {
       activity: activity.rows.map((r) => ({ ...r, id: Number(r.id) })),
       nearby,
       reminder: remind[0] ? { kind: 'two_factor' } : null,
+      people,
     };
   });
 

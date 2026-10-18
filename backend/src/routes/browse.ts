@@ -111,6 +111,7 @@ export async function browseRoutes(app: FastifyInstance) {
               p.photo_credit as "photoCredit", p.is_sponsored as "isSponsored", p.sponsor_note as "sponsorNote",
               p.instagram_url as "instagramUrl", p.created_at as "createdAt",
               pr.handle as "authorHandle", pr.display_name as "authorName",
+              pr.avatar_path as "authorAvatarUrl",
               (p.visit = 'verified') as "verifiedVisit",
               (select count(*)::int from comments cm where cm.post_id = p.id and cm.status = 'live') as "commentCount"
        from posts p left join profiles pr on pr.id = p.author_id

@@ -306,7 +306,7 @@ fun PeopleList(
                     onOpen = { onOpenUser(p.handle) },
                     onFollow = {
                         if (app.session.value == null) return@PersonRow onNeedSignIn()
-                        val on = !p.isFollowing
+                        val on = !(app.following.value[p.handle] ?: p.isFollowing)
                         fun set(v: Boolean) {
                             val i = people.indexOfFirst { it.handle == p.handle }
                             if (i >= 0) people[i] = people[i].copy(isFollowing = v)

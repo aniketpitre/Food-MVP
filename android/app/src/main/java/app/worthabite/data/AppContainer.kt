@@ -165,16 +165,45 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
 
     /** Bumped whenever you follow or unfollow someone, so lists built from follows reload. */
     val followVersion = MutableStateFlow(0)
+
+    /**
+     * Who you follow, as you last set it on this phone, by username. Every Follow button,
+     * follower count and list reads this first, so following or unfollowing someone shows
+     * everywhere at once, on screens loaded before the change too.
+     */
+    val following = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /**
+     * The current look (photo, name, username) of people whose profile changed, by any
+     * username they had. Every face and name in the app reads this first, so a new photo or
+     * name shows everywhere at once: comments, chats, lists, the feed, old screens included.
+     * Filled by your own edits and, for everyone else, by [checkUpdates].
+     */
+    val people = MutableStateFlow<Map<String, PersonChange>>(emptyMap())
+
+    private fun rememberPerson(change: PersonChange) {
+        people.update { m -> m + (change.formerHandles + change.handle).associateWith { change } }
+    }
     private val followLock = kotlinx.coroutines.sync.Mutex()
 
     /**
      * Follows or unfollows [handle]. Calls go out one at a time, in the order they were
      * tapped, so quick taps can't land on the server out of order.
      */
-    suspend fun setFollowing(handle: String, on: Boolean): FollowState = followLock.withLock {
-        val r = apiCall { if (on) api.follow(handle) else api.unfollow(handle) }
-        followVersion.update { it + 1 }
-        r
+    suspend fun setFollowing(handle: String, on: Boolean): FollowState {
+        val before = following.value[handle]
+        following.update { it + (handle to on) }
+        return followLock.withLock {
+            try {
+                val r = apiCall { if (on) api.follow(handle) else api.unfollow(handle) }
+                following.update { it + (handle to r.isFollowing) }
+                followVersion.update { it + 1 }
+                r
+            } catch (e: Exception) {
+                following.update { if (before == null) it - handle else it + (handle to before) }
+                throw e
+            }
+        }
     }
 
     /** Removes [handle] from your followers. */
@@ -316,6 +345,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
             return@withLock // offline or server down: try again next time
         }
         prefs.saveUpdatesSince(page.now)
+        page.people.forEach(::rememberPerson)
         if (since == null) return@withLock
         Notifications.show(appContext, page.messages, page.reactions, page.activity, openChatId.value)
         page.reminder?.let { Notifications.showReminder(appContext, it.kind) }
@@ -345,7 +375,10 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     /** Applies a profile change from the server to the signed-in session. */
     suspend fun updatedMe(user: User) {
         val token = _session.value?.token ?: return
+        val before = _session.value?.user
         _session.value = Session(token, user)
+        // Your new photo, name or username shows everywhere you appear, straight away.
+        rememberPerson(PersonChange(user.handle, user.displayName, user.avatarUrl, listOfNotNull(before?.handle?.takeIf { it != user.handle })))
         prefs.saveSession(token, user)
         contentVersion.update { it + 1 }
     }
@@ -367,6 +400,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         scope.launch { checkUpdates() }
         scope.launch { PushSetup.sync(this@AppContainer) }
         _overrides.value = emptyMap()
+        following.value = emptyMap()
         contentVersion.update { it + 1 }
         val action = pendingAction
         pendingAction = null
@@ -398,6 +432,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     }
 
     private suspend fun clearSession() {
+        following.value = emptyMap()
         _session.value = null
         unreadActivity.value = 0
         unreadMessages.value = 0

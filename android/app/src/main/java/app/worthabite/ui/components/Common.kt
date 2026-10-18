@@ -1,5 +1,7 @@
 package app.worthabite.ui.components
 
+import app.worthabite.data.PersonChange
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -136,6 +138,25 @@ private val AvatarTints = listOf(
 /** Turns a server path ("/media/...") into a full URL. Provided at the app root; tests use paths as-is. */
 val LocalMediaUrl = staticCompositionLocalOf<(String?) -> String?> { { it } }
 
+/** People's current look, by any username they've had (see AppContainer.people). */
+val LocalPeople = compositionLocalOf<Map<String, PersonChange>> { emptyMap() }
+
+/** Who you follow as set on this phone, by username (see AppContainer.following). */
+val LocalFollowing = compositionLocalOf<Map<String, Boolean>> { emptyMap() }
+
+/** [handle]'s current username (it may have changed since this screen loaded). */
+@Composable
+fun shownHandle(handle: String): String = LocalPeople.current[handle]?.handle ?: handle
+
+/** [handle]'s current name, falling back to what the screen loaded. */
+@Composable
+fun shownName(handle: String, displayName: String?): String? =
+    LocalPeople.current[handle]?.let { it.displayName } ?: displayName
+
+/** Whether you follow [handle]: your latest tap on this phone, else what the screen loaded. */
+@Composable
+fun shownFollowing(handle: String, loaded: Boolean): Boolean = LocalFollowing.current[handle] ?: loaded
+
 /**
  * A person's face: their profile photo when they have one, otherwise their initials on a
  * warm pastel picked from the username, so each person keeps a colour.
@@ -149,6 +170,10 @@ fun Avatar(
     ring: Color? = null,
     photo: String? = null,
 ) {
+    // Their current photo and name, if they changed since this screen loaded.
+    val changed = LocalPeople.current[handle]
+    val shownPhoto = if (changed != null) changed.avatarUrl else photo
+    val name = if (changed != null) changed.displayName else displayName
     val tint = AvatarTints[(handle.hashCode() and 0x7fffffff) % AvatarTints.size]
     Box(
         modifier
@@ -159,14 +184,14 @@ fun Avatar(
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            Format.initials(handle, displayName),
+            Format.initials(changed?.handle ?: handle, name),
             color = Ink,
             fontFamily = TextFamily,
             fontWeight = FontWeight.Bold,
             fontSize = (size.value * 0.36f).sp,
         )
-        if (photo != null) {
-            val url = LocalMediaUrl.current(photo)
+        if (shownPhoto != null) {
+            val url = LocalMediaUrl.current(shownPhoto)
             val override = url?.let { LocalImageOverride.current?.invoke(it) }
             if (override != null) {
                 Image(override, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())

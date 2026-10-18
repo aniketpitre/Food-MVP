@@ -1,5 +1,7 @@
 package app.worthabite.ui.profile
 
+import kotlinx.coroutines.flow.drop
+import app.worthabite.ui.components.shownFollowing
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -131,9 +133,12 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
         viewModelScope.launch {
             combine(app.session, app.contentVersion) { s, _ -> s }.collect { load() }
         }
+        // Your own profile: following someone anywhere changes your "following" count.
+        if (handle == null) viewModelScope.launch { app.followVersion.drop(1).collect { load() } }
     }
 
-    private fun target() = handle ?: app.session.value?.user?.handle
+    /** Their current username (it may have changed since the link or list was loaded). */
+    private fun target() = handle?.let { app.people.value[it]?.handle ?: it } ?: app.session.value?.user?.handle
 
     fun load() {
         val target = target()
@@ -183,8 +188,9 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
     fun toggleFollow(onNeedSignIn: () -> Unit, showMessage: (String) -> Unit) {
         val p = _state.value.profile ?: return
         if (app.session.value == null) return onNeedSignIn()
-        val on = !p.isFollowing
-        _state.update { it.copy(profile = p.copy(isFollowing = on, followers = (p.followers + if (on) 1 else -1).coerceAtLeast(0))) }
+        val was = app.following.value[p.handle] ?: p.isFollowing
+        val on = !was
+        _state.update { it.copy(profile = p.copy(isFollowing = on, followers = (p.followers + if (on == p.isFollowing) 0 else if (on) 1 else -1).coerceAtLeast(0))) }
         val tap = ++followTaps
         viewModelScope.launch {
             try {
@@ -301,7 +307,11 @@ fun ProfileContent(
     onOpenStory: (String) -> Unit = {},
     onAddDish: () -> Unit = {},
 ) {
-    val profile = state.profile ?: return
+    val loaded = state.profile ?: return
+    // Following them, and their follower count, as of your latest tap anywhere in the app.
+    val following = shownFollowing(loaded.handle, loaded.isFollowing)
+    val profile = if (following == loaded.isFollowing) loaded
+    else loaded.copy(isFollowing = following, followers = (loaded.followers + if (following) 1 else -1).coerceAtLeast(0))
     var menu by remember { mutableStateOf(false) }
     val tabs = if (profile.isMe) ProfileTab.entries else listOf(ProfileTab.Posts, ProfileTab.Loved)
     LazyVerticalGrid(

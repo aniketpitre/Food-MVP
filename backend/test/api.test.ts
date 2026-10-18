@@ -2352,3 +2352,28 @@ describe('following feed', () => {
     expect(await kinds()).toContain('post');
   });
 });
+
+describe('profile changes reach everyone', () => {
+  it('hands a new photo, name and username to other phones through /updates', async () => {
+    const me = await signUp();
+    const other = await signUp();
+    const start = (await app.inject({ url: '/updates', headers: other.auth })).json().now;
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: me.auth, payload: { displayName: 'New Name', username: `${me.handle}_x` } });
+    const up = (await app.inject({ url: `/updates?since=${encodeURIComponent(start)}`, headers: other.auth })).json();
+    const change = up.people.find((p: { handle: string }) => p.handle === `${me.handle}_x`);
+    expect(change).toMatchObject({ displayName: 'New Name', formerHandles: [me.handle] });
+    // Nothing changed since: nobody is sent again.
+    const again = (await app.inject({ url: `/updates?since=${encodeURIComponent(up.now)}`, headers: other.auth })).json();
+    expect(again.people.find((p: { handle: string }) => p.handle === `${me.handle}_x`)).toBeUndefined();
+    // Comments always carry the author's current photo and name.
+    const dish = await dishId('Misal Pav');
+    const page = (await app.inject(`/dishes/${dish}`)).json();
+    const comment = await app.inject({ method: 'POST', url: `/posts/${page.cover.postId}/comments`, headers: me.auth, payload: { body: 'Spicy!' } });
+    expect(comment.statusCode).toBe(201);
+    await app.inject({ method: 'POST', url: '/me/avatar', ...multipart(me.auth, {}, await photo()) });
+    const list = (await app.inject(`/posts/${page.cover.postId}/comments`)).json();
+    const mine = list.comments.find((c: { body: string }) => c.body === 'Spicy!');
+    expect(mine.author.avatarUrl).toMatch(/^\/media\/avatars\//);
+    expect(mine.author.displayName).toBe('New Name');
+  });
+});

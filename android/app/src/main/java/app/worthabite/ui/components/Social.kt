@@ -133,7 +133,17 @@ fun ExpertBadge(label: String = "Expert") {
 
 /** Saffron "Follow" that turns into an outlined "Following", with a little squash on tap. */
 @Composable
-fun FollowButton(isFollowing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, small: Boolean = false, followsYou: Boolean = false) {
+fun FollowButton(
+    isFollowing: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    small: Boolean = false,
+    followsYou: Boolean = false,
+    /** Whose button this is: your latest follow/unfollow of them on this phone wins over [isFollowing]. */
+    handle: String? = null,
+) {
+    @Suppress("NAME_SHADOWING")
+    val isFollowing = if (handle != null) shownFollowing(handle, isFollowing) else isFollowing
     val interaction = remember { MutableInteractionSource() }
     val bg by animateColorAsState(
         if (isFollowing) Color.Transparent else MaterialTheme.colorScheme.primary, Motion.enter(Motion.SHORT), label = "follow-bg",
@@ -175,13 +185,13 @@ fun PersonRow(person: Person, onOpen: () -> Unit, onFollow: (() -> Unit)?, modif
         Avatar(person.handle, person.displayName, 48.dp, photo = person.avatarUrl)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(person.handle, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            person.displayName?.let {
+            Text(shownHandle(person.handle), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            shownName(person.handle, person.displayName)?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
         }
         if (trailing != null) trailing()
-        else if (onFollow != null && !person.isMe) FollowButton(person.isFollowing, onFollow, small = true)
+        else if (onFollow != null && !person.isMe) FollowButton(person.isFollowing, onFollow, small = true, handle = person.handle)
     }
 }
 

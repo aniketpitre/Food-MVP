@@ -1,5 +1,6 @@
 package app.worthabite.ui.dish
 
+import app.worthabite.ui.components.shownHandle
 import app.worthabite.ui.feed.VerifiedVisitChip
 import app.worthabite.ui.components.DemoTag
 import app.worthabite.ui.components.rememberTakeMeThere
@@ -398,9 +399,9 @@ fun DishContent(
                         PrimaryButton("Take me there", onMaps, Modifier.fillMaxWidth(), leading = AppIcons.Directions)
                         currentPost?.let { post ->
                             Row(verticalAlignment = Alignment.Top) {
-                                val handle = post.authorHandle
+                                val handle = post.authorHandle?.let { shownHandle(it) }
                                 if (handle != null) {
-                                    Avatar(handle, post.authorName, 32.dp, Modifier.clickable { onOpenUser(handle) })
+                                    Avatar(post.authorHandle, post.authorName, 32.dp, Modifier.clickable { onOpenUser(handle) }, photo = post.authorAvatarUrl)
                                     Spacer(Modifier.width(12.dp))
                                 }
                                 Column(

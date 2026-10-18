@@ -1,5 +1,6 @@
 package app.worthabite.ui.comments
 
+import app.worthabite.ui.components.shownHandle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -398,14 +399,16 @@ private fun CommentRow(
                 .padding(start = if (isReply) 68.dp else 20.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
             verticalAlignment = Alignment.Top,
         ) {
+            val authorHandle = shownHandle(c.author.handle)
             Avatar(
                 c.author.handle, c.author.displayName, if (isReply) 28.dp else 36.dp,
-                Modifier.clip(CircleShape).clickable { onOpenUser(c.author.handle) },
+                Modifier.clip(CircleShape).clickable { onOpenUser(authorHandle) },
+                photo = c.author.avatarUrl,
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.author.handle, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                    Text(authorHandle, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                     Spacer(Modifier.width(8.dp))
                     Text(Format.timeAgo(c.createdAt), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -532,7 +535,9 @@ private fun Composer(
             Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(me ?: "you", null, 36.dp)
+            // Your own face (the people map has your latest photo once you've changed it).
+            val myPhoto = LocalApp.current.session.collectAsState().value?.user?.avatarUrl
+            Avatar(me ?: "you", null, 36.dp, photo = myPhoto)
             Spacer(Modifier.width(10.dp))
             val canSend = state.draft.isNotBlank() && !state.sending
             Box(

@@ -1,5 +1,7 @@
 package app.worthabite
 
+import app.worthabite.ui.components.LocalPeople
+import app.worthabite.ui.components.LocalFollowing
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -35,9 +37,13 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 else -> isSystemInDarkTheme()
             }
+            val people by container.people.collectAsState()
+            val following by container.following.collectAsState()
             WorthAbiteTheme(darkTheme = dark) {
                 CompositionLocalProvider(
                     LocalApp provides container,
+                    LocalPeople provides people,
+                    LocalFollowing provides following,
                     LocalMediaUrl provides container::mediaUrl,
                     LocalLiteMode provides (lite == "on" || (lite == "auto" && container.isLowEndDevice)),
                 ) {

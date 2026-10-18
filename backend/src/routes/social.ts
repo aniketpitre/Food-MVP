@@ -125,6 +125,8 @@ export async function socialRoutes(app: FastifyInstance) {
       }
       throw err;
     }
+    // A new name or username: followers' phones fetch it now instead of on their next check.
+    if (body.displayName !== undefined || body.username !== undefined) await app.push.tickleFollowers(me);
     return meJson(me);
   });
 
@@ -147,6 +149,7 @@ export async function socialRoutes(app: FastifyInstance) {
       [me, url],
     );
     await deleteAvatar(config.mediaDir, rows[0]?.old ?? null);
+    await app.push.tickleFollowers(me);
     return meJson(me);
   });
 
@@ -157,6 +160,7 @@ export async function socialRoutes(app: FastifyInstance) {
       [me],
     );
     await deleteAvatar(config.mediaDir, rows[0]?.old ?? null);
+    await app.push.tickleFollowers(me);
     return meJson(me);
   });
 

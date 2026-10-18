@@ -149,6 +149,7 @@ data class Post(
     val createdAt: String = "",
     val authorHandle: String? = null,
     val authorName: String? = null,
+    val authorAvatarUrl: String? = null,
     val commentCount: Int = 0,
     val verifiedVisit: Boolean = false,
 )
@@ -1000,6 +1001,17 @@ data class UpdatesPage(
     val nearby: List<UpdateNearby> = emptyList(),
     /** Once a day while two-step sign-in is off: a reminder to turn it on. */
     val reminder: UpdateReminder? = null,
+    /** People whose photo, name or username changed since the last check. */
+    val people: List<PersonChange> = emptyList(),
+)
+
+/** Someone's new look, and the usernames they had before (to update screens still showing those). */
+@Serializable
+data class PersonChange(
+    val handle: String,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+    val formerHandles: List<String> = emptyList(),
 )
 
 @Serializable

@@ -98,7 +98,8 @@ class ActivityViewModel(private val app: AppContainer) : ViewModel() {
 
     /** Follow back, or unfollow, straight from a "started following you" row. */
     fun follow(handle: String, showMessage: (String) -> Unit) {
-        val on = _state.value.items.firstOrNull { it.actor.handle == handle }?.followingActor?.not() ?: true
+        val loaded = _state.value.items.firstOrNull { it.actor.handle == handle }?.followingActor ?: false
+        val on = !(app.following.value[handle] ?: loaded)
         fun mark(v: Boolean) = _state.update { s -> s.copy(items = s.items.map { if (it.actor.handle == handle) it.copy(followingActor = v) else it }) }
         mark(on)
         viewModelScope.launch {
@@ -247,7 +248,7 @@ private fun ActivityRow(
         )
         Spacer(Modifier.width(10.dp))
         when {
-            n.kind == "follow" -> FollowButton(n.followingActor, { onFollow(n.actor.handle) }, small = true, followsYou = true)
+            n.kind == "follow" -> FollowButton(n.followingActor, { onFollow(n.actor.handle) }, small = true, followsYou = true, handle = n.actor.handle)
             n.dish != null -> DishImage(imageUrl(n.dish.thumbUrl), null, n.dish.name, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)))
         }
     }
