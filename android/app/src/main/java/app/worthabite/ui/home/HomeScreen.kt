@@ -146,9 +146,13 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
         viewModelScope.launch { runCatching { app.setFollowing(handle, true) } }
     }
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+
+    /** Loads Home; a newer load replaces one still running, so an older answer never lands last. */
     fun load() {
         val city = app.city.value ?: return
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.update { it.copy(loading = it.data == HomeData() && !it.refreshing, error = null) }
             try {
                 val loc = app.location.value

@@ -127,6 +127,10 @@ class FullAppTest {
     private fun waitFor(matcher: SemanticsMatcher, timeoutMs: Long = 15_000) =
         compose.waitUntil(timeoutMs) { compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
+    /** Waits for [matcher] in the merged tree, where a button's text and its click are one node. */
+    private fun waitMerged(matcher: SemanticsMatcher, timeoutMs: Long = 15_000) =
+        compose.waitUntil(timeoutMs) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
+
     private fun waitText(text: String, substring: Boolean = false, timeoutMs: Long = 15_000) =
         waitFor(hasText(text, substring = substring), timeoutMs)
 
@@ -509,7 +513,13 @@ class FullAppTest {
         }
         step("For you and people with your taste on Home") {
             // The reason line sits inside a tappable card, so look for the section, then the line.
-            compose.waitUntil(20_000) {
+            var nudged = System.currentTimeMillis()
+            compose.waitUntil(30_000) {
+                // Home reloads on its own after the taste is saved; nudge it if the votes landed after that.
+                if (System.currentTimeMillis() - nudged > 8_000) {
+                    nudged = System.currentTimeMillis()
+                    container.contentVersion.value++
+                }
                 runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasText("For you")) }.isSuccess
             }
             waitFor(hasTestTag("because"), 10_000)
@@ -646,9 +656,9 @@ class FullAppTest {
         }
         step("I follow them from their profile, at once") {
             open("worthabite://user/${chef.user.handle}")
-            waitFor(hasText("Follow") and hasClickAction(), 20_000)
+            waitMerged(hasText("Follow") and hasClickAction(), 20_000)
             compose.onAllNodes(hasText("Follow") and hasClickAction()).onFirst().performClick()
-            waitFor(hasText("Following") and hasClickAction())
+            waitMerged(hasText("Following") and hasClickAction())
             shot("93_followed")
         }
         step("their older post is in my Following tab, then all caught up") {
@@ -663,9 +673,9 @@ class FullAppTest {
         }
         step("unfollow: their posts leave my Following tab") {
             open("worthabite://user/${chef.user.handle}")
-            waitFor(hasText("Following") and hasClickAction(), 20_000)
+            waitMerged(hasText("Following") and hasClickAction(), 20_000)
             compose.onAllNodes(hasText("Following") and hasClickAction()).onFirst().performClick()
-            waitFor(hasText("Follow") and hasClickAction())
+            waitMerged(hasText("Follow") and hasClickAction())
             backTo(hasContentDescription("Explore"))
             tab("Explore")
             waitText("Nothing from people you follow yet", substring = true, timeoutMs = 20_000)
@@ -685,13 +695,13 @@ class FullAppTest {
         step("Activity: follow back and unfollow straight from the row") {
             call("PUT", "/users/${me.user.handle}/follow", chef.token)
             open("worthabite://activity")
-            waitFor(hasText("Follow back") and hasClickAction(), 20_000)
+            waitMerged(hasText("Follow back") and hasClickAction(), 20_000)
             compose.onAllNodes(hasText("Follow back") and hasClickAction()).onFirst().performClick()
-            waitFor(hasText("Following") and hasClickAction())
+            waitMerged(hasText("Following") and hasClickAction())
             assertTrue(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
             shot("96_activity_follow_back")
             compose.onAllNodes(hasText("Following") and hasClickAction()).onFirst().performClick()
-            waitFor(hasText("Follow back") and hasClickAction())
+            waitMerged(hasText("Follow back") and hasClickAction())
             val end = System.currentTimeMillis() + 10_000
             while (System.currentTimeMillis() < end && call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing")) Thread.sleep(300)
             assertFalse(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
