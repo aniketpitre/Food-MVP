@@ -299,7 +299,7 @@ class FullAppTest {
         }
         step("the place page") {
             compose.onAllNodes(hasContentDescription("Open place")).onFirst().performScrollTo().performClick()
-            waitText("Most recommended here", timeoutMs = 15_000)
+            waitText("Best dishes here", timeoutMs = 15_000)
             waitFor(hasTestTag("demo_tag"))
             Thread.sleep(1200)
             shot("24_place_page")
@@ -1034,7 +1034,7 @@ class FullAppTest {
             Thread.sleep(1200)
             shot("66_navigate_arrived")
             compose.onNodeWithTag("nav_open_place").performClick()
-            waitText("Most recommended here", timeoutMs = 15_000)
+            waitText("Best dishes here", timeoutMs = 15_000)
             container.location.value = Coords(19.9975, 73.7898)
         }
         step("complete your profile") {
