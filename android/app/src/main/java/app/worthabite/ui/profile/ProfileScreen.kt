@@ -128,9 +128,16 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 
+    private var storyIds: List<String> = emptyList()
+    private fun watchedAll() = storyIds.isNotEmpty() && app.seenStories.value.containsAll(storyIds)
+
     init {
         viewModelScope.launch {
             combine(app.session, app.contentVersion) { s, _ -> s }.collect { load() }
+        }
+        // Watching their story anywhere (the Home tray, this profile) greys the ring here at once.
+        viewModelScope.launch {
+            app.seenStories.collect { if (watchedAll()) _state.update { it.copy(storySeen = true) } }
         }
         // Your own profile: following someone anywhere changes your "following" count.
         if (handle == null) viewModelScope.launch { app.followVersion.drop(1).collect { load() } }
@@ -152,7 +159,8 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
                 _state.update { it.copy(loading = false, profile = p, loved = null, saved = null) }
                 loadTab(_state.value.tab)
                 runCatching { apiCall { app.api.userStories(target) } }.onSuccess { r ->
-                    _state.update { it.copy(hasStory = r.stories.isNotEmpty(), storySeen = r.allSeen) }
+                    storyIds = r.stories.map { it.id }
+                    _state.update { it.copy(hasStory = r.stories.isNotEmpty(), storySeen = r.allSeen || watchedAll()) }
                 }
             } catch (e: ApiException) {
                 _state.update { it.copy(loading = false, error = e.message) }

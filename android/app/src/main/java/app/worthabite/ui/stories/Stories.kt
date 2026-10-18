@@ -118,6 +118,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
@@ -255,16 +256,20 @@ class StoryViewerViewModel(private val app: AppContainer, private val handle: St
     val signedIn get() = app.session.value != null
 
     fun seen(reel: StoryReel, story: Story) {
-        if (reel.isMe || story.seen || !signedIn) return
+        if (!signedIn) return
+        // Marked on this phone first, so every ring greys out at once, your own included.
+        app.markStorySeen(story.id)
+        if (reel.isMe || story.seen) return
         viewModelScope.launch { runCatching { apiCall { app.api.viewStory(story.id) } } }
-        // Mark it locally so the tray ring greys out without a reload.
-        app.storyTray.update { tray ->
-            tray.map { r ->
-                if (r.user.handle != reel.user.handle) r
-                else r.copy(stories = r.stories.map { if (it.id == story.id) it.copy(seen = true) else it })
-                    .let { it.copy(allSeen = it.stories.all { s -> s.seen }) }
-            }
-        }
+    }
+
+    /** Live "Seen by" counts for your own stories, by story id. */
+    val viewCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+
+    /** Re-counts who has seen [stories] (yours), so the number climbs while you watch. */
+    suspend fun refreshViewCounts(stories: List<Story>) {
+        val counts = stories.associate { s -> s.id to runCatching { apiCall { app.api.storyViewers(s.id) }.items.size }.getOrNull() }
+        viewCounts.update { old -> old + counts.filterValues { it != null }.mapValues { it.value!! } }
     }
 
     fun like(story: Story, liked: Boolean) {
@@ -322,6 +327,16 @@ fun StoryViewerScreen(
     val pager = rememberPagerState(initialPage = vm.start.coerceIn(0, reels.lastIndex)) { reels.size }
     var viewersOf by remember { mutableStateOf<Story?>(null) }
     val drag = remember { Animatable(0f) }
+    val viewCounts by vm.viewCounts.collectAsStateWithLifecycle()
+    // On your own stories, "Seen by" keeps counting while you watch.
+    val mineOnScreen = reels.getOrNull(pager.currentPage)?.takeIf { it.isMe }
+    LaunchedEffect(mineOnScreen?.user?.handle) {
+        val reel = mineOnScreen ?: return@LaunchedEffect
+        while (true) {
+            vm.refreshViewCounts(reel.stories)
+            delay(4_000)
+        }
+    }
 
     Box(
         Modifier
@@ -378,6 +393,7 @@ fun StoryViewerScreen(
                     onOpenUser = onOpenUser,
                     onViewers = { viewersOf = it },
                     onDelete = { s -> vm.delete(s) { if (reel.stories.size <= 1) onClose() } },
+                    viewCountOf = { s -> viewCounts[s.id] ?: s.viewCount ?: 0 },
                 )
             }
         }
@@ -387,8 +403,14 @@ fun StoryViewerScreen(
         val viewers = remember { mutableStateListOf<StoryViewer>() }
         var loading by remember { mutableStateOf(true) }
         LaunchedEffect(s.id) {
-            viewers.addAll(vm.viewers(s))
-            loading = false
+            // Kept fresh while open: new viewers and likes appear as they happen.
+            while (true) {
+                val now = vm.viewers(s)
+                viewers.clear()
+                viewers.addAll(now)
+                loading = false
+                delay(4_000)
+            }
         }
         ModalBottomSheet(onDismissRequest = { viewersOf = null }) {
             Text(
@@ -430,6 +452,7 @@ private fun StoryPage(
     onOpenUser: (String) -> Unit,
     onViewers: (Story) -> Unit,
     onDelete: (Story) -> Unit,
+    viewCountOf: (Story) -> Int = { it.viewCount ?: 0 },
 ) {
     val stories = reel.stories
     if (stories.isEmpty()) return
@@ -564,7 +587,7 @@ private fun StoryPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Seen by ${story.viewCount ?: 0}",
+                        "Seen by ${viewCountOf(story)}",
                         color = Color.White,
                         style = MaterialTheme.typography.labelLarge,
                     )

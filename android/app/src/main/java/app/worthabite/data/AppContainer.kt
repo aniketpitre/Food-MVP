@@ -116,6 +116,32 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     /** The stories tray as Home last loaded it; the story viewer pages through the same list. */
     val storyTray = MutableStateFlow<List<StoryReel>>(emptyList())
 
+    /**
+     * Stories watched on this phone, by id. Every ring (Home tray, profiles) reads this too,
+     * so it greys the moment you watch, and a reload that raced the view can't bring the
+     * colour back. Your own stories count once you've watched them, as on Instagram.
+     */
+    val seenStories = MutableStateFlow<Set<String>>(emptySet())
+
+    fun markStorySeen(id: String) {
+        if (id in seenStories.value) return
+        seenStories.update { it + id }
+        storyTray.update { withSeen(it) }
+    }
+
+    /** Puts a freshly loaded tray in place, keeping what you've already watched grey. */
+    fun setStoryTray(reels: List<StoryReel>) {
+        storyTray.value = withSeen(reels)
+    }
+
+    private fun withSeen(reels: List<StoryReel>): List<StoryReel> {
+        val seen = seenStories.value
+        return reels.map { r ->
+            val stories = r.stories.map { if (!it.seen && it.id in seen) it.copy(seen = true) else it }
+            r.copy(stories = stories, allSeen = stories.isNotEmpty() && stories.all { it.seen })
+        }
+    }
+
     /** Chats with something new plus waiting message requests: the badge on the messages button. */
     val unreadMessages = MutableStateFlow(0)
     private val network = NetworkFactory(

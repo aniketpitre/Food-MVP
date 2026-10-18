@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import app.worthabite.data.ApiException
 import app.worthabite.data.AppContainer
@@ -140,6 +141,12 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
         load()
     }
 
+    /** Reloads just the stories tray: new stories from people you follow, without a full Home reload. */
+    suspend fun refreshStories() {
+        val city = app.city.value ?: return
+        runCatching { apiCall { app.api.stories(city.id) } }.onSuccess { app.setStoryTray(it.items) }
+    }
+
     /** Follows someone suggested for their taste; they leave the suggestions. */
     fun followMate(handle: String) {
         _state.update { s -> s.copy(mates = s.mates.filterNot { it.handle == handle }) }
@@ -165,7 +172,7 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
                 } else {
                     _state.update { it.copy(mates = emptyList(), tasteSet = null) }
                 }
-                runCatching { apiCall { app.api.stories(city.id) } }.onSuccess { app.storyTray.value = it.items }
+                runCatching { apiCall { app.api.stories(city.id) } }.onSuccess { app.setStoryTray(it.items) }
                 app.refreshUnreadMessages()
             } catch (e: ApiException) {
                 _state.update { it.copy(loading = false, refreshing = false, error = e.message) }
@@ -193,6 +200,16 @@ fun HomeScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
     val stories by app.storyTray.collectAsState()
+    // New stories show up while Home is open, every 30 seconds and whenever you come back to it.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                vm.refreshStories()
+            }
+        }
+    }
     val unreadMessages by app.unreadMessages.collectAsState()
     val session by app.session.collectAsState()
     // A new line each time Home opens, picked for the time of day.
