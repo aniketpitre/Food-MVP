@@ -11,10 +11,15 @@ some people more than others because of their track record.
 |---|---|
 | **Loved it** (recommend) | "Go here for this." |
 | **Not for me** (pass) | "I tried it and wouldn't send you there." Also marks it tried. |
-| Tried, no verdict | Ignored by the rating. |
-| Save, share | Feed popularity only; never part of the rating. |
+| Tried, no verdict | Ignored by the rating, and adds no feed points. |
+| Save, share | Feed points only (Trending, tie-breaks); never part of the rating. |
+| **Posting a photo** | Asks "Worth a bite?": Loved it / Not for me, counted like the buttons. |
 
-Loved it and Not for me exclude each other.
+Loved it and Not for me exclude each other. Whoever added a place doesn't vote for its
+dishes (their votes are kept, but count for nothing), so an owner can't push their menu.
+
+A vote from someone who posted a photo of the dish with a **verified visit** counts
+`visit_weight` (1.25) times: see "Genuine photos" below.
 
 ## Standing: one real person, one vote
 
@@ -84,6 +89,13 @@ people with the highest trust for those dishes are listed as **people to trust**
 
 ## The feed
 
+* **Top** ranks by People's Pick; feed points (saves, shares) only break ties. A place's
+  third dish and beyond move `place_spread` (10) cards down per extra dish, so no place
+  has more than two dishes in any ten cards.
+* **Nearby** is nearest first, People's Pick between equally near dishes.
+* **Trending** still follows this week's feed points.
+* **Following** (in the app): photos from the people you follow, newest first, with no
+  time limit, so someone you've just followed shows up with their older posts too.
 * **Fresh**: dishes with a new photo in the last 14 days, newest first (the editorial
   order leads on launch day). Old dishes nobody endorsed don't stay in it forever.
 * "Not for me" never adds feed points; undoing it also takes back the "tried" it added.
@@ -94,7 +106,7 @@ Every number above lives in the `ranking_config` table (`pp_*`, `trust_*`, `expe
 `standing_*`, `twin_*`) and can be changed without shipping the app. The admin API
 rejects values that would break the maths (and every value is clamped where it's used);
 a change re-ranks everything at once. The SQL is in
-`backend/migrations/007_fair_ranking.sql`: a vote re-rates its dish at once, and trust,
+`backend/migrations/007_fair_ranking.sql` and `013_fair_feed_and_genuine_photos.sql`: a vote re-rates its dish at once, and trust,
 standing and lockstep partners are rebuilt a few seconds after a burst of votes and on
 the ranking timer.
 
@@ -139,3 +151,48 @@ can't reach one), then the best dish at every place within 3 km of the road, in 
 you reach them. "Stop on the way" opens your maps app with that place as a stop.
 
 The SQL is in `backend/migrations/008_taste.sql` (`taste_matches()`, `for_you()`).
+
+## Genuine photos
+
+A photo can't be proven real, but these make faking one costly and copying one useless:
+
+* **Fingerprint.** Every upload gets a 64-bit difference hash (the photo shrunk to 9x8
+  greys; each bit says whether a pixel is brighter than its neighbour). Resizing or
+  recompressing barely changes it; a different photo differs in about half the bits.
+  Within `copy_distance` (6) bits it's the same photo:
+  * your own photo again is refused ("You've already posted this photo");
+  * someone else's is **held** for an admin, shown side by side with the original
+    (Allow if it's genuine, say friends at one table; Remove if it was copied). A held
+    photo gets no credit and can't be a cover.
+* **Verified visit.** The app sends where the phone is when posting, and how and when the
+  photo was taken (camera now, or the gallery photo's own date). Within `visit_radius_m`
+  (300 m) of the place, with a camera photo or one taken in the last `photo_fresh_days`
+  (3) days, the post shows a **Verified visit** badge and its author's vote counts 1.25x.
+  Both come from the phone, so a determined cheat can fake them (GPS spoofing): they're a
+  strong hint, which reports and the other checks back up.
+* **One photo of a dish per person per day**, so many photos of one plate are never many
+  votes. Each person has one vote per dish however many photos they post.
+* **Did you mean…?** Posting "Butter Chkn" where "Butter Chicken" exists offers the
+  existing dish; adding a place with a similar name within 150 m offers the existing
+  place. Admins see look-alike dish names at one place and can **merge** them: photos
+  and votes move over, each person's latest love or "not for me" is their one vote, and
+  old links open the merged dish.
+* **Cover.** A dish's cover is its best recent photo (last `cover_days`, 90): a verified
+  visit first, then the most trusted photographer, then the newest. Cards say how many
+  people photographed it.
+
+## Is it working?
+
+The admin screen's **Algorithm health** card (`GET /admin/health`) shows votes per day,
+how many dishes have 3+ votes, verified photos, own-place votes ignored, accounts voting
+in lockstep, copies held and removed, dishes merged, how much each city's Top 20 changed
+in a week (a snapshot is kept daily), and how often people open the cards each tab shows.
+
+The **prediction check** hides each love or "not for me" from the last 30 days in turn,
+rates the dish from everyone else's votes, and sees whether it predicted the hidden vote.
+"Skill" compares that with always guessing the overall share of loves: above 0 means the
+ranking knows something, 1 would be perfect. Watch it before and after changing a setting.
+
+The backend tests include a **test village**: 20 honest diners rate a great, an okay and a
+poor dish; a ring of 8 new accounts and the place's owner all love the poor one. The
+great dish must beat the okay one, and the okay one must beat the spammed one.
