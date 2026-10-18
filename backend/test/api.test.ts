@@ -559,7 +559,10 @@ describe('sharing dishes with friends', () => {
     expect((await share([b.handle])).json().failed).toEqual([b.handle]);
     await app.inject({ method: 'PATCH', url: '/me/profile', headers: c.auth, payload: { dmPolicy: 'off' } });
     expect((await share([c.handle])).json().failed).toEqual([c.handle]);
-    expect((await app.inject({ url: '/me/friends', headers: a.auth })).json()).toEqual([]);
+    // They stay in the list, greyed out with the reason, so nobody seems to be missing.
+    expect((await app.inject({ url: '/me/friends', headers: a.auth })).json()
+      .map((p: { handle: string; canShare: boolean; cantShareReason: string }) => [p.handle, p.canShare, p.cantShareReason]))
+      .toEqual([[c.handle, false, 'Turned off sharing']]);
   });
 
   it('shows shared dishes and posts in the inbox, with reactions, read state, unsend and notifications', async () => {
