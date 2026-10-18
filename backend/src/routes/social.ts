@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
-import { hashPassword, optionalAuth, passwordProblem, requireAuth, sessionId, userId, verifyPassword } from '../auth.js';
+import { hashPassword, optionalAuth, passwordProblem, requireAuth, sessionId, userId } from '../auth.js';
 import { noticeEmail } from '../mail.js';
-import { endSessions, profileJson, startSession } from './auth.js';
+import { confirmPassword, endSessions, profileJson, startSession } from './auth.js';
 import { loadDishCards, wholePicks } from '../cards.js';
 import { tasteMatch } from './taste.js';
 import { deleteAvatar, storeAvatar } from '../media.js';
@@ -40,7 +40,7 @@ export async function socialRoutes(app: FastifyInstance) {
               comment_policy as "commentPolicy",
               -- The same posts the grid shows everyone (live, of a live dish at an open place).
               (select count(*) from posts po join dishes d on d.id = po.dish_id join restaurants r on r.id = d.restaurant_id
-               where po.author_id = profiles.id and po.status = 'live' and d.status = 'live' and r.status = 'active')::int as posts,
+               where po.author_id = profiles.id and po.status = 'live' and d.status = 'live' and r.status <> 'hidden')::int as posts,
               (select count(*) from engagements where user_id = profiles.id and kind = 'recommend')::int as recommendations,
               (select count(*) from follows where followee_id = profiles.id)::int as followers,
               (select count(*) from follows where follower_id = profiles.id)::int as following,
@@ -60,7 +60,9 @@ export async function socialRoutes(app: FastifyInstance) {
       `select p.id, p.dish_id as "dishId", p.thumb_path as "thumbUrl", p.placeholder_color as "placeholderColor",
               p.status, d.name as "dishName", r.name as "restaurantName", r.status as "restaurantStatus"
        from posts p join dishes d on d.id = p.dish_id join restaurants r on r.id = d.restaurant_id
-       where p.author_id = $1 and ($2 or (p.status = 'live' and d.status = 'live' and r.status = 'active'))
+       -- A photo at a new place still waiting for review shows on the profile (like Instagram,
+       -- your post is there at once); only the public rankings wait for the review.
+       where p.author_id = $1 and ($2 or (p.status = 'live' and d.status = 'live' and r.status <> 'hidden'))
        order by p.created_at desc limit 60`,
       [u.id, isMe],
     );
@@ -180,13 +182,14 @@ export async function socialRoutes(app: FastifyInstance) {
     );
     if (!body) return;
     const me = userId(req)!;
-    const { rows } = await db.query<{ password_hash: string; handle: string; email: string; role: string }>(
-      'select password_hash, handle, email, role from profiles where id = $1',
+    // Wrong passwords count toward the sign-in lock, so a stolen token can't guess it.
+    const denied = await confirmPassword(app, me, body.current, { status: 400, message: 'Your current password is wrong.' });
+    if (denied) return reply.code(denied.status).send(denied.body);
+    const { rows } = await db.query<{ handle: string; email: string; role: string }>(
+      'select handle, email, role from profiles where id = $1',
       [me],
     );
-    if (!rows[0] || !(await verifyPassword(body.current, rows[0].password_hash))) {
-      return reply.code(400).send({ error: 'bad_credentials', message: 'Your current password is wrong.' });
-    }
+    if (!rows[0]) return reply.code(401).send({ error: 'sign_in_required', message: 'Account not found.' });
     const weak = passwordProblem(body.next, [rows[0].handle, rows[0].email]);
     if (weak) return reply.code(400).send({ error: 'weak_password', message: weak });
     await db.query('update profiles set password_hash = $2 where id = $1', [me, await hashPassword(body.next)]);
@@ -289,7 +292,8 @@ export async function socialRoutes(app: FastifyInstance) {
        from posts p
        join profiles a on a.id = p.author_id
        join dishes d on d.id = p.dish_id and d.status = 'live'
-       join restaurants r on r.id = d.restaurant_id and r.status = 'active'
+       -- New places waiting for review included: followers see your post at once.
+       join restaurants r on r.id = d.restaurant_id and r.status <> 'hidden'
        where p.status = 'live'
          and (p.author_id = $1 or p.author_id in (select followee_id from follows where follower_id = $1))
          and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.author_id)

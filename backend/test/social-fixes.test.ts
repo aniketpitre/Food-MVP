@@ -226,16 +226,24 @@ describe('comments', () => {
 });
 
 describe('profile counts', () => {
-  it('the posts count matches the grid', async () => {
+  it('a post at a new place shows on the profile and in Following at once', async () => {
     const u = await signUp({ established: true });
     const placeless = await app.inject({
       method: 'POST', url: '/posts',
       ...multipart(u.auth, { idempotencyKey: 'pc-1-xxxx', dishName: 'Hidden Gem Roll', newPlaceName: 'Pending Shack', newPlaceLat: '20.01', newPlaceLng: '73.79' }, await photo()),
     });
     expect(placeless.statusCode).toBe(201);
+    // A post at a new place waiting for review shows on the profile, for everyone, at once.
     const viewer = await signUp();
     const p = (await app.inject({ url: `/users/${u.handle}`, headers: viewer.auth })).json();
-    expect(p.posts).toHaveLength(0);
-    expect(p).toMatchObject({ posts: [] });
+    expect(p.posts.map((x: { dishName: string; restaurantStatus: string }) => [x.dishName, x.restaurantStatus]))
+      .toEqual([['Hidden Gem Roll', 'pending']]);
+    // ...and in their followers' Following feed.
+    await follow(viewer, u.handle);
+    const feed = (await app.inject({ url: '/feed/following', headers: viewer.auth })).json();
+    expect(feed.items.map((i: { dish: { name: string } }) => i.dish.name)).toContain('Hidden Gem Roll');
+    // But not in the public rankings until a person approves the place.
+    const top = (await app.inject(`/feed?city=${cityId}&limit=50`)).json();
+    expect(top.items.map((i: { name: string }) => i.name)).not.toContain('Hidden Gem Roll');
   });
 });

@@ -2,12 +2,15 @@ package app.worthabite.ui.profile
 
 import app.worthabite.data.ProfileUpdate
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -22,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.worthabite.BuildConfig
 import app.worthabite.data.ApiException
@@ -76,6 +82,9 @@ fun SettingsScreen(
     val theme by app.themeMode.collectAsState()
     val lite by app.liteModeSetting.collectAsState()
     var confirmDelete by remember { mutableStateOf(false) }
+    var deletePassword by remember { mutableStateOf("") }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
@@ -201,25 +210,49 @@ fun SettingsScreen(
     }
 
     if (confirmDelete) {
+        fun closeDelete() {
+            confirmDelete = false
+            deletePassword = ""
+            deleteError = null
+        }
         AlertDialog(
-            onDismissRequest = { confirmDelete = false },
+            onDismissRequest = { if (!deleting) closeDelete() },
             title = { Text("Delete your account?") },
-            text = { Text("This permanently removes your profile, every photo and comment you posted and all your recommendations, saves and follows. It can't be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    scope.launch {
-                        try {
-                            app.deleteAccount()
-                            showMessage("Your account was deleted.")
-                            onBack()
-                        } catch (e: ApiException) {
-                            showMessage(e.message)
-                        }
-                    }
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            text = {
+                // The password again, so someone holding an unlocked phone can't wipe the account.
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("This permanently removes your profile, every photo and comment you posted and all your recommendations, saves and follows. It can't be undone.")
+                    OutlinedTextField(
+                        deletePassword, { deletePassword = it; deleteError = null }, label = { Text("Your password") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    deleteError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            confirmButton = {
+                TextButton(
+                    enabled = deletePassword.isNotEmpty() && !deleting,
+                    onClick = {
+                        deleting = true
+                        scope.launch {
+                            try {
+                                app.deleteAccount(deletePassword)
+                                closeDelete()
+                                showMessage("Your account was deleted.")
+                                onBack()
+                            } catch (e: ApiException) {
+                                // Stays open with the server's reason (a wrong password, a lock).
+                                deleteError = e.message
+                            } finally {
+                                deleting = false
+                            }
+                        }
+                    },
+                ) { Text(if (deleting) "Deleting…" else "Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { closeDelete() }, enabled = !deleting) { Text("Cancel") } },
         )
     }
 }

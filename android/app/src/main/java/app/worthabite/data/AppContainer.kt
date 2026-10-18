@@ -254,10 +254,12 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     suspend fun setServerUrl(url: String) {
         val clean = normaliseServerUrl(url)
         if (clean != _serverUrl.value) {
+            // A different server has different accounts and cities. Sign out first, while
+            // requests still go to the old server: the sign-out carries its token, which
+            // must not be sent to the new one.
+            signOut()
             _serverUrl.value = clean
             prefs.saveServerUrl(clean)
-            // A different server has different accounts and cities.
-            signOut()
             setCity(null)
         }
     }
@@ -509,8 +511,8 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         return created
     }
 
-    suspend fun deleteAccount() {
-        apiCall { api.deleteMe() }
+    suspend fun deleteAccount(password: String) {
+        apiCall { api.deleteMe(PasswordBody(password)) }
         signOut()
     }
 

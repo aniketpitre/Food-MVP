@@ -37,6 +37,8 @@ const loginSchema = z
 /** Wrong passwords in a row before the account locks, and for how long. */
 const LOCK_AFTER = 10;
 const LOCK_MINUTES = 15;
+/** Password-reset codes one account can be sent in a day. */
+const RESETS_PER_DAY = 10;
 
 /** A short name for the device a session is on ("Pixel 6 · Android 11"), from the app. */
 function deviceName(req: FastifyRequest): string | null {
@@ -63,6 +65,79 @@ export async function endSessions(app: FastifyInstance, uid: string, keep?: stri
   );
   await app.db.query('update profiles set tokens_valid_after = now() where id = $1', [uid]);
   forgetSessions({ sessionIds: rows.map((r) => r.id), userId: uid });
+}
+
+/**
+ * Counts one wrong password toward the lock. Once an old lock has run out the count
+ * starts again from 1, so a single typo afterwards doesn't lock the account straight away.
+ */
+export async function countWrongPassword(app: FastifyInstance, uid: string) {
+  await app.db.query(
+    `update profiles set
+       failed_logins = case when locked_until <= now() then 1 else failed_logins + 1 end,
+       locked_until = case
+         when locked_until <= now() then null
+         when failed_logins + 1 >= $2 then now() + make_interval(mins => $3)
+         else locked_until end
+     where id = $1`,
+    [uid, LOCK_AFTER, LOCK_MINUTES],
+  );
+}
+
+function lockedMessage(minutes: number) {
+  return `Too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or reset your password.`;
+}
+
+/**
+ * Checks a signed-in person's own password before something sensitive (turning off
+ * two-step, a new password, deleting the account). Wrong ones count toward the same lock
+ * as signing in, and there are only a few tries a minute, so a stolen token can't be used
+ * to guess the password. Returns the error to send, or null when the password is right.
+ */
+export async function confirmPassword(
+  app: FastifyInstance,
+  uid: string,
+  password: string,
+  wrong: { status: number; message: string },
+): Promise<{ status: number; body: { error: string; message: string } } | null> {
+  // A server set to allow thousands of sign-ins a minute (the test setup) lifts this too.
+  const perMinute = app.config.authRateLimitPerMinute >= 1000 ? app.config.authRateLimitPerMinute : 5;
+  if (tooManyTries(`pw:${uid}`, perMinute)) {
+    return { status: 429, body: { error: 'rate_limited', message: 'Too many tries. Wait a minute and try again.' } };
+  }
+  const { rows } = await app.db.query<{ password_hash: string; locked: boolean; lock_minutes: number }>(
+    `select password_hash, coalesce(locked_until > now(), false) as locked,
+            greatest(1, ceil(extract(epoch from (locked_until - now())) / 60))::int as lock_minutes
+     from profiles where id = $1`,
+    [uid],
+  );
+  const me = rows[0];
+  if (!me) return { status: 401, body: { error: 'sign_in_required', message: 'Account not found.' } };
+  if (me.locked) {
+    await burnPasswordCheck(password);
+    return { status: 429, body: { error: 'locked', message: lockedMessage(me.lock_minutes) } };
+  }
+  if (!(await verifyPassword(password, me.password_hash))) {
+    await countWrongPassword(app, uid);
+    return { status: wrong.status, body: { error: 'bad_credentials', message: wrong.message } };
+  }
+  return null;
+}
+
+/**
+ * Admin comes from ADMIN_EMAILS, but only once the address is proven to be theirs: anyone
+ * could sign up with a listed email. Someone no longer listed goes back to a normal user.
+ */
+export async function syncAdminRole(
+  app: FastifyInstance,
+  user: { id: string; email: string; role: string; email_verified_at?: Date | null },
+) {
+  const listed = !!user.email_verified_at && app.config.adminEmails.includes(user.email);
+  const role = listed ? 'admin' : user.role === 'admin' ? 'user' : user.role;
+  if (role !== user.role) {
+    await app.db.query('update profiles set role = $2 where id = $1', [user.id, role]);
+    user.role = role;
+  }
 }
 
 interface ProfileRow {
@@ -112,12 +187,12 @@ export async function authRoutes(app: FastifyInstance) {
     if (!body) return;
     const weak = passwordProblem(body.password, [body.handle, body.email]);
     if (weak) return reply.code(400).send({ error: 'weak_password', message: weak });
-    const role = config.adminEmails.includes(body.email) ? 'admin' : 'user';
+    // Everyone starts as a normal user; a listed admin email becomes admin once it's verified.
     try {
       const { rows } = await db.query<ProfileRow>(
         `insert into profiles (email, password_hash, handle, display_name, role)
-         values ($1, $2, $3, $4, $5) returning *`,
-        [body.email, await hashPassword(body.password), body.handle, body.displayName || null, role],
+         values ($1, $2, $3, $4, 'user') returning *`,
+        [body.email, await hashPassword(body.password), body.handle, body.displayName || null],
       );
       const user = rows[0]!;
       const token = await startSession(app, user, req);
@@ -155,27 +230,15 @@ export async function authRoutes(app: FastifyInstance) {
     }
     if (user.locked) {
       await burnPasswordCheck(body.password);
-      return reply.code(429).send({
-        error: 'locked',
-        message: `Too many wrong passwords. Try again in ${user.lock_minutes} minute${user.lock_minutes === 1 ? '' : 's'}, or reset your password.`,
-      });
+      return reply.code(429).send({ error: 'locked', message: lockedMessage(user.lock_minutes) });
     }
     if (!(await verifyPassword(body.password, user.password_hash))) {
-      await db.query(
-        `update profiles set failed_logins = failed_logins + 1,
-           locked_until = case when failed_logins + 1 >= $2 then now() + make_interval(mins => $3) else locked_until end
-         where id = $1`,
-        [user.id, LOCK_AFTER, LOCK_MINUTES],
-      );
+      await countWrongPassword(app, user.id);
       return reply.code(401).send(wrong);
     }
     if (user.failed_logins > 0) await db.query('update profiles set failed_logins = 0, locked_until = null where id = $1', [user.id]);
-    // Promote or demote according to ADMIN_EMAILS at every sign-in.
-    const role = config.adminEmails.includes(user.email) ? 'admin' : user.role === 'admin' ? 'user' : user.role;
-    if (role !== user.role) {
-      await db.query('update profiles set role = $2 where id = $1', [user.id, role]);
-      user.role = role;
-    }
+    // Promote or demote according to ADMIN_EMAILS (and a verified email) at every sign-in.
+    await syncAdminRole(app, user);
     // Two-step sign-in: no token yet; a code goes to their email first.
     if (user.two_factor) {
       const challenge = await startChallenge(app, user, 'login');
@@ -251,8 +314,9 @@ export async function authRoutes(app: FastifyInstance) {
     if (!b) return;
     const r = await checkCode(app, b.challengeId, b.code, 'verify', userId(req) ?? undefined);
     if (!r.ok) return reply.code(400).send({ error: 'bad_code', message: r.message });
-    const { rows } = await db.query('update profiles set email_verified_at = coalesce(email_verified_at, now()) where id = $1 returning *', [r.userId]);
-    return profileJson(rows[0]);
+    const { rows } = await db.query<ProfileRow>('update profiles set email_verified_at = coalesce(email_verified_at, now()) where id = $1 returning *', [r.userId]);
+    await syncAdminRole(app, rows[0]!);
+    return profileJson(rows[0]!);
   });
 
   // ---------- Changing the email ----------
@@ -263,25 +327,17 @@ export async function authRoutes(app: FastifyInstance) {
     const b = parse(z.object({ newEmail: z.string().trim().toLowerCase().email('enter a valid email').max(254), password: z.string().max(200) }), req.body, reply);
     if (!b) return;
     const uid = userId(req)!;
-    const { rows } = await db.query<{ id: string; email: string; password_hash: string; locked: boolean; recent: boolean }>(
-      `select id, email, password_hash, coalesce(locked_until > now(), false) as locked,
+    // Wrong passwords here count toward the same lock as signing in.
+    const denied = await confirmPassword(app, uid, b.password, { status: 400, message: 'Your password is wrong.' });
+    if (denied) return reply.code(denied.status).send(denied.body);
+    const { rows } = await db.query<{ id: string; email: string; recent: boolean }>(
+      `select id, email,
               exists (select 1 from auth_codes c where c.user_id = profiles.id and c.purpose = 'change_new'
                         and c.sent_at > now() - interval '30 seconds') as recent
        from profiles where id = $1`,
       [uid],
     );
     const me = rows[0]!;
-    if (me.locked) return reply.code(429).send({ error: 'locked', message: `Too many wrong passwords. Try again in ${LOCK_MINUTES} minutes.` });
-    if (!(await verifyPassword(b.password, me.password_hash))) {
-      // Wrong passwords here count toward the same lock as signing in.
-      await db.query(
-        `update profiles set failed_logins = failed_logins + 1,
-           locked_until = case when failed_logins + 1 >= $2 then now() + make_interval(mins => $3) else locked_until end
-         where id = $1`,
-        [uid, LOCK_AFTER, LOCK_MINUTES],
-      );
-      return reply.code(400).send({ error: 'bad_credentials', message: 'Your password is wrong.' });
-    }
     if (b.newEmail === me.email) return reply.code(400).send({ error: 'same_email', message: "That's already your email." });
     const taken = await db.query('select 1 from profiles where email = $1', [b.newEmail]);
     if (taken.rowCount) return reply.code(409).send({ error: 'email_taken', message: 'Another account already uses that email.' });
@@ -335,6 +391,8 @@ export async function authRoutes(app: FastifyInstance) {
         [uid, newEmail],
       );
       user = rows[0]!;
+      // The new address is proven theirs now; admin follows it (on or off).
+      await syncAdminRole(app, user);
     } catch (err) {
       if ((err as { code?: string }).code === '23505') {
         return reply.code(409).send({ error: 'email_taken', message: 'Another account started using that email. Try a different one.' });
@@ -360,15 +418,25 @@ export async function authRoutes(app: FastifyInstance) {
     if (!app.mailer.enabled) return reply.code(503).send(MAIL_OFF);
     const login = b.login.replace(/^@/, '');
     if (tooManyTries(`forgot:${req.ip}:${login}`, PER_ACCOUNT)) return reply.code(429).send(slowDown);
-    const { rows } = await db.query<{ id: string; email: string; recent: boolean }>(
+    const { rows } = await db.query<{ id: string; email: string; recent: boolean; recent_id: string | null; today: number }>(
       `select p.id, p.email,
-              exists (select 1 from auth_codes c where c.user_id = p.id and c.purpose = 'reset' and c.sent_at > now() - interval '30 seconds') as recent
+              exists (select 1 from auth_codes c where c.user_id = p.id and c.purpose = 'reset' and c.sent_at > now() - interval '30 seconds') as recent,
+              (select c.id from auth_codes c where c.user_id = p.id and c.purpose = 'reset' and c.used_at is null
+                 and c.sent_at > now() - interval '30 seconds' order by c.sent_at desc limit 1) as recent_id,
+              (select count(*)::int from auth_codes c where c.user_id = p.id and c.purpose = 'reset' and c.sent_at > now() - interval '1 day') as today
        from profiles p where ${login.includes('@') ? 'p.email' : 'p.handle'} = $1`,
       [login],
     );
     const u = rows[0];
     const sent = { challengeId: randomUUID(), message: 'If an account matches, we emailed it a 6-digit code.' };
-    if (!u || u.recent) return sent;
+    if (!u) return sent;
+    // Asked twice in a row: no new email, but the same challenge, so the code already
+    // emailed still works with it (a missing account just gets another random one).
+    if (u.recent) return u.recent_id ? { ...sent, challengeId: u.recent_id } : sent;
+    // A cap per account, so nobody can flood someone's inbox; the answer looks the same.
+    if (u.today >= RESETS_PER_DAY) return sent;
+    // Only the newest code works: older ones (maybe in a mailbox someone else saw) stop.
+    await db.query("update auth_codes set used_at = now() where user_id = $1 and purpose = 'reset' and used_at is null", [u.id]);
     const c = await startChallenge(app, u, 'reset', { background: true });
     return 'challengeId' in c ? { ...sent, challengeId: c.challengeId } : sent;
   });
@@ -380,15 +448,17 @@ export async function authRoutes(app: FastifyInstance) {
       reply,
     );
     if (!b) return;
-    // Check the new password first, so a weak one doesn't use up the code.
-    const { rows: who } = await db.query<{ handle: string; email: string }>(
-      'select p.handle, p.email from auth_codes c join profiles p on p.id = c.user_id where c.id = $1',
-      [b.challengeId],
-    );
+    // The code first: answering "weak password" to a wrong code would tell a stranger the
+    // challenge belongs to a real account (and whose). It's only spent once the new
+    // password is good too, so a weak one doesn't use it up.
+    const r = await checkCode(app, b.challengeId, b.code, 'reset', undefined, { consume: false });
+    if (!r.ok) return reply.code(401).send({ error: 'bad_code', message: r.message });
+    const { rows: who } = await db.query<{ handle: string; email: string }>('select handle, email from profiles where id = $1', [r.userId]);
     const weak = passwordProblem(b.password, [who[0]?.handle, who[0]?.email]);
     if (weak) return reply.code(400).send({ error: 'weak_password', message: weak });
-    const r = await checkCode(app, b.challengeId, b.code, 'reset');
-    if (!r.ok) return reply.code(401).send({ error: 'bad_code', message: r.message });
+    // Spent now; two resets racing with the same code can't both get through.
+    const spent = await db.query('update auth_codes set used_at = now() where id = $1 and used_at is null', [b.challengeId]);
+    if (!spent.rowCount) return reply.code(401).send({ error: 'bad_code', message: 'That code has been used or is not valid. Ask for a new one.' });
     const { rows } = await db.query<ProfileRow>(
       `update profiles set password_hash = $2, failed_logins = 0, locked_until = null,
               email_verified_at = coalesce(email_verified_at, now())
@@ -396,6 +466,8 @@ export async function authRoutes(app: FastifyInstance) {
       [r.userId, await hashPassword(b.password)],
     );
     const user = rows[0]!;
+    // The emailed code proved the address, which can make a listed admin email admin.
+    await syncAdminRole(app, user);
     // A new password signs out every device (whoever knew the old one).
     await endSessions(app, user.id);
     void sendNotice(user.email, 'Your WorthAbite password was changed', [
@@ -466,8 +538,13 @@ export async function authRoutes(app: FastifyInstance) {
   // Account deletion (Play Store requirement). Removes the profile, the person's own
   // photos and every action they took. Dishes and places they added stay, because
   // other people's photos and recommendations may be attached to them.
-  app.delete('/me', { preHandler: requireAuth }, async (req) => {
+  // The password is asked again, so a phone left unlocked or a stolen token can't wipe the account.
+  app.delete('/me', { preHandler: requireAuth }, async (req, reply) => {
+    const b = parse(z.object({ password: z.string().max(200) }), req.body ?? {}, reply);
+    if (!b) return;
     const id = userId(req)!;
+    const denied = await confirmPassword(app, id, b.password, { status: 400, message: 'Your password is wrong.' });
+    if (denied) return reply.code(denied.status).send(denied.body);
     const { rows: posts } = await db.query<{ id: string; dish_id: string }>(
       'select id, dish_id from posts where author_id = $1',
       [id],

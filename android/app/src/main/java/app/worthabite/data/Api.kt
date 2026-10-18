@@ -103,7 +103,8 @@ interface WorthAbiteApi {
 
     @GET("me") suspend fun me(): User
 
-    @DELETE("me") suspend fun deleteMe(): OkResult
+    /** Deleting the account asks for the password again. */
+    @HTTP(method = "DELETE", path = "me", hasBody = true) suspend fun deleteMe(@Body body: PasswordBody): OkResult
 
     @Multipart
     @POST("posts")

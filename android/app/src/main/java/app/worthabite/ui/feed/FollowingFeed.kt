@@ -262,7 +262,8 @@ private fun FollowingPostCard(
             modifier = Modifier.clickable(onClick = onOpenDish),
         )
         Text(
-            p.dish.restaurant.name + (p.dish.restaurant.locality?.let { " · $it" } ?: ""),
+            p.dish.restaurant.name + (p.dish.restaurant.locality?.let { " · $it" } ?: "") +
+                (if (p.dish.restaurant.status == "pending") " · New place, being reviewed" else ""),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.clickable(onClick = onOpenRestaurant),

@@ -2,9 +2,9 @@ import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
-import { requireAuth, userId, verifyPassword } from '../auth.js';
+import { requireAuth, userId } from '../auth.js';
 import { type CodePurpose, codeEmail } from '../mail.js';
-import { profileJson, startSession } from './auth.js';
+import { confirmPassword, profileJson, startSession, syncAdminRole } from './auth.js';
 
 const CODE_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
@@ -147,16 +147,17 @@ export async function twoFactorRoutes(app: FastifyInstance) {
       'update profiles set two_factor = true, email_verified_at = coalesce(email_verified_at, now()) where id = $1 returning *',
       [r.userId],
     );
+    // The code proved the email, which can make a listed admin email admin.
+    await syncAdminRole(app, rows[0]);
     return profileJson(rows[0]);
   });
 
   app.post('/me/2fa/disable', { preHandler: requireAuth, ...limit }, async (req, reply) => {
     const b = parse(z.object({ password: z.string().max(200) }), req.body, reply);
     if (!b) return;
-    const { rows } = await db.query<{ password_hash: string }>('select password_hash from profiles where id = $1', [userId(req)]);
-    if (!rows[0] || !(await verifyPassword(b.password, rows[0].password_hash))) {
-      return reply.code(401).send({ error: 'bad_credentials', message: 'Wrong password.' });
-    }
+    // Wrong passwords count toward the sign-in lock, so a stolen token can't guess it.
+    const denied = await confirmPassword(app, userId(req)!, b.password, { status: 401, message: 'Wrong password.' });
+    if (denied) return reply.code(denied.status).send(denied.body);
     const { rows: me } = await db.query('update profiles set two_factor = false where id = $1 returning *', [userId(req)]);
     return profileJson(me[0]);
   });

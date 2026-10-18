@@ -54,8 +54,10 @@ export async function commentRoutes(app: FastifyInstance) {
 
   async function isAdmin(me: string | null): Promise<boolean> {
     if (!me) return false;
-    const { rows } = await db.query<{ role: string }>('select role from profiles where id = $1', [me]);
-    return rows[0]?.role === 'admin';
+    const { rows } = await db.query<{ role: string; email: string }>('select role, email from profiles where id = $1', [me]);
+    // The role alone isn't enough: someone taken off ADMIN_EMAILS stops being admin at once,
+    // not only at their next sign-in.
+    return rows[0]?.role === 'admin' && app.config.adminEmails.includes(rows[0].email);
   }
 
   async function load(postId: string, viewer: string | null, onlyId?: string): Promise<CommentRow[]> {
