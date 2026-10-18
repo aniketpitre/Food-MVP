@@ -60,5 +60,5 @@ POST=$(curl -fsS -X POST "$BASE/posts" -H "$AUTH" -F image=@"$TMP/p.jpg" -F idem
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/d/$DISH")" = "200" ] && pass "share page" || fail "share page"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/privacy")" = "200" ] && pass "privacy page" || fail "privacy"
 
-[ "$(curl -fsS -X DELETE "$BASE/me" -H "$AUTH" | json .ok)" = "true" ] && pass "deleted the test account" || fail "delete"
+[ "$(curl -fsS -X DELETE "$BASE/me" -H "$AUTH" -H "content-type: application/json" -d "{\"password\":\"smoke-test-pass\"}" | json .ok)" = "true" ] && pass "deleted the test account" || fail "delete"
 echo "All smoke checks passed."
