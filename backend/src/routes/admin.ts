@@ -1,21 +1,139 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type pg from 'pg';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { requireAuth, userId } from '../auth.js';
-import { inTransaction } from '../db.js';
+import { type Db, inTransaction } from '../db.js';
 import { notifyFollowers } from '../notify.js';
+
+/**
+ * Admins only. The role and email are re-read from the database on every admin request,
+ * and the email must still be in ADMIN_EMAILS: removing someone from the list takes effect
+ * at once instead of when their token expires, and a role set by hand in the database
+ * alone isn't enough to get in.
+ */
+export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
+  await requireAuth(req, reply);
+  if (reply.sent) return;
+  const { rows } = await req.server.db.query<{ role: string; email: string }>(
+    'select role, email from profiles where id = $1',
+    [userId(req)],
+  );
+  const me = rows[0];
+  if (me?.role !== 'admin' || !req.server.config.adminEmails.includes(me.email)) {
+    return reply.code(403).send({ error: 'forbidden', message: 'Admins only.' });
+  }
+}
+
+/**
+ * Moves everything from dish [from] to dish [into] inside the caller's transaction:
+ * votes (each person keeps one vote: their latest love or "not for me"), saves, photos,
+ * views, notifications, messages and stories. [from] is hidden and remembered in
+ * dish_merges so old links open the dish it became. The caller refreshes the ranking
+ * afterwards, outside the transaction, so a big merge doesn't hold the ranking locks.
+ */
+export async function mergeDishesTx(tx: pg.PoolClient, from: string, into: string, by: string | null): Promise<void> {
+  // Votes: the latest love / "not for me" per person wins; saves and the rest just join.
+  await tx.query(
+    `with v as (
+       select distinct on (user_id) user_id, kind, created_at from engagements
+       where dish_id = any($1::uuid[]) and kind in ('recommend', 'pass')
+       order by user_id, created_at desc
+     )
+     delete from engagements e using v
+     where e.dish_id = any($1::uuid[]) and e.user_id = v.user_id and e.kind in ('recommend', 'pass') and e.kind <> v.kind`,
+    [[from, into]],
+  );
+  await tx.query(
+    `insert into engagements (user_id, dish_id, kind, created_at)
+     select user_id, $2, kind, created_at from engagements where dish_id = $1
+     on conflict do nothing`,
+    [from, into],
+  );
+  await tx.query('delete from engagements where dish_id = $1', [from]);
+  for (const t of ['posts', 'dish_views', 'notifications', 'messages', 'stories']) {
+    await tx.query('savepoint move');
+    try {
+      await tx.query(`update ${t} set dish_id = $2 where dish_id = $1`, [from, into]);
+    } catch (err) {
+      // A notification about both dishes is the same notification: keep one.
+      if ((err as { code?: string }).code !== '23505') throw err;
+      await tx.query('rollback to savepoint move');
+      await tx.query(`delete from ${t} where dish_id = $1`, [from]);
+    }
+  }
+  await tx.query("update dishes set status = 'hidden', cover_post_id = null where id = $1", [from]);
+  await tx.query(
+    `insert into dish_merges (from_id, into_id, merged_by) values ($1, $2, $3)
+     on conflict (from_id) do update set into_id = excluded.into_id, merged_at = now()`,
+    [from, into, by],
+  );
+  // Anything merged into [from] earlier now points at [into] too.
+  await tx.query('update dish_merges set into_id = $2 where into_id = $1', [from, into]);
+}
+
+/** Rebuilds the feed points and People's Pick of the given dishes. */
+async function refreshDishes(db: Db, ids: string[]) {
+  for (const id of ids) {
+    await db.query('select refresh_dish_stats($1)', [id]);
+    await db.query('select refresh_people_pick($1)', [id]);
+  }
+}
+
+/**
+ * One place listed twice (someone added it, then it came in from OpenStreetMap): its
+ * dishes move to [into]. A dish [into] already has under the same name is merged into
+ * that one (votes, photos and links follow); the rest move as they are. Place photos,
+ * stories and shared-place messages follow too, and the old place is hidden.
+ */
+export async function mergePlaces(db: Db, from: string, into: string, by: string | null) {
+  return inTransaction(db, async (tx) => {
+    const { rows: places } = await tx.query<{ id: string; city_id: number; status: string }>(
+      'select id, city_id, status from restaurants where id = any($1::uuid[]) for update',
+      [[from, into]],
+    );
+    const target = places.find((p) => p.id === into);
+    if (places.length !== 2 || !target) return null;
+    const { rows: dishes } = await tx.query<{ id: string; name_norm: string; status: string; twin: string | null; twin_status: string | null }>(
+      `select d.id, d.name_norm, d.status, t.id as twin, t.status as twin_status
+       from dishes d left join dishes t on t.restaurant_id = $2 and t.name_norm = d.name_norm
+       where d.restaurant_id = $1`,
+      [from, into],
+    );
+    let moved = 0;
+    let merged = 0;
+    const touched = new Set<string>();
+    for (const d of dishes) {
+      if (!d.twin) {
+        await tx.query('update dishes set restaurant_id = $2, city_id = $3 where id = $1', [d.id, into, target.city_id]);
+        moved++;
+        touched.add(d.id);
+      } else if (d.status !== 'hidden') {
+        // A same-name dish hidden at the target comes back: it is the live one now.
+        if (d.twin_status === 'hidden') await tx.query("update dishes set status = 'live' where id = $1", [d.twin]);
+        await mergeDishesTx(tx, d.id, d.twin, by);
+        merged++;
+        touched.add(d.id).add(d.twin);
+      }
+      // A hidden dish (merged away earlier) whose name is taken at the target stays behind
+      // with the hidden place; its dish_merges row already points at the live dish.
+    }
+    // Place photos: the same photo can't be listed twice for one place.
+    await tx.query(
+      `delete from restaurant_photos f using restaurant_photos t
+       where f.restaurant_id = $1 and t.restaurant_id = $2 and t.source = f.source and t.source_ref = f.source_ref`,
+      [from, into],
+    );
+    const { rowCount: photos } = await tx.query('update restaurant_photos set restaurant_id = $2 where restaurant_id = $1', [from, into]);
+    await tx.query('update stories set restaurant_id = $2 where restaurant_id = $1', [from, into]);
+    await tx.query('update messages set restaurant_id = $2 where restaurant_id = $1', [from, into]);
+    await tx.query("update restaurants set status = 'hidden' where id = $1", [from]);
+    return { moved, merged, photos: photos ?? 0, touched: [...touched] };
+  });
+}
 
 export async function adminRoutes(app: FastifyInstance) {
   const { db } = app;
-
-  // The role is re-read from the database on every admin request, so removing someone
-  // from ADMIN_EMAILS takes effect at once instead of when their token expires.
-  async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
-    await requireAuth(req, reply);
-    if (reply.sent) return;
-    const { rows } = await db.query<{ role: string }>('select role from profiles where id = $1', [userId(req)]);
-    if (rows[0]?.role !== 'admin') return reply.code(403).send({ error: 'forbidden', message: 'Admins only.' });
-  }
 
   app.get('/admin/queue', { preHandler: requireAdmin }, async () => {
     const { rows: pendingPlaces } = await db.query(
@@ -107,7 +225,15 @@ export async function adminRoutes(app: FastifyInstance) {
       ({ posts: 'post', dishes: 'dish', comments: 'comment' } as const)[p.type],
       p.id,
     ]);
-    if (p.type === 'dishes') await db.query('select refresh_dish_stats($1)', [p.id]);
+    // Hiding or restoring a photo or dish changes its rating (a verified photo adds weight,
+    // a cover can change): re-rate it now rather than on the next timer.
+    const dish = p.type === 'dishes' ? p.id
+      : p.type === 'posts' ? (await db.query<{ dish_id: string }>('select dish_id from posts where id = $1', [p.id])).rows[0]?.dish_id
+      : undefined;
+    if (dish) {
+      await db.query('select refresh_dish_stats($1)', [dish]);
+      await db.query('select refresh_people_pick($1)', [dish]);
+    }
     return { ok: true };
   });
 
@@ -150,51 +276,27 @@ export async function adminRoutes(app: FastifyInstance) {
     if (rows[0]!.restaurant_id !== rows[1]!.restaurant_id) {
       return reply.code(400).send({ error: 'invalid_input', message: 'Only dishes at the same place can be merged.' });
     }
-    await inTransaction(db, async (tx) => {
-      const [from, into] = [p.id, b.into];
-      // Votes: the latest love / "not for me" per person wins; saves and the rest just join.
-      await tx.query(
-        `with v as (
-           select distinct on (user_id) user_id, kind, created_at from engagements
-           where dish_id = any($1::uuid[]) and kind in ('recommend', 'pass')
-           order by user_id, created_at desc
-         )
-         delete from engagements e using v
-         where e.dish_id = any($1::uuid[]) and e.user_id = v.user_id and e.kind in ('recommend', 'pass') and e.kind <> v.kind`,
-        [[from, into]],
-      );
-      await tx.query(
-        `insert into engagements (user_id, dish_id, kind, created_at)
-         select user_id, $2, kind, created_at from engagements where dish_id = $1
-         on conflict do nothing`,
-        [from, into],
-      );
-      await tx.query('delete from engagements where dish_id = $1', [from]);
-      for (const t of ['posts', 'dish_views', 'notifications', 'messages', 'stories']) {
-        await tx.query('savepoint move');
-        try {
-          await tx.query(`update ${t} set dish_id = $2 where dish_id = $1`, [from, into]);
-        } catch (err) {
-          // A notification about both dishes is the same notification: keep one.
-          if ((err as { code?: string }).code !== '23505') throw err;
-          await tx.query('rollback to savepoint move');
-          await tx.query(`delete from ${t} where dish_id = $1`, [from]);
-        }
-      }
-      await tx.query("update dishes set status = 'hidden', cover_post_id = null where id = $1", [from]);
-      await tx.query(
-        `insert into dish_merges (from_id, into_id, merged_by) values ($1, $2, $3)
-         on conflict (from_id) do update set into_id = excluded.into_id, merged_at = now()`,
-        [from, into, userId(req)],
-      );
-      // Anything merged into [from] earlier now points at [into] too.
-      await tx.query('update dish_merges set into_id = $2 where into_id = $1', [from, into]);
-    });
-    for (const id of [p.id, b.into]) {
-      await db.query('select refresh_dish_stats($1)', [id]);
-      await db.query('select refresh_people_pick($1)', [id]);
-    }
+    await inTransaction(db, (tx) => mergeDishesTx(tx, p.id, b.into, userId(req)));
+    await refreshDishes(db, [p.id, b.into]);
     return { ok: true, into: b.into };
+  });
+
+  // The same place listed twice: everything moves to [into] and this one is hidden.
+  app.post('/admin/restaurants/:id/merge', { preHandler: requireAdmin }, async (req, reply) => {
+    const p = parse(z.object({ id: z.string().uuid() }), req.params, reply);
+    const b = parse(z.object({ into: z.string().uuid() }), req.body, reply);
+    if (!p || !b) return;
+    if (p.id === b.into) return reply.code(400).send({ error: 'invalid_input', message: 'Pick a different place to merge into.' });
+    const r = await mergePlaces(db, p.id, b.into, userId(req));
+    if (!r) return reply.code(404).send({ error: 'not_found', message: 'Place not found.' });
+    await db.query(
+      `insert into place_merges (from_id, into_id, merged_by) values ($1, $2, $3)
+       on conflict (from_id) do update set into_id = excluded.into_id, merged_at = now()`,
+      [p.id, b.into, userId(req)],
+    );
+    req.log.info({ from: p.id, into: b.into, by: userId(req), ...r, touched: undefined }, 'admin merged places');
+    await refreshDishes(db, r.touched);
+    return { ok: true, into: b.into, moved: r.moved, merged: r.merged, photos: r.photos };
   });
 
   // Dishes at one place whose names look alike: candidates for a merge.
@@ -256,7 +358,12 @@ export async function adminRoutes(app: FastifyInstance) {
        from dish_views where viewed_at > now() - interval '7 days'
        group by coalesce(tab, 'other') order by 2 desc`,
     );
-    return { totals, votesPerDay, topChange, taps, prediction: await predictionCheck(30) };
+    const prediction = {
+      ...(await predictionCheck(30)),
+      // Trust is learned from these same votes, so the check isn't fully out-of-sample.
+      note: 'Skill may be slightly optimistic: voter trust is learned from the same votes this check hides one at a time.',
+    };
+    return { totals, votesPerDay, topChange, taps, prediction };
   });
 
   /**
