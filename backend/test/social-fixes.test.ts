@@ -297,5 +297,52 @@ describe('the share list explains who can\'t take shares', () => {
     expect(list.map((p: { handle: string; canShare: boolean; cantShareReason: string | null }) => [p.handle, p.canShare, p.cantShareReason]))
       .toEqual([[open.handle, true, null], [closed.handle, false, 'Turned off sharing']]);
   });
+
+  it('opens the chat from Message even when they take no shares, empty chats stay out of the inbox, strangers get none', async () => {
+    const me = await signUp();
+    const closed = await signUp();
+    const stranger = await signUp();
+    await follow(me, closed.handle);
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: closed.auth, payload: { dmPolicy: 'following' } });
+    const opened = await app.inject({ method: 'POST', url: '/conversations', headers: me.auth, payload: { handle: closed.handle } });
+    expect(opened.statusCode).toBe(200);
+    const chat = (await app.inject({ url: `/conversations/${opened.json().id}`, headers: me.auth })).json();
+    expect(chat).toMatchObject({ canMessage: false, cantShareReason: 'They only take shares from people they follow.', messages: [] });
+    expect((await app.inject({ url: '/inbox', headers: closed.auth })).json().items).toEqual([]);
+    expect((await app.inject({ url: '/inbox', headers: me.auth })).json().items).toEqual([]);
+    // Once they follow back, the same chat takes shares.
+    await follow(closed, me.handle);
+    const after = (await app.inject({ url: `/conversations/${opened.json().id}`, headers: me.auth })).json();
+    expect(after).toMatchObject({ canMessage: true, cantShareReason: null });
+    expect((await app.inject({ method: 'POST', url: '/conversations', headers: me.auth, payload: { handle: stranger.handle } })).statusCode).toBe(403);
+  });
 });
 
+
+describe('comments in Activity and the Following feed', () => {
+  it('drops the notification of a deleted comment and counts live comments on Following posts', async () => {
+    const owner = await signUp({ established: true });
+    const fan = await signUp();
+    const posted = await app.inject({
+      method: 'POST', url: '/posts',
+      ...multipart(owner.auth, { idempotencyKey: 'cn-1-xxxx', dishName: 'Comment Count Thali', newPlaceName: 'Count Corner', newPlaceLat: '20.03', newPlaceLng: '73.78' }, await photo()),
+    });
+    expect(posted.statusCode).toBe(201);
+    const postId = posted.json().id ?? posted.json().postId;
+    await follow(fan, owner.handle);
+    const c1 = (await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: fan.auth, payload: { body: 'Looks great' } })).json();
+    await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: fan.auth, payload: { body: 'Going tomorrow' } });
+    const feed = (await app.inject({ url: '/feed/following', headers: fan.auth })).json();
+    expect(feed.items.find((p: { id: string }) => p.id === postId)?.commentCount).toBe(2);
+
+    const kinds = async () => (await app.inject({ url: '/notifications', headers: owner.auth })).json().items
+      .filter((n: { kind: string }) => n.kind === 'comment').map((n: { commentBody: string }) => n.commentBody);
+    expect((await kinds()).sort()).toEqual(['Going tomorrow', 'Looks great']);
+    const unreadBefore = (await app.inject({ url: '/notifications/unread', headers: owner.auth })).json().count;
+    expect((await app.inject({ method: 'DELETE', url: `/comments/${c1.id}`, headers: fan.auth })).statusCode).toBeLessThan(300);
+    expect(await kinds()).toEqual(['Going tomorrow']);
+    expect((await app.inject({ url: '/notifications/unread', headers: owner.auth })).json().count).toBe(unreadBefore - 1);
+    const after = (await app.inject({ url: '/feed/following', headers: fan.auth })).json();
+    expect(after.items.find((p: { id: string }) => p.id === postId)?.commentCount).toBe(1);
+  });
+});

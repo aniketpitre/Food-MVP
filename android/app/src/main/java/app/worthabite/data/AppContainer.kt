@@ -213,6 +213,21 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         r
     }
 
+    /**
+     * Blocks [handle]. The server ends follows both ways, so the app forgets them too: their
+     * profile, counts and the Following feed show it at once.
+     */
+    suspend fun block(handle: String) = followLock.withLock {
+        apiCall { api.block(BlockBody(handle)) }
+        following.update { it + (handle to false) }
+        followVersion.update { it + 1 }
+    }
+
+    suspend fun unblock(handle: String) = followLock.withLock {
+        apiCall { api.unblock(handle) }
+        followVersion.update { it + 1 }
+    }
+
     var deviceId: String = ""
         private set
 

@@ -29,6 +29,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import app.worthabite.ui.comments.CommentsSheet
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,7 +135,12 @@ fun ActivityScreen(
         )
         return
     }
-    ActivityContent(state, { app.mediaUrl(it) }, onOpenDish, onOpenUser, { vm.follow(it, showMessage) }, vm::refresh)
+    // Comments, replies and mentions open right on the comment thread.
+    var commentsFor by rememberSaveable { mutableStateOf<String?>(null) }
+    ActivityContent(state, { app.mediaUrl(it) }, onOpenDish, onOpenUser, { vm.follow(it, showMessage) }, vm::refresh, onOpenComments = { commentsFor = it })
+    commentsFor?.let { postId ->
+        CommentsSheet(postId, onDismiss = { commentsFor = null }, onNeedSignIn = onSignIn, onOpenUser = { commentsFor = null; onOpenUser(it) }, showMessage = showMessage)
+    }
 }
 
 /**
@@ -148,6 +157,7 @@ fun ActivityContent(
     onOpenUser: (String) -> Unit,
     onFollow: (String) -> Unit,
     onRefresh: () -> Unit,
+    onOpenComments: (String) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 6.dp)) {
@@ -168,9 +178,9 @@ fun ActivityContent(
                     val earlier = state.items.filter { it.read }
                     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                         if (fresh.isNotEmpty()) item(key = "new") { SectionLabel("New") }
-                        itemsIndexed(fresh, key = { _, n -> n.id }) { i, n -> ActivityRow(n, i, imageUrl, onOpenDish, onOpenUser, onFollow) }
+                        itemsIndexed(fresh, key = { _, n -> n.id }) { i, n -> ActivityRow(n, i, imageUrl, onOpenDish, onOpenUser, onFollow, onOpenComments) }
                         if (earlier.isNotEmpty()) item(key = "earlier") { SectionLabel("Earlier") }
-                        itemsIndexed(earlier, key = { _, n -> n.id }) { i, n -> ActivityRow(n, i + fresh.size, imageUrl, onOpenDish, onOpenUser, onFollow) }
+                        itemsIndexed(earlier, key = { _, n -> n.id }) { i, n -> ActivityRow(n, i + fresh.size, imageUrl, onOpenDish, onOpenUser, onFollow, onOpenComments) }
                     }
                 }
             }
@@ -182,6 +192,8 @@ fun ActivityContent(
 private fun SectionLabel(text: String) {
     Text(text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp))
 }
+
+private val CommentKinds = setOf("comment", "reply", "mention", "comment_like")
 
 private fun sentence(n: ActivityItem): Pair<String, String?> = when (n.kind) {
     "follow" -> "started following you." to null
@@ -205,6 +217,7 @@ private fun ActivityRow(
     onOpenDish: (String) -> Unit,
     onOpenUser: (String) -> Unit,
     onFollow: (String) -> Unit,
+    onOpenComments: (String) -> Unit,
 ) {
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { delay(30L * index.coerceAtMost(12)); appear.animateTo(1f, Motion.enter(Motion.LONG)) }
@@ -220,7 +233,9 @@ private fun ActivityRow(
             .pressScale(interaction, 0.98f)
             .clickable(interaction, indication = null, role = Role.Button) {
                 val dish = n.dish
-                if (dish != null && n.kind != "follow" && n.kind != "story" && n.kind != "story_like") onOpenDish(dish.id)
+                val post = n.postId
+                if (post != null && n.kind in CommentKinds) onOpenComments(post)
+                else if (dish != null && n.kind != "follow" && n.kind != "story" && n.kind != "story_like") onOpenDish(dish.id)
                 else onOpenUser(n.actor.handle)
             }
             .then(if (!n.read) Modifier.background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)) else Modifier)

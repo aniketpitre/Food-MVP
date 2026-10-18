@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { parse } from '../app.js';
 import { requireAuth, userId } from '../auth.js';
 import { deleteImages } from '../media.js';
-import { canMessage, conversationWith, MessageError, sendMessage } from '../messaging.js';
+import { conversationWith, MessageError, sendMessage, shareStatus } from '../messaging.js';
 
 const uuid = z.string().uuid();
 
@@ -238,7 +238,7 @@ export async function messageRoutes(app: FastifyInstance) {
          left join restaurants r on r.id = d.restaurant_id
          left join comments c on c.id = n.comment_id and c.status = 'live'
          where n.user_id = $1 and n.read_at is null and n.created_at > $2 and n.created_at <= $3
-           and ${notBlocked('n.actor_id')}
+           and ${notBlocked('n.actor_id')} and (n.comment_id is null or c.id is not null)
          order by n.id limit 30`,
         [me, q.since, now],
       ),
@@ -289,7 +289,9 @@ export async function messageRoutes(app: FastifyInstance) {
        where c.pair_key = $1`,
       [[me, other].sort().join(':'), me],
     );
-    if (!existing && !(await canMessage(db, me, other))) {
+    // Anyone you're connected with opens a chat, even when they don't take shares right now:
+    // the chat says why, and Message on a profile never ends in an error.
+    if (!existing && !(await shareStatus(db, me, other)).connected) {
       return reply.code(403).send({ error: 'cannot_message', message: 'You can share dishes with your followers and the people you follow, unless they turned sharing off.' });
     }
     const id = await conversationWith(db, me, other);
@@ -335,7 +337,7 @@ export async function messageRoutes(app: FastifyInstance) {
       id: p.id,
       folder: m.folder,
       with: await person(m.other_id),
-      canMessage: await canMessage(db, me, m.other_id),
+      ...(await shareStatus(db, me, m.other_id).then((st) => ({ canMessage: st.canShare, cantShareReason: st.reason }))),
       theirLastReadAt: m.their_read,
       messages: rows,
       state,

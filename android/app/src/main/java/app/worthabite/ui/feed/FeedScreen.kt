@@ -134,6 +134,7 @@ fun FeedScreen(
                 engagementOf = { card -> overrides[card.id] ?: card.engagement() },
                 onShare = { card, postId -> sendingPost = postId; sendingCard = card },
                 onComments = { postId -> commentsFor = postId },
+                commentCounts = commentCounts,
             )
         },
         placesContent = {

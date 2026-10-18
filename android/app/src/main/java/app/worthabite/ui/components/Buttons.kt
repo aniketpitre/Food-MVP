@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -170,7 +172,9 @@ fun EngageAction(
     val pop = remember { Animatable(1f) }
     val wiggle = remember { Animatable(0f) }
     val burst = remember { Animatable(0f) }
+    val hearts = remember { Animatable(0f) }
     var previous by remember { mutableStateOf(active) }
+    val haptics = LocalHapticFeedback.current
     LaunchedEffect(active) {
         if (active && !previous && kind == Engagement.Pass) {
             // "Not for me" is a quiet nod, never a celebration.
@@ -179,6 +183,10 @@ fun EngageAction(
             launch { pop.snapTo(0.7f); pop.animateTo(1f, Motion.bouncy()) }
             launch { wiggle.snapTo(-18f); wiggle.animateTo(0f, Motion.pop()) }
             launch { burst.snapTo(0f); burst.animateTo(1f, tween(620, easing = LinearEasing)); burst.snapTo(0f) }
+            // A love sends a few little hearts floating up out of the button.
+            if (kind == Engagement.Recommend) {
+                launch { hearts.snapTo(0f); hearts.animateTo(1f, tween(1100, easing = LinearEasing)); hearts.snapTo(0f) }
+            }
         }
         previous = active
     }
@@ -191,6 +199,7 @@ fun EngageAction(
         null -> Icons.Outlined.Share
     }
     val burstColors = listOf(fill, Turmeric, Saffron, Mint)
+    val heartColors = listOf(fill, Saffron, fill.copy(alpha = 0.8f))
     val lite = app.worthabite.ui.theme.LocalLiteMode.current
     val box = when (look) {
         ActionLook.Glass -> 48.dp
@@ -202,7 +211,11 @@ fun EngageAction(
     Column(
         Modifier
             .pressScale(interaction, 0.86f)
-            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interaction, indication = null, role = Role.Button) {
+                // A light tap you can feel when you love something; nothing when you take it back.
+                if (!active && kind == Engagement.Recommend) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -210,7 +223,10 @@ fun EngageAction(
             Modifier
                 .size(box)
                 .drawBehind {
-                    if (!lite) drawSpiceBurst(center, burst.value, burstColors, radius = size.minDimension * 0.95f, count = 10)
+                    if (!lite) {
+                        drawSpiceBurst(center, burst.value, burstColors, radius = size.minDimension * 0.95f, count = 10)
+                        drawFloatingHearts(center, hearts.value, heartColors, size = size.minDimension * 0.26f, rise = size.minDimension * 2.2f, count = 5)
+                    }
                 }
                 .graphicsLayer { scaleX = pop.value; scaleY = pop.value }
                 .background(bg, shape),

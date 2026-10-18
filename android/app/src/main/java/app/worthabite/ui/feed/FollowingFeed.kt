@@ -32,6 +32,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,9 +91,14 @@ class FollowingViewModel(private val app: AppContainer) : ViewModel() {
     private var job: Job? = null
 
     init {
-        // Following or unfollowing someone anywhere changes this list: reload when it does.
+        // Following or unfollowing someone anywhere changes this list: reload when it does,
+        // keeping what's on screen meanwhile so you don't lose your place.
         viewModelScope.launch {
-            kotlinx.coroutines.flow.combine(app.contentVersion, app.followVersion) { a, b -> a to b }.collect { reload() }
+            var first = true
+            kotlinx.coroutines.flow.combine(app.contentVersion, app.followVersion) { a, b -> a to b }.collect {
+                reload(keepItems = !first)
+                first = false
+            }
         }
     }
 
@@ -142,6 +152,8 @@ fun FollowingFeed(
     /** Send this photo (by its post id) of this dish. */
     onShare: (DishCard, String) -> Unit,
     onComments: (String) -> Unit,
+    /** Latest comment counts by post id, so a new comment shows at once. */
+    commentCounts: Map<String, Int> = emptyMap(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     when {
@@ -170,6 +182,7 @@ fun FollowingFeed(
                         onToggle = { onToggle(p.dish, it) },
                         onShare = { onShare(p.dish, p.id) },
                         onComments = { onComments(p.id) },
+                        commentCount = commentCounts[p.id] ?: p.commentCount,
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -201,6 +214,7 @@ private fun FollowingPostCard(
     onToggle: (Engagement) -> Unit,
     onShare: () -> Unit,
     onComments: () -> Unit,
+    commentCount: Int,
     modifier: Modifier = Modifier,
 ) {
     val media = LocalMediaUrl.current
@@ -224,29 +238,38 @@ private fun FollowingPostCard(
             if (p.verifiedVisit) VerifiedVisitChip()
         }
         val ratio = if ((p.width ?: 0) > 0 && (p.height ?: 0) > 0) (p.width!!.toFloat() / p.height!!).coerceIn(0.8f, 1.6f) else 0.8f
-        DishImage(
-            url = media(p.imageUrl),
-            thumbUrl = media(p.thumbUrl),
-            placeholderColor = p.placeholderColor,
-            contentDescription = p.dish.name,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(ratio)
-                .clip(RoundedCornerShape(22.dp))
-                .pointerInput(p.id) {
-                    detectTapGestures(
-                        onTap = { onOpenDish() },
-                        onDoubleTap = { if (!engagement.me.recommended) onToggle(Engagement.Recommend) },
-                    )
-                },
-        )
+        // Double-tap loves it, with the big heart at the finger (even when already loved, as on Instagram).
+        var burst by remember(p.id) { mutableIntStateOf(0) }
+        var burstAt by remember(p.id) { mutableStateOf(Offset.Unspecified) }
+        val loved by rememberUpdatedState(engagement.me.recommended)
+        Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(RoundedCornerShape(22.dp))) {
+            DishImage(
+                url = media(p.imageUrl),
+                thumbUrl = media(p.thumbUrl),
+                placeholderColor = p.placeholderColor,
+                contentDescription = p.dish.name,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(p.id) {
+                        detectTapGestures(
+                            onTap = { onOpenDish() },
+                            onDoubleTap = { at ->
+                                burstAt = at
+                                burst++
+                                if (!loved) onToggle(Engagement.Recommend)
+                            },
+                        )
+                    },
+            )
+            HeartBurst(burst, burstAt, Modifier.fillMaxSize())
+        }
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             EngageAction(
                 Engagement.Recommend, engagement.me.recommended, "Love", engagement.stats.recommenders,
                 if (engagement.me.recommended) "Remove recommendation" else "Recommend",
                 { onToggle(Engagement.Recommend) }, look = ActionLook.Bare,
             )
-            EngageAction(null, false, "Comment", null, "Comments", onComments, look = ActionLook.Bare, icon = AppIcons.Comment)
+            EngageAction(null, false, "Comment", commentCount.takeIf { it > 0 }, "Comments", onComments, look = ActionLook.Bare, icon = AppIcons.Comment)
             EngageAction(null, false, "Send", null, "Send to friends", onShare, look = ActionLook.Bare, icon = AppIcons.Send)
             Spacer(Modifier.weight(1f))
             EngageAction(

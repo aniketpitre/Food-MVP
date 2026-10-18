@@ -286,9 +286,11 @@ export async function socialRoutes(app: FastifyInstance) {
       id: string; dish_id: string; caption: string | null; image_path: string; thumb_path: string;
       placeholder_color: string | null; width: number | null; height: number | null; created_at: Date;
       visit: string | null; handle: string; display_name: string | null; avatar_path: string | null;
+      comment_count: number;
     }>(
       `select p.id, p.dish_id, p.caption, p.image_path, p.thumb_path, p.placeholder_color, p.width, p.height,
-              p.created_at, p.visit, a.handle, a.display_name, a.avatar_path
+              p.created_at, p.visit, a.handle, a.display_name, a.avatar_path,
+              (select count(*)::int from comments cm where cm.post_id = p.id and cm.status = 'live') as comment_count
        from posts p
        join profiles a on a.id = p.author_id
        join dishes d on d.id = p.dish_id and d.status = 'live'
@@ -319,6 +321,7 @@ export async function socialRoutes(app: FastifyInstance) {
         height: r.height,
         createdAt: r.created_at.toISOString(),
         verifiedVisit: r.visit === 'verified',
+        commentCount: r.comment_count,
         author: { handle: r.handle, displayName: r.display_name, avatarUrl: r.avatar_path },
         dish: byId.get(r.dish_id)!,
       })),
@@ -401,6 +404,8 @@ export async function socialRoutes(app: FastifyInstance) {
        left join comments c on c.id = n.comment_id and c.status = 'live'
        where n.user_id = $1 and ($2::bigint is null or n.id < $2)
          and not exists (select 1 from blocks b where b.blocker_id = $1 and b.blocked_id = n.actor_id)
+         -- A comment that was deleted (or hidden) takes its notification with it.
+         and (n.comment_id is null or c.id is not null)
        order by n.id desc limit 50`,
       [me, q.before ?? null],
     );
@@ -411,7 +416,8 @@ export async function socialRoutes(app: FastifyInstance) {
     const { rows } = await db.query<{ n: number }>(
       // Only what the Activity list can show: nothing from people you blocked.
       `select count(*)::int as n from notifications n where n.user_id = $1 and n.read_at is null
-         and not exists (select 1 from blocks b where b.blocker_id = $1 and b.blocked_id = n.actor_id)`,
+         and not exists (select 1 from blocks b where b.blocker_id = $1 and b.blocked_id = n.actor_id)
+         and (n.comment_id is null or exists (select 1 from comments c where c.id = n.comment_id and c.status = 'live'))`,
       [userId(req)],
     );
     return { count: rows[0]!.n };

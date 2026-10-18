@@ -77,7 +77,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.worthabite.data.ApiException
 import app.worthabite.data.AppContainer
-import app.worthabite.data.BlockBody
 import app.worthabite.data.DishCard
 import app.worthabite.data.ProfilePost
 import app.worthabite.data.UserProfile
@@ -182,6 +181,8 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
         }
     }
 
+    fun storyOpened() = _state.update { it.copy(storySeen = true) }
+
     private var followTaps = 0
 
     /** Optimistic follow toggle; the server's follower count replaces ours when it answers. */
@@ -208,7 +209,7 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
         val p = _state.value.profile ?: return
         viewModelScope.launch {
             try {
-                if (p.blockedByMe) apiCall { app.api.unblock(p.handle) } else apiCall { app.api.block(BlockBody(p.handle)) }
+                if (p.blockedByMe) app.unblock(p.handle) else app.block(p.handle)
                 showMessage(if (p.blockedByMe) "Unblocked @${p.handle}." else "Blocked @${p.handle}. You won't see their photos or comments.")
                 load()
             } catch (e: ApiException) {
@@ -268,7 +269,8 @@ fun ProfileScreen(
             onBlockToggle = { if (session == null) onSignIn() else vm.toggleBlock(showMessage) },
             onReport = { if (session == null) onSignIn() else reporting = true },
             onMessage = { if (session == null) onSignIn() else onMessage(it) },
-            onOpenStory = onOpenStory,
+            // Watching it greys the ring, as it does everywhere else.
+            onOpenStory = { vm.storyOpened(); onOpenStory(it) },
             onAddDish = onAddDish,
             onShare = { handle ->
                 val send = Intent(Intent.ACTION_SEND).apply {
@@ -395,9 +397,14 @@ fun ProfileContent(
                         QuietButton("Edit profile", onEditProfile, Modifier.weight(1f), leading = AppIcons.Edit)
                         QuietButton("Share", { onShare(profile.handle) }, Modifier.weight(1f), leading = Icons.Outlined.Share)
                     } else {
-                        FollowButton(profile.isFollowing, onFollow, Modifier.weight(1f), followsYou = profile.followsYou)
+                        if (profile.blockedByMe) {
+                            // Blocked: no following or sharing until you unblock.
+                            QuietButton("Unblock", onBlockToggle, Modifier.weight(1f).testTag("unblock_button"))
+                        } else {
+                            FollowButton(profile.isFollowing, onFollow, Modifier.weight(1f), followsYou = profile.followsYou)
+                        }
                         // Followers and people you follow can share dishes with each other.
-                        if (profile.isFollowing || profile.followsYou) {
+                        if (!profile.blockedByMe && (profile.isFollowing || profile.followsYou)) {
                             QuietButton("Message", { onMessage(profile.handle) }, Modifier.weight(1f).testTag("message_button"))
                         }
                         QuietButton("", { onShare(profile.handle) }, leading = Icons.Outlined.Share)

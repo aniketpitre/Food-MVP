@@ -81,7 +81,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.worthabite.data.ApiException
 import app.worthabite.data.AppContainer
-import app.worthabite.data.BlockBody
 import app.worthabite.data.DishDetail
 import app.worthabite.data.Engagement
 import app.worthabite.data.EngagementState
@@ -188,7 +187,7 @@ fun DishScreen(
                 onBlock = { handle ->
                     if (session == null) onNeedSignIn()
                     else scope.launch {
-                        runCatching { apiCall { app.api.block(BlockBody(handle)) } }
+                        runCatching { app.block(handle) }
                             .onSuccess { showMessage("You won't see @$handle's photos any more."); vm.load() }
                             .onFailure { showMessage(it.message ?: "Couldn't block.") }
                     }

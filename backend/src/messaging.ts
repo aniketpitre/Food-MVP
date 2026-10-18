@@ -49,8 +49,21 @@ export const SHARE_KINDS = ['dish', 'post'] as const;
  * the other person turning sharing off.
  */
 export async function canMessage(db: Pick<Db, 'query'>, me: string, other: string): Promise<boolean> {
-  if (me === other) return false;
-  if (await blockedEither(db, me, other)) return false;
+  return (await shareStatus(db, me, other)).canShare;
+}
+
+/**
+ * Whether [me] can share with [other] and, if not, why, in words for the chat screen.
+ * [connected] (either follows the other, no block) is what it takes to open the chat at all.
+ */
+export async function shareStatus(
+  db: Pick<Db, 'query'>,
+  me: string,
+  other: string,
+): Promise<{ connected: boolean; canShare: boolean; reason: string | null }> {
+  const no = (connected: boolean, reason: string | null) => ({ connected, canShare: false, reason });
+  if (me === other) return no(false, null);
+  if (await blockedEither(db, me, other)) return no(false, null);
   const { rows } = await db.query<{ policy: string; connected: boolean; they_follow_me: boolean }>(
     `select p.dm_policy as policy,
             exists (select 1 from follows where (follower_id = $1 and followee_id = $2)
@@ -60,11 +73,11 @@ export async function canMessage(db: Pick<Db, 'query'>, me: string, other: strin
     [me, other],
   );
   const r = rows[0];
-  if (!r || !r.connected) return false;
+  if (!r || !r.connected) return no(false, 'You can share dishes with your followers and the people you follow.');
   // Their setting: everyone they're connected to (either way), only people they follow, or nobody.
-  if (r.policy === 'off') return false;
-  if (r.policy === 'following') return r.they_follow_me;
-  return true;
+  if (r.policy === 'off') return no(true, 'They turned sharing off, so you can see past shares but not send new ones.');
+  if (r.policy === 'following' && !r.they_follow_me) return no(true, 'They only take shares from people they follow.');
+  return { connected: true, canShare: true, reason: null };
 }
 
 /** Sends a message from [me] to [other], opening the conversation if needed. Returns its id. */

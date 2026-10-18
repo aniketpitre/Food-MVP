@@ -98,6 +98,7 @@ import app.worthabite.ui.components.KickerText
 import app.worthabite.ui.components.PriceTag
 import app.worthabite.ui.components.Sticker
 import app.worthabite.ui.components.VegMark
+import app.worthabite.ui.components.drawFloatingHearts
 import app.worthabite.ui.components.drawSpiceBurst
 import app.worthabite.ui.components.drawSquiggle
 import app.worthabite.ui.theme.CardTitle
@@ -631,24 +632,37 @@ fun DishPage(
 
 /**
  * The double-tap heart, at the finger: a white heart with a chili rim springs up from
- * nothing with a tilt, a shockwave ring and a spray of spice confetti burst around it, it
- * holds for a beat, then floats up, shrinks and fades. Alternate taps tilt the other way.
+ * nothing with a tilt and a double beat (thump-thump), a shockwave ring and a spray of spice
+ * confetti burst around it while a stream of little hearts floats up, the phone gives a
+ * light tap, it holds for a beat, then floats up, shrinks and fades. Alternate taps tilt
+ * the other way. Shared by the For You cards and the Following feed.
  */
 @Composable
-private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
+fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
     val scale = remember { Animatable(0f) }
     val alpha = remember { Animatable(0f) }
     val rise = remember { Animatable(0f) }
     val spray = remember { Animatable(0f) }
+    val floaters = remember { Animatable(0f) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     LaunchedEffect(trigger) {
         if (trigger == 0) return@LaunchedEffect
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
         alpha.snapTo(1f)
         rise.snapTo(0f)
         scale.snapTo(0.2f)
         spray.snapTo(0f)
+        floaters.snapTo(0f)
         launch { spray.animateTo(1f, tween(700, easing = LinearEasing)) }
-        launch { scale.animateTo(1f, Motion.bouncy()) }
-        delay(560)
+        launch { floaters.animateTo(1f, tween(1300, easing = LinearEasing)); floaters.snapTo(0f) }
+        // Thump-thump: overshoot, settle, a second smaller beat, settle.
+        launch {
+            scale.animateTo(1.18f, tween(170, easing = Motion.Standard))
+            scale.animateTo(0.94f, tween(110))
+            scale.animateTo(1.08f, tween(120))
+            scale.animateTo(1f, Motion.bouncy())
+        }
+        delay(620)
         launch { rise.animateTo(-140f, Motion.exit(320)) }
         launch { scale.animateTo(0.6f, Motion.exit(320)) }
         alpha.animateTo(0f, Motion.exit(320))
@@ -657,6 +671,7 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
     val density = LocalDensity.current
     val heart = with(density) { 110.dp.toPx() }
     val burstColors = remember { listOf(Paprika, Turmeric, Saffron, Color.White) }
+    val heartColors = remember { listOf(Paprika, Color.White, Saffron) }
     val lite = LocalLiteMode.current
     // Read the fade in a derived state, so the heart's frames don't recompose the card.
     val showHeart by remember { derivedStateOf { alpha.value > 0.01f } }
@@ -665,6 +680,7 @@ private fun HeartBurst(trigger: Int, at: Offset, modifier: Modifier) {
             if (lite) return@drawBehind
             val c = if (at.isSet()) at else center
             drawSpiceBurst(c, spray.value, burstColors, radius = heart * 1.05f, count = 14, seed = trigger)
+            drawFloatingHearts(c, floaters.value, heartColors, size = heart * 0.2f, rise = heart * 2.2f, count = 7, seed = trigger)
         },
     ) {
         if (showHeart) {

@@ -563,6 +563,11 @@ describe('sharing dishes with friends', () => {
     expect((await app.inject({ url: '/me/friends', headers: a.auth })).json()
       .map((p: { handle: string; canShare: boolean; cantShareReason: string }) => [p.handle, p.canShare, p.cantShareReason]))
       .toEqual([[c.handle, false, 'Turned off sharing']]);
+    // Message on their profile still opens the chat, which says why you can't share.
+    const withC = await app.inject({ method: 'POST', url: '/conversations', headers: a.auth, payload: { handle: c.handle } });
+    expect(withC.statusCode).toBe(200);
+    expect((await app.inject({ url: `/conversations/${withC.json().id}`, headers: a.auth })).json())
+      .toMatchObject({ canMessage: false, cantShareReason: expect.stringContaining('turned sharing off') });
   });
 
   it('shows shared dishes and posts in the inbox, with reactions, read state, unsend and notifications', async () => {

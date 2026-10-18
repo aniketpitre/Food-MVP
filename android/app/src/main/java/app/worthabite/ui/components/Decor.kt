@@ -222,6 +222,53 @@ fun DrawScope.drawSpiceBurst(
     }
 }
 
+/** A heart outline [size] wide, centred on [c]; used for the little hearts that float up. */
+fun heartPath(c: Offset, size: Float): Path = Path().apply {
+    val w = size
+    val h = size * 0.9f
+    val x = c.x - w / 2
+    val y = c.y - h / 2
+    moveTo(x + w / 2, y + h)
+    cubicTo(x - w * 0.05f, y + h * 0.62f, x + w * 0.02f, y + h * 0.05f, x + w / 2, y + h * 0.28f)
+    cubicTo(x + w * 0.98f, y + h * 0.05f, x + w * 1.05f, y + h * 0.62f, x + w / 2, y + h)
+    close()
+}
+
+/**
+ * Little hearts floating up from [center] like bubbles: each drifts on its own sway, grows
+ * in, then fades near the top. [t] runs 0..1; [rise] is how far the highest one travels.
+ */
+fun DrawScope.drawFloatingHearts(
+    center: Offset,
+    t: Float,
+    colors: List<Color>,
+    size: Float,
+    rise: Float,
+    count: Int = 6,
+    seed: Int = 0,
+) {
+    if (t <= 0f || t >= 1f) return
+    repeat(count) { i ->
+        val j = ((i * 53 + seed * 29) % 23) / 23f
+        // Staggered starts so they leave one after another.
+        val start = i * 0.07f
+        val p = ((t - start) / (1f - start)).coerceIn(0f, 1f)
+        if (p <= 0f) return@repeat
+        val up = 1f - (1f - p) * (1f - p)
+        val sway = sin((p * 2.6f + j * 6.28f).toDouble()).toFloat() * size * (0.5f + j)
+        val spread = (i - (count - 1) / 2f) * size * 0.45f
+        val at = Offset(center.x + spread * up + sway, center.y - rise * (0.55f + 0.45f * j) * up)
+        val grow = (p / 0.2f).coerceAtMost(1f)
+        val fade = 1f - ((p - 0.6f) / 0.4f).coerceIn(0f, 1f)
+        val s = size * (0.6f + 0.5f * j) * grow
+        if (s > 0.5f) {
+            rotate(degrees = (j - 0.5f) * 40f, pivot = at) {
+                drawPath(heartPath(at, s), colors[i % colors.size].copy(alpha = fade))
+            }
+        }
+    }
+}
+
 /** Small uppercase kicker label in the theme's muted colour. */
 @Composable
 fun KickerText(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {

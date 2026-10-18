@@ -437,6 +437,21 @@ class FullAppTest {
             compose.onNodeWithTag("message_button").performClick()
             waitFor(hasTestTag("share_dish"), 15_000)
             waitFor(hasTestTag("message_post"), 15_000)
+            // Share a post from the bar below the chat: theirs, yours, or from people you follow.
+            compose.onNodeWithTag("share_post").performClick()
+            compose.waitUntil(20_000) {
+                compose.onAllNodes(hasTestTag("pick_post")).fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodes(hasText("No posts yet", substring = true)).fetchSemanticsNodes().isNotEmpty()
+            }
+            shot("46b_pick_a_post")
+            if (compose.onAllNodes(hasTestTag("pick_post")).fetchSemanticsNodes().isNotEmpty()) {
+                compose.onAllNodes(hasTestTag("pick_post")).onFirst().performClick()
+                compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("pick_post")).fetchSemanticsNodes().isEmpty() }
+                compose.waitUntil(15_000) { compose.onAllNodes(hasText("Sharing…")).fetchSemanticsNodes().isEmpty() }
+                waitFor(hasTestTag("message_post"), 15_000)
+            } else {
+                device.pressBack()
+            }
             // A stranger's profile has no Message button.
             open("worthabite://user/${outsider.user.handle}")
             waitText(outsider.user.displayName!!, timeoutMs = 15_000)

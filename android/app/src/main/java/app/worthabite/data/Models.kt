@@ -529,6 +529,7 @@ data class FollowingPost(
     val height: Int? = null,
     val createdAt: String = "",
     val verifiedVisit: Boolean = false,
+    val commentCount: Int = 0,
     val author: UserRef,
     val dish: DishCard,
 )
@@ -921,6 +922,8 @@ data class Conversation(
     val folder: String = "inbox",
     val with: UserRef = UserRef(""),
     val canMessage: Boolean = true,
+    /** Why you can't share here right now (they turned sharing off, say), when [canMessage] is false. */
+    val cantShareReason: String? = null,
     val theirLastReadAt: String? = null,
     val messages: List<Message> = emptyList(),
     /** Fingerprint of the chat; polling with it returns just [unchanged] when nothing moved. */
