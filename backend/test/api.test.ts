@@ -2377,3 +2377,23 @@ describe('profile changes reach everyone', () => {
     expect(mine.author.displayName).toBe('New Name');
   });
 });
+
+describe('best dishes at a place', () => {
+  it('lists a place\'s dishes best first, by what people who ate them said', async () => {
+    const place = await testPlace('Best Bites');
+    const u = await signUp({ established: true });
+    const meh = (await post(u.auth, { dishName: 'Plain Dosa', restaurantId: place })).json().dishId;
+    const great = (await post(u.auth, { dishName: 'Ghee Roast Dosa', restaurantId: place })).json().dishId;
+    (await post(u.auth, { dishName: 'Rava Dosa', restaurantId: place })).json();
+    for (let i = 0; i < 3; i++) {
+      const v = await signUp({ established: true });
+      await app.inject({ method: 'PUT', url: `/dishes/${great}/engagements/recommend`, headers: v.auth });
+      await app.inject({ method: 'PUT', url: `/dishes/${meh}/engagements/pass`, headers: v.auth });
+    }
+    const page = (await app.inject(`/restaurants/${place}`)).json();
+    // Loved first, then the one people passed on, and the unrated one last.
+    expect(page.dishes.map((d: { name: string }) => d.name)).toEqual(['Ghee Roast Dosa', 'Plain Dosa', 'Rava Dosa']);
+    const near = (await app.inject('/restaurants/nearby?lat=20.0&lng=73.79&radius=300')).json();
+    expect(near.find((r: { name: string }) => r.name === 'Best Bites')).toMatchObject({ lat: 20, lng: 73.79 });
+  });
+});

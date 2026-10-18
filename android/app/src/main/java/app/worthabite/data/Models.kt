@@ -233,7 +233,14 @@ data class MapsLink(val googlePlaceId: String? = null)
 data class GooglePhotos(val photos: List<GooglePhoto> = emptyList())
 
 @Serializable
-data class PlaceOption(val id: String, val name: String, val locality: String? = null, val distanceM: Int? = null)
+data class PlaceOption(
+    val id: String,
+    val name: String,
+    val locality: String? = null,
+    val distanceM: Int? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+)
 
 @Serializable
 data class SearchResult(val dishes: List<DishCard> = emptyList(), val restaurants: List<PlaceOption> = emptyList())

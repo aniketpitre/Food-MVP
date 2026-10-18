@@ -714,6 +714,18 @@ class FullAppTest {
             assertFalse(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
             shot("96_activity_follow_back")
         }
+        step("posting: pick the place on the map, or pin a new one") {
+            backTo(hasContentDescription("Post a dish"))
+            tab("Post a dish")
+            waitFor(hasTestTag("pick_on_map"), 20_000)
+            compose.onNodeWithTag("pick_on_map").performScrollTo().performClick()
+            waitFor(hasTestTag("place_picker"), 15_000)
+            Thread.sleep(4000) // the map and its places arrive
+            shot("98_place_picker")
+            compose.onNodeWithTag("picker_add_here").performClick()
+            waitText("Pinned on the map.", timeoutMs = 10_000)
+            shot("98b_pinned_new_place")
+        }
         step("their new name and photo reach my phone") {
             call("PATCH", "/me/profile", chef.token, JSONObject().put("displayName", "Chef Renamed"))
             val end = System.currentTimeMillis() + 20_000

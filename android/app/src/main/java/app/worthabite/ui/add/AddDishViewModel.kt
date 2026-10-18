@@ -10,6 +10,7 @@ import app.worthabite.data.Category
 import app.worthabite.data.CreatedPost
 import app.worthabite.data.DishSuggestion
 import app.worthabite.data.ImageCompressor
+import app.worthabite.data.Coords
 import app.worthabite.data.PlaceOption
 import app.worthabite.data.SimilarDish
 import app.worthabite.data.SimilarPlace
@@ -58,6 +59,8 @@ data class AddDishUiState(
     val similarDishes: List<SimilarDish> = emptyList(),
     /** Places already near here with a similar name, before adding a new one. */
     val similarPlaces: List<SimilarPlace> = emptyList(),
+    /** Where the new place is, when picked on the map (otherwise it's where the phone is). */
+    val newPlaceAt: Coords? = null,
 ) {
     val hasLocation get() = placesNearby
     val canSubmit: Boolean
@@ -188,7 +191,7 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
     private fun checkSimilarPlaces() {
         similarPlaceJob?.cancel()
         val name = _state.value.newPlaceName.trim()
-        val loc = app.location.value
+        val loc = _state.value.newPlaceAt ?: app.location.value
         if (!_state.value.addingNewPlace || name.length < 3 || loc == null) {
             _state.update { it.copy(similarPlaces = emptyList()) }
             return
@@ -205,7 +208,24 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
         checkSimilarPlaces()
     }
 
-    fun cancelNewPlace() = _state.update { it.copy(addingNewPlace = false) }
+    fun cancelNewPlace() = _state.update { it.copy(addingNewPlace = false, newPlaceAt = null) }
+
+    /** A place picked on the map: one already on WorthAbite, or a new one at that spot. */
+    fun usePicked(p: PickedPlace) {
+        when (p) {
+            is PickedPlace.Existing -> selectPlace(p.place)
+            is PickedPlace.New -> {
+                _state.update {
+                    it.copy(
+                        addingNewPlace = true, selectedPlace = null, similarDishes = emptyList(),
+                        newPlaceName = p.name.ifBlank { it.newPlaceName }.take(80),
+                        newPlaceAt = Coords(p.lat, p.lng),
+                    )
+                }
+                checkSimilarPlaces()
+            }
+        }
+    }
     fun setNewPlaceName(v: String) {
         _state.update { it.copy(newPlaceName = v.take(80)) }
         checkSimilarPlaces()
@@ -220,7 +240,7 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
         val s = _state.value
         if (!s.canSubmit) return
         val photo = s.photo ?: return
-        if (s.addingNewPlace && app.location.value == null) {
+        if (s.addingNewPlace && s.newPlaceAt == null && app.location.value == null) {
             _state.update { it.copy(error = "To add a new place we need your approximate location for its map pin. Allow location and try again.") }
             return
         }
@@ -237,7 +257,7 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
                     put("dishName", s.dishName.trim())
                     s.categoryId?.let { put("categoryId", it.toString()) }
                     if (s.addingNewPlace) {
-                        val loc = app.location.value!!
+                        val loc = s.newPlaceAt ?: app.location.value!!
                         put("newPlaceName", s.newPlaceName.trim())
                         if (s.newPlaceLocality.isNotBlank()) put("newPlaceLocality", s.newPlaceLocality.trim())
                         put("newPlaceLat", loc.lat.toString())

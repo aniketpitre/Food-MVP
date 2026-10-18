@@ -171,10 +171,15 @@ export async function browseRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'not_found', message: 'This place is not available.' });
     }
     const { rows: dishIds } = await db.query<{ id: string }>(
-      `select d.id from dishes d left join dish_stats s on s.dish_id = d.id
+      // The best dishes here first: People's Pick (loves against "not for me", by trust), dishes
+      // nobody has rated yet after the rated ones, then the newest.
+      `select d.id from dishes d
+       left join dish_stats s on s.dish_id = d.id
+       left join dish_rating dr on dr.dish_id = d.id
        where d.restaurant_id = $1 and d.status = 'live'
          and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
-       order by coalesce(s.score, 0) desc, d.featured_rank nulls last, d.created_at desc limit 50`,
+       order by (coalesce(dr.loves, 0) + coalesce(dr.passes, 0) > 0) desc, coalesce(dr.confidence, 0) desc,
+                coalesce(s.score, 0) desc, d.featured_rank nulls last, d.created_at desc limit 50`,
       [p.id],
     );
     delete r.createdBy;
@@ -363,7 +368,7 @@ export async function browseRoutes(app: FastifyInstance) {
     );
     if (!q) return;
     const { rows } = await db.query(
-      `select id, name, locality,
+      `select id, name, locality, st_y(geo::geometry) as lat, st_x(geo::geometry) as lng,
               round(st_distance(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography))::int as "distanceM"
        from restaurants
        where status = 'active'

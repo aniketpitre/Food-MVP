@@ -1,5 +1,6 @@
 package app.worthabite.ui.add
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.testTag
 import android.Manifest
 import android.net.Uri
@@ -131,6 +132,17 @@ fun AddDishScreen(
         }
     }
 
+    // Picking the place on the map takes over the screen until a place is chosen.
+    var picking by rememberSaveable { mutableStateOf(false) }
+    if (picking) {
+        PlacePicker(
+            start = state.newPlaceAt ?: app.location.value,
+            onPicked = { vm.usePicked(it); picking = false },
+            onClose = { picking = false },
+        )
+        return
+    }
+
     AddDishContent(
         state = state,
         photoModel = state.photo,
@@ -159,6 +171,7 @@ fun AddDishScreen(
         onSponsored = vm::setSponsored,
         onSubmit = { vm.submit(context) },
         onVerdict = vm::setVerdict,
+        onPickOnMap = { picking = true },
         onSimilarDish = vm::useSimilarDish,
         onSimilarPlace = vm::useSimilarPlace,
     )
@@ -188,6 +201,7 @@ fun AddDishContent(
     onSponsored: (Boolean) -> Unit,
     onSubmit: () -> Unit,
     onVerdict: (Verdict?) -> Unit = {},
+    onPickOnMap: () -> Unit = {},
     onSimilarDish: (app.worthabite.data.SimilarDish) -> Unit = {},
     onSimilarPlace: (app.worthabite.data.SimilarPlace) -> Unit = {},
 ) {
@@ -325,7 +339,11 @@ fun AddDishContent(
                             Icon(Icons.Filled.LocationOn, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                if (state.hasLocation) "The pin uses your current approximate location." else "We need your approximate location for the pin.",
+                                when {
+                                    state.newPlaceAt != null -> "Pinned on the map."
+                                    state.hasLocation -> "The pin uses your current approximate location."
+                                    else -> "We need your approximate location for the pin."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.weight(1f),
                             )
@@ -336,11 +354,17 @@ fun AddDishContent(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        TextButton(onClick = onPickOnMap, modifier = Modifier.testTag("pin_on_map")) {
+                            Icon(AppIcons.Map, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+                            Text(if (state.newPlaceAt != null) "Move the pin on the map" else "Put the pin on the map")
+                        }
                         TextButton(onClick = onCancelNewPlace) { Text("Pick an existing place instead") }
                     }
                 }
             }
             else -> {
+                // The easiest way: find it on the map (where you are), tap it, done.
+                PrimaryButton("Pick it on the map", onPickOnMap, Modifier.fillMaxWidth().testTag("pick_on_map"), leading = AppIcons.Map)
                 OutlinedTextField(
                     value = state.placeQuery,
                     onValueChange = onPlaceQuery,

@@ -218,11 +218,14 @@ fun RestaurantContent(
             item(key = "photos") { PlacePhotos(place.photos, googlePhotos, mediaUrl, onOpenLink) }
         }
         item(key = "title") {
-            Text(
-                "Most recommended here",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 6.dp),
-            )
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 6.dp)) {
+                Text("Best dishes here", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Ranked by what people who ate them said: loves against \"not for me\", trusted tasters counting more.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (place.dishes.isEmpty()) {
             item(key = "empty") { CenteredMessage("No photos yet", "Post the first dish from this place.") }
