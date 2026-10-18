@@ -247,3 +247,19 @@ describe('profile counts', () => {
     expect(top.items.map((i: { name: string }) => i.name)).not.toContain('Hidden Gem Roll');
   });
 });
+
+describe('a new place from a verified visit', () => {
+  it('goes live at once for an established account; otherwise waits for review', async () => {
+    const vet = await signUp({ established: true });
+    const at = { newPlaceLat: '20.0412', newPlaceLng: '73.7712', lat: '20.0412', lng: '73.7712', capture: 'camera' };
+    const ok = await app.inject({ method: 'POST', url: '/posts', ...multipart(vet.auth, { idempotencyKey: 'vv-1-xxxx', dishName: 'Kesar Kulfi', newPlaceName: 'Kulfi Kendra', ...at }, await photo()) });
+    expect(ok.json()).toMatchObject({ visit: 'verified', restaurantStatus: 'active' });
+    const fresh = await signUp();
+    const wait = await app.inject({ method: 'POST', url: '/posts', ...multipart(fresh.auth, { idempotencyKey: 'vv-2-xxxx', dishName: 'Malai Kulfi', newPlaceName: 'Kulfi Corner Two', ...at, newPlaceLat: '20.0612', lat: '20.0612' }, await photo()) });
+    expect(wait.json()).toMatchObject({ visit: 'verified', restaurantStatus: 'pending' });
+    // Posting from home (not at the place) never makes a new place go live by itself.
+    const home = await app.inject({ method: 'POST', url: '/posts', ...multipart(vet.auth, { idempotencyKey: 'vv-3-xxxx', dishName: 'Rose Kulfi', newPlaceName: 'Far Kulfi', newPlaceLat: '20.08', newPlaceLng: '73.75', lat: '20.0412', lng: '73.7712', capture: 'camera' }, await photo()) });
+    expect(home.json()).toMatchObject({ visit: null, restaurantStatus: 'pending' });
+  });
+});
+

@@ -390,11 +390,11 @@ describe('posting a dish', () => {
     const me = (await app.inject({ url: `/users/${u.handle}`, headers: u.auth })).json();
     expect(me.posts[0]).toMatchObject({ dishName: 'Mango Lassi', restaurantStatus: 'pending' });
     expect((await app.inject({ url: `/restaurants/${post.restaurantId}`, headers: u.auth })).statusCode).toBe(200);
-    expect((await app.inject(`/restaurants/${post.restaurantId}`)).statusCode).toBe(404);
+    expect((await app.inject(`/restaurants/${post.restaurantId}`)).json().status).toBe('pending');
 
     const notAdmin = await app.inject({ method: 'POST', url: `/admin/restaurants/${post.restaurantId}/approve`, headers: u.auth });
     expect(notAdmin.statusCode).toBe(403);
-    const admin = await signUp({ email: 'admin@example.com' });
+    const admin = { auth: await adminAuth() };
     const queue = (await app.inject({ url: '/admin/queue', headers: admin.auth })).json();
     expect(queue.pendingPlaces.map((p: { name: string }) => p.name)).toContain('Lassi Wala');
     await app.inject({ method: 'POST', url: `/admin/restaurants/${post.restaurantId}/approve`, headers: admin.auth });
@@ -452,9 +452,7 @@ describe('safety', () => {
     // the dish has no live photo now, so it leaves the feed and its page 404s for nobody but shows no cover
     const feed = (await app.inject(`/feed?city=${cityId}&limit=50`)).json();
     expect(feed.items.map((i: { name: string }) => i.name)).not.toContain('Penne Arrabbiata');
-    const admin = await signUp({ email: `admin2_${Date.now()}@example.com` });
-    await db.query("update profiles set role = 'admin' where id = $1", [admin.id]);
-    const restored = await app.inject({ method: 'POST', url: `/admin/posts/${postId}/restore`, headers: admin.auth });
+    const restored = await app.inject({ method: 'POST', url: `/admin/posts/${postId}/restore`, headers: await adminAuth() });
     expect(restored.statusCode).toBe(200);
     expect((await db.query('select status from posts where id = $1', [postId])).rows[0].status).toBe('live');
   });
@@ -489,7 +487,7 @@ describe('safety', () => {
     })).json();
     const id = await dishId('Veg Burger');
     await app.inject({ method: 'PUT', url: `/dishes/${id}/engagements/recommend`, headers: u.auth });
-    const res = await app.inject({ method: 'DELETE', url: '/me', headers: u.auth });
+    const res = await app.inject({ method: 'DELETE', url: '/me', headers: u.auth, payload: { password: 'correct horse' } });
     expect(res.statusCode).toBe(200);
     expect((await db.query('select count(*)::int as n from profiles where id = $1', [u.id])).rows[0].n).toBe(0);
     expect((await db.query('select count(*)::int as n from posts where id = $1', [post.id])).rows[0].n).toBe(0);
@@ -742,8 +740,7 @@ describe('comments', () => {
     const list = (await app.inject(`/posts/${postId}/comments`)).json();
     expect(list.comments.find((x: { id: string }) => x.id === c.id)).toBeUndefined();
 
-    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
-    const admin = { auth: { authorization: `Bearer ${login.json().token}` } };
+    const admin = { auth: await adminAuth() };
     const queue = (await app.inject({ url: '/admin/queue', headers: admin.auth })).json();
     const item = queue.reported.find((x: { targetId: string }) => x.targetId === c.id);
     expect(item).toMatchObject({ targetType: 'comment', status: 'hidden', label: '"buy followers here"' });
@@ -1124,9 +1121,7 @@ describe('fair ranking', () => {
   });
 
   it('rejects settings that would break the maths, and applies good ones at once', async () => {
-    const login = () => app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
-    if ((await login()).statusCode !== 200) await signUp({ email: 'admin@example.com' });
-    const headers = { authorization: `Bearer ${(await login()).json().token}` };
+    const headers = await adminAuth();
     const set = (key: string, value: number) => app.inject({ method: 'PUT', url: `/admin/ranking-config/${key}`, headers, payload: { value } });
     expect((await set('half_life_days', 0)).statusCode).toBe(400);
     expect((await set('pp_prior', 1.5)).statusCode).toBe(400);
@@ -1157,7 +1152,7 @@ describe('fair ranking', () => {
     await app.inject({ method: 'POST', url: '/blocks', headers: viewer.auth, payload: { handle: champ.handle } });
     expect((await app.inject({ url: `/dishes/${dish}`, headers: viewer.auth })).json().champion).toBeNull();
     // The account goes; its love goes from the dish straight away.
-    await app.inject({ method: 'DELETE', url: '/me', headers: champ.auth });
+    await app.inject({ method: 'DELETE', url: '/me', headers: champ.auth, payload: { password: 'correct horse' } });
     const r = (await db.query('select loves from dish_rating where dish_id = $1', [dish])).rows[0];
     expect(r.loves).toBe(0);
   });
@@ -1715,7 +1710,7 @@ describe('accounts: sign in, sessions, recovery', () => {
     expect((await app.inject({ url: '/me', headers: u.auth })).statusCode).toBe(200);
     expect((await app.inject({ url: '/me', headers: bearer(other) })).statusCode).toBe(401);
     expect((await login(app, u.handle, 'new tasty secret')).statusCode).toBe(200);
-    expect((await app.inject({ method: 'DELETE', url: '/me', headers: u.auth })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'DELETE', url: '/me', headers: u.auth, payload: { password: 'new tasty secret' } })).statusCode).toBe(200);
     expect((await app.inject({ url: '/me', headers: u.auth })).statusCode).toBe(401);
   });
 
@@ -2112,9 +2107,11 @@ describe('removing demo content', () => {
 // ---------- 0.19: fair ranking, genuine photos, the Following feed ----------
 
 async function adminAuth() {
-  const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
-  if (login.statusCode === 200) return { authorization: `Bearer ${login.json().token}` };
-  return (await signUp({ email: 'admin@example.com' })).auth;
+  const login = () => app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
+  if ((await login()).statusCode !== 200) await signUp({ email: 'admin@example.com' });
+  // A listed email is admin only once verified; signing in then makes it admin.
+  await db.query("update profiles set email_verified_at = coalesce(email_verified_at, now()) where email = 'admin@example.com'");
+  return { authorization: `Bearer ${(await login()).json().token}` };
 }
 
 /** A place of our own in the test city, so these tests don't lean on the demo data. */
@@ -2291,7 +2288,12 @@ describe('genuine photos', () => {
     const place = await testPlace('Merge Mess');
     const u = await signUp({ established: true });
     const a = (await post(u.auth, { dishName: 'Paneer Tikka', restaurantId: place })).json().dishId;
-    const b = (await post(u.auth, { dishName: 'Paneer Tika', restaurantId: place })).json().dishId;
+    // Posting "Paneer Tika" now joins "Paneer Tikka" by itself, so the look-alike is made
+    // directly, as dishes from before that check were.
+    const b = (await db.query(
+      `insert into dishes (restaurant_id, city_id, name, name_norm, created_by)
+       values ($1, $2, 'Paneer Tika', norm_name('Paneer Tika'), $3) returning id`, [place, cityId, u.id])).rows[0].id;
+    await db.query(`insert into posts (dish_id, author_id, image_path, thumb_path) values ($1, $2, '/media/x.webp', '/media/x.webp')`, [b, u.id]);
     const voter = await signUp({ established: true });
     await app.inject({ method: 'PUT', url: `/dishes/${b}/engagements/recommend`, headers: voter.auth });
     await new Promise((r) => setTimeout(r, 20));
@@ -2348,9 +2350,11 @@ describe('following feed', () => {
     await app.inject({ method: 'PUT', url: `/users/${chef.handle}/follow`, headers: fan.auth });
     const res = await post(chef.auth, { dishName: 'Thecha Bhakri', newPlaceName: 'Bhakri House', newPlaceLat: '20.01', newPlaceLng: '73.79' });
     const kinds = async () => (await app.inject({ url: '/notifications', headers: fan.auth })).json().items.map((n: { kind: string }) => n.kind);
-    expect(await kinds()).not.toContain('post');
-    await app.inject({ method: 'POST', url: `/admin/restaurants/${res.json().restaurantId}/approve`, headers: await adminAuth() });
+    // Followers hear about it at once (it shows in their Following feed too)...
     expect(await kinds()).toContain('post');
+    // ...and approving the place later doesn't tell them twice.
+    await app.inject({ method: 'POST', url: `/admin/restaurants/${res.json().restaurantId}/approve`, headers: await adminAuth() });
+    expect((await kinds()).filter((k: string) => k === 'post')).toHaveLength(1);
   });
 });
 
@@ -2392,8 +2396,8 @@ describe('best dishes at a place', () => {
       await app.inject({ method: 'PUT', url: `/dishes/${meh}/engagements/pass`, headers: v.auth });
     }
     const page = (await app.inject(`/restaurants/${place}`)).json();
-    // Loved first, then the one people passed on, and the unrated one last.
-    expect(page.dishes.map((d: { name: string }) => d.name)).toEqual(['Ghee Roast Dosa', 'Plain Dosa', 'Rava Dosa']);
+    // Loved first, then the unrated one (it sits at the prior), and the one people passed on last.
+    expect(page.dishes.map((d: { name: string }) => d.name)).toEqual(['Ghee Roast Dosa', 'Rava Dosa', 'Plain Dosa']);
     const near = (await app.inject('/restaurants/nearby?lat=20.0&lng=73.79&radius=300')).json();
     expect(near.find((r: { name: string }) => r.name === 'Best Bites')).toMatchObject({ lat: 20, lng: 73.79 });
   });

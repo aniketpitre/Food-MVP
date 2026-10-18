@@ -70,8 +70,9 @@ export async function postRoutes(app: FastifyInstance) {
 
     if (!image) return reply.code(400).send({ error: 'invalid_input', message: 'Add a photo of the dish.' });
 
+    // Uploads are counted, not posts, so deleting a post doesn't give back a slot.
     const { rows: limit } = await db.query<{ n: number; max: string }>(
-      `select (select count(*)::int from posts where author_id = $1 and created_at > now() - interval '24 hours') as n,
+      `select (select count(*)::int from post_uploads where author_id = $1 and created_at > now() - interval '24 hours') as n,
               cfg('posts_per_day') as max`,
       [me],
     );
@@ -92,12 +93,15 @@ export async function postRoutes(app: FastifyInstance) {
     }
 
     // The same photo twice: yours is turned away; someone else's waits for a person to look.
+    // Only photos sharing a fingerprint band can be that close (see phash_bands), so the
+    // index narrows it to a few candidates before the exact bit count. A photo with no
+    // author (an imported one) is never "yours".
     const { rows: copies } = await db.query<{ id: string; author_id: string | null; mine: boolean }>(
-      `select p.id, p.author_id, p.author_id = $2 as mine from posts p
-       where $1::bigint is not null and p.phash is not null and p.status <> 'hidden'
+      `select p.id, p.author_id, p.author_id is not distinct from $2 as mine from posts p
+       where $1::bigint is not null and p.ph_bands && $3::int[] and p.status <> 'hidden'
          and phash_distance(p.phash, $1::bigint) <= cfg('copy_distance')
-       order by p.author_id = $2 desc, p.created_at limit 1`,
-      [fingerprint, me],
+       order by p.author_id is not distinct from $2 desc, p.created_at limit 1`,
+      [fingerprint, me, fingerprint === null ? [] : phashBands(fingerprint)],
     );
     if (copies[0]?.mine) {
       await deletePostImages(config.mediaDir, postId);
@@ -133,20 +137,6 @@ export async function postRoutes(app: FastifyInstance) {
         restaurantId = rows[0]!.id;
       }
 
-      // One photo of a dish per person per day: many photos of one plate are not many votes.
-      const { rows: today } = await client.query<{ n: number; max: string }>(
-        `select count(*)::int as n, cfg('posts_per_dish_day') as max
-         from posts p join dishes d on d.id = p.dish_id
-         where p.author_id = $1 and d.restaurant_id = $2 and d.name_norm = norm_name($3)
-           and p.created_at > now() - interval '24 hours'`,
-        [me, restaurantId, f.dishName],
-      );
-      if (today[0]!.n >= Number(today[0]!.max)) {
-        throw Object.assign(new Error('You already posted this dish today. Come back tomorrow for another photo.'), {
-          statusCode: 429, code: 'dish_daily_limit',
-        });
-      }
-
       // A verified visit: the phone was at the place, and the photo was taken there and then
       // (with the camera, or a gallery photo from the last few days). Both come from the
       // phone, so they're a strong hint, not proof; copies and reports catch the rest.
@@ -160,7 +150,36 @@ export async function postRoutes(app: FastifyInstance) {
       );
       const visit = vis[0]?.near ? (vis[0].fresh ? 'verified' : 'nearby') : null;
 
-      const { rows: dish } = await client.query<{ id: string }>(
+      // A new place goes live at once when someone established (a week old) posts from it with
+      // a verified visit, and nothing with a similar name is already there; otherwise it waits
+      // for a person to look. Either way the post shows to followers straight away.
+      if (!f.restaurantId && visit === 'verified') {
+        await client.query(
+          `update restaurants r set status = 'active'
+           where r.id = $1
+             and (select created_at < now() - make_interval(days => greatest(cfg('standing_ramp_days'), 0)::int) from profiles where id = $2)
+             and not exists (select 1 from restaurants o where o.id <> r.id and o.status <> 'hidden'
+                               and st_dwithin(o.geo, r.geo, 150) and similarity(o.name_norm, r.name_norm) >= 0.35)`,
+          [restaurantId, me],
+        );
+      }
+
+      // A typo of a dish already here ("Buter Chiken" for "Butter Chicken") joins that dish
+      // instead of splitting its votes, when no dish has exactly this name. Trigram
+      // similarity alone can't tell a typo from a longer name ("Paneer Tikka Masala" is
+      // closer to "Paneer Tikka" than "Buter Chiken" is to "Butter Chicken"), so it also
+      // takes a small edit distance: about one letter in six.
+      const { rows: typo } = await client.query<{ id: string }>(
+        `select d.id from dishes d, (select norm_name($2) as t) n
+         where d.restaurant_id = $1 and d.status = 'live'
+           and not exists (select 1 from dishes x where x.restaurant_id = $1 and x.name_norm = n.t)
+           and similarity(d.name_norm, n.t) >= 0.5
+           and levenshtein(d.name_norm, n.t) <= greatest(1, length(n.t) / 6)
+         order by levenshtein(d.name_norm, n.t), similarity(d.name_norm, n.t) desc, d.created_at
+         limit 1`,
+        [restaurantId, f.dishName],
+      );
+      const { rows: dish } = typo[0] ? { rows: typo } : await client.query<{ id: string }>(
         // No category picked: the name tells us ("Kolhapuri Misal" is Misal).
         `insert into dishes (restaurant_id, city_id, category_id, name, name_norm, price_inr, is_veg, created_by)
          values ($1, $2, coalesce($3::int, ${CATEGORY_FOR_NAME_SQL.replaceAll('$1', '$4')}), $4, norm_name($4), $5, $6, $7)
@@ -172,7 +191,33 @@ export async function postRoutes(app: FastifyInstance) {
         [restaurantId, cityId, f.categoryId ?? null, f.dishName, f.priceInr ?? null,
          f.isVeg === undefined ? null : f.isVeg === 'true', me],
       );
-      const dishId = dish[0]!.id;
+      // A name merged into another dish posts to that dish. A dish an admin hid (or reports
+      // took down) stays down: posting it again doesn't bring it back.
+      const { rows: target } = await client.query<{ id: string; status: string }>(
+        `select d.id, d.status from dishes d
+         where d.id = coalesce((select into_id from dish_merges where from_id = $1), $1)`,
+        [dish[0]!.id],
+      );
+      if (!target[0] || target[0].status === 'hidden') {
+        throw Object.assign(new Error('That dish is not available at this place.'), { statusCode: 409, code: 'dish_unavailable' });
+      }
+      const dishId = target[0].id;
+
+      // One photo of a dish per person per day: many photos of one plate are not many votes.
+      // Counted from uploads (deleting a post doesn't free the slot), on the dish it lands
+      // on, including names merged into it.
+      const { rows: today } = await client.query<{ n: number; max: string }>(
+        `select count(*)::int as n, cfg('posts_per_dish_day') as max
+         from post_uploads u
+         where u.author_id = $1 and u.created_at > now() - interval '24 hours'
+           and (u.dish_id = $2 or u.dish_id in (select from_id from dish_merges where into_id = $2))`,
+        [me, dishId],
+      );
+      if (today[0]!.n >= Number(today[0]!.max)) {
+        throw Object.assign(new Error('You already posted this dish today. Come back tomorrow for another photo.'), {
+          statusCode: 429, code: 'dish_daily_limit',
+        });
+      }
 
       await client.query(
         `insert into posts (id, dish_id, author_id, caption, image_path, thumb_path, placeholder_color,
@@ -183,12 +228,16 @@ export async function postRoutes(app: FastifyInstance) {
          stored.width, stored.height, f.isSponsored === 'true', f.sponsorNote || null, f.instagramUrl || null,
          f.idempotencyKey, copyOf ? 'pending' : 'live', fingerprint, f.capture ?? null, f.takenAt ?? null, visit, copyOf],
       );
+      await client.query('insert into post_uploads (author_id, dish_id) values ($1, $2)', [me, dishId]);
       if (!copyOf) await client.query('update dishes set cover_post_id = coalesce(cover_post_id, $2) where id = $1', [dishId, postId]);
-      // Your verdict is a vote like the buttons on the dish (a "not for me" also means you tried it).
-      if (f.verdict === 'loved') {
+      // Your verdict is a vote like the buttons on the dish (a "not for me" also means you
+      // tried it). A held photo (a copy waiting for review) gets no credit, so its verdict
+      // isn't counted: the buttons on the dish are still there.
+      const verdict = copyOf ? undefined : f.verdict;
+      if (verdict === 'loved') {
         await client.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, dishId]);
         await client.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'recommend') on conflict do nothing", [me, dishId]);
-      } else if (f.verdict === 'pass') {
+      } else if (verdict === 'pass') {
         await client.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, dishId]);
         await client.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'pass') on conflict do nothing", [me, dishId]);
         await client.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'tried') on conflict do nothing", [me, dishId]);
@@ -202,19 +251,17 @@ export async function postRoutes(app: FastifyInstance) {
     } finally {
       client.release();
     }
-    // Followers hear about it, and phones in the city check for new food near them. A place
-    // still waiting for review stays quiet until it's approved.
+    // Followers hear about it at once (they see it in Following too); phones in the city
+    // check for new food near them only once the place is live.
     if (published) {
       await db.query('select refresh_dish_stats($1)', [published.dishId]);
       await db.query('select refresh_people_pick($1)', [published.dishId]);
       scheduleTrustRefresh(db, 3000, (err) => app.log.error(err));
     }
     if (published && !published.held) {
+      await notifyFollowers(db, { actorId: me, kind: 'post', postId, dishId: published.dishId });
       const live = await db.query("select 1 from restaurants where id = $1 and status = 'active'", [published.restaurantId]);
-      if (live.rows[0]) {
-        await notifyFollowers(db, { actorId: me, kind: 'post', postId, dishId: published.dishId });
-        await app.push.tickleCity(published.cityId, me);
-      }
+      if (live.rows[0]) await app.push.tickleCity(published.cityId, me);
     }
     return reply.code(201).send(await postJson(postId));
   });
@@ -243,4 +290,14 @@ export async function postRoutes(app: FastifyInstance) {
     );
     return rows[0];
   }
+}
+
+/**
+ * The fingerprint's 8 bytes, each tagged with its position (position * 256 + byte), the
+ * same as phash_bands() in the database. Two photos within a few bits of each other share
+ * at least one band, so "shares a band" finds every possible copy through an index.
+ */
+export function phashBands(fingerprint: string): number[] {
+  const h = BigInt.asUintN(64, BigInt(fingerprint));
+  return Array.from({ length: 8 }, (_, i) => i * 256 + Number((h >> BigInt(8 * i)) & 255n));
 }

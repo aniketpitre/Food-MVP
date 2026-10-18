@@ -42,7 +42,12 @@ export async function exploreRoutes(app: FastifyInstance) {
                 (select count(*)::int from dishes d where d.restaurant_id = r.id and d.status = 'live'
                    and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')) as dish_count,
                 (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
-                 where de.restaurant_id = r.id and e.kind = 'recommend') as lovers,
+                 where de.restaurant_id = r.id and de.status = 'live' and e.kind = 'recommend'
+                   and e.user_id is distinct from r.created_by) as lovers,
+                -- "Most loved" ranks by the People's Pick weight of the loves (trust x standing),
+                -- over dishes still up: a few throwaway accounts or a hidden dish don't count.
+                (select coalesce(sum(dr.w_loves), 0)::float8 from dishes dl join dish_rating dr on dr.dish_id = dl.id
+                 where dl.restaurant_id = r.id and dl.status = 'live') as w_loves,
                 (select max(p.created_at) from posts p join dishes d on d.id = p.dish_id
                  where d.restaurant_id = r.id and p.status = 'live' and d.status = 'live') as last_post,
                 case when $2::float8 is not null and $3::float8 is not null
@@ -87,7 +92,7 @@ export async function exploreRoutes(app: FastifyInstance) {
        where $9 or b.dish_count > 0
        order by
          case when $10 = 'nearest' then b.dist end asc nulls last,
-         case when $10 = 'loved' then b.lovers end desc,
+         case when $10 = 'loved' then b.w_loves end desc,
          case when $10 = 'dishes' then b.dish_count end desc,
          case when $10 = 'new' then b.last_post end desc nulls last,
          b.dish_count desc, b.dist asc nulls last, b.id

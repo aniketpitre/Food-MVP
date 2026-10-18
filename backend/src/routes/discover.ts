@@ -181,7 +181,9 @@ export async function discoverRoutes(app: FastifyInstance) {
          limit 12`,
         [q.city, viewer],
       ),
-      ids(`select d.id from dishes d where ${visible}`),
+      // People to trust come from the city's best 50 dishes, not every dish in it.
+      ids(`select d.id from dishes d left join dish_rating dr on dr.dish_id = d.id
+           where ${visible} order by coalesce(dr.confidence, 0) desc, d.id limit 50`),
     ]);
     const followedRows = following.slice(0, 10);
     const sections = [picks, nearby, followedRows, trending, fresh];
@@ -231,7 +233,10 @@ export async function discoverRoutes(app: FastifyInstance) {
               st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
               count(d.id)::int as "dishCount",
               (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
-               where de.restaurant_id = r.id and e.kind = 'recommend') as lovers,
+               where de.restaurant_id = r.id and de.status = 'live' and e.kind = 'recommend'
+                 and e.user_id is distinct from r.created_by) as lovers,
+              (select coalesce(sum(dr.w_loves), 0)::float8 from dishes dl join dish_rating dr on dr.dish_id = dl.id
+               where dl.restaurant_id = r.id and dl.status = 'live') as "lovedWeight",
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
                order by (rp.source = 'owner') desc, rp.created_at limit 1) as "photoUrl",
               (select json_build_object('dishId', d2.id, 'name', d2.name, 'loves', coalesce(dr.loves, 0),
@@ -250,7 +255,8 @@ export async function discoverRoutes(app: FastifyInstance) {
        where r.city_id = $1 and r.status = 'active'
        group by r.id
        having $2 or count(d.id) > 0
-       order by count(d.id) desc, r.id
+       -- Most loved first (by the People's Pick weight of the loves on dishes still up).
+       order by "lovedWeight" desc, count(d.id) desc, r.id
        limit 3000`,
       [q.city, q.all === 'true'],
     );
@@ -284,7 +290,8 @@ export async function discoverRoutes(app: FastifyInstance) {
               (r.source = 'seed') as demo, st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
               (select count(*)::int from dishes dd where dd.restaurant_id = r.id and dd.status = 'live') as "dishCount",
               (select count(distinct e2.user_id)::int from engagements e2 join dishes de on de.id = e2.dish_id
-               where de.restaurant_id = r.id and e2.kind = 'recommend') as lovers,
+               where de.restaurant_id = r.id and de.status = 'live' and e2.kind = 'recommend'
+                 and e2.user_id is distinct from r.created_by) as lovers,
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
                order by (rp.source = 'owner') desc, rp.created_at limit 1) as "photoUrl",
               json_build_object('dishId', d.id, 'name', d.name, 'loves', coalesce(dr.loves, 0),

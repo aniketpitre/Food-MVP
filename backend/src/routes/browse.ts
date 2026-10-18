@@ -122,15 +122,16 @@ export async function browseRoutes(app: FastifyInstance) {
        limit 20`,
       [p.id, viewer],
     );
+    // People who loved it. "Tried" alone (or "tried it, not for me") is not a
+    // recommendation, and whoever added the place isn't listed for its own dishes.
     const { rows: recommenders } = await db.query(
       `select pr.handle, pr.display_name as "displayName"
        from engagements e join profiles pr on pr.id = e.user_id
-       where e.dish_id = $1 and e.kind in ('recommend', 'tried')
-         -- "Tried it, not for me" is not a recommendation.
-         and not exists (select 1 from engagements x where x.user_id = e.user_id and x.dish_id = e.dish_id and x.kind = 'pass')
+       join dishes d on d.id = e.dish_id join restaurants r on r.id = d.restaurant_id
+       where e.dish_id = $1 and e.kind = 'recommend'
+         and e.user_id is distinct from r.created_by
          and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = pr.id))
-       group by pr.id, pr.handle, pr.display_name
-       order by max(e.created_at) desc, pr.handle limit 12`,
+       order by e.created_at desc, pr.handle limit 12`,
       [p.id, viewer],
     );
     const { rows: more } = await db.query<{ id: string }>(
@@ -167,18 +168,21 @@ export async function browseRoutes(app: FastifyInstance) {
       [p.id, q.lat ?? null, q.lng ?? null],
     );
     const r = rows[0];
-    if (!r || (r.status !== 'active' && r.createdBy !== viewer)) {
+    // A new place waiting for review can be opened (its posts already show in Following);
+    // it just isn't in the rankings yet. Hidden places are gone.
+    if (!r || (r.status === 'hidden' && r.createdBy !== viewer)) {
       return reply.code(404).send({ error: 'not_found', message: 'This place is not available.' });
     }
     const { rows: dishIds } = await db.query<{ id: string }>(
-      // The best dishes here first: People's Pick (loves against "not for me", by trust), dishes
-      // nobody has rated yet after the rated ones, then the newest.
+      // The best dishes here first, by People's Pick (loves against "not for me", by trust).
+      // A dish nobody has rated yet sits at the prior: below a loved one, above one people
+      // passed on (the same order as everywhere else). Then feed points, then the newest.
       `select d.id from dishes d
        left join dish_stats s on s.dish_id = d.id
        left join dish_rating dr on dr.dish_id = d.id
        where d.restaurant_id = $1 and d.status = 'live'
          and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
-       order by (coalesce(dr.loves, 0) + coalesce(dr.passes, 0) > 0) desc, coalesce(dr.confidence, 0) desc,
+       order by coalesce(dr.confidence, 0) desc,
                 coalesce(s.score, 0) desc, d.featured_rank nulls last, d.created_at desc limit 50`,
       [p.id],
     );

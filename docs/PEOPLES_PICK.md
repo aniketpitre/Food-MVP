@@ -17,9 +17,12 @@ some people more than others because of their track record.
 
 Loved it and Not for me exclude each other. Whoever added a place doesn't vote for its
 dishes (their votes are kept, but count for nothing), so an owner can't push their menu.
+Their votes there don't build their trust either (see below), and they aren't listed
+among the people who loved those dishes.
 
 A vote from someone who posted a photo of the dish with a **verified visit** counts
-`visit_weight` (1.25) times: see "Genuine photos" below.
+`visit_weight` (1.25) times: see "Genuine photos" below. That only adds weight to the
+vote: being a champion or an expert still takes the standing on its own.
 
 ## Standing: one real person, one vote
 
@@ -38,6 +41,8 @@ standing = min(1, account age / 7 days) / (1 + lockstep partners)
   smaller account's votes). A ring of six accounts voting together counts as one person,
   can't build each other's trust, and can't produce a champion or an expert.
 * Lane minimums (Top: 3 people, Trending: 2, Hidden gems: 5) count people by standing.
+  For Top they are people who loved the dish or said "not for me" (`w_voters`, the owner
+  left out): saves and shares alone never put a dish in Top.
 
 ## Trust: whose vote counts more
 
@@ -58,6 +63,8 @@ trust = 0.6 + 0.8 × credit / (picks + 2)
   record just by being new.
 * Being early and right is what earns trust: loving a dish after it is already famous
   adds little, because few people vote after you.
+* Votes at a place by whoever added it are not picks, and don't count as later voters
+  agreeing with anyone else's: an owner can't build trust from their own menu.
 * "Expert" badge: at least 3 picks of that type, trust ≥ 1.05 and full standing.
 
 ## The rating of a dish
@@ -77,7 +84,12 @@ confidence = rating − 1.0 × sqrt(rating × (1 − rating) / (weighted votes +
   28 loves and 6 passes; 1 love does not beat 30 loves.
 * People see the plain numbers: "82 % loved it · 34 votes", plus the **champion**, the
   most trusted person in good standing who loved it ("Loved by @diya_k, misal expert").
-  A champion you've blocked isn't shown to you.
+  A champion you've blocked isn't shown to you. The faces on a card are the latest people
+  who loved it (not people who only marked it tried, nor the owner, nor anyone you blocked).
+* A place's page lists its dishes by confidence: a dish nobody has rated sits at the
+  prior, below a loved one and above one people passed on. Explore's "Most loved" sorts
+  places by the weighted loves (trust × standing) on their dishes still up, not by how many
+  accounts tapped Loved it.
 
 ## Searching a craving
 
@@ -97,7 +109,9 @@ people with the highest trust for those dishes are listed as **people to trust**
 * **Following** (in the app): photos from the people you follow, newest first, with no
   time limit, so someone you've just followed shows up with their older posts too.
 * **Fresh**: dishes with a new photo in the last 14 days, newest first (the editorial
-  order leads on launch day). Old dishes nobody endorsed don't stay in it forever.
+  order leads on launch day). Old dishes nobody endorsed don't stay in it forever. Only
+  photos from diners count: the place's own account re-posting doesn't keep its dishes
+  at the top, and deleting a post doesn't give back the day's posting slots.
 * "Not for me" never adds feed points; undoing it also takes back the "tried" it added.
 
 ## Tuning
@@ -106,9 +120,11 @@ Every number above lives in the `ranking_config` table (`pp_*`, `trust_*`, `expe
 `standing_*`, `twin_*`) and can be changed without shipping the app. The admin API
 rejects values that would break the maths (and every value is clamped where it's used);
 a change re-ranks everything at once. The SQL is in
-`backend/migrations/007_fair_ranking.sql` and `013_fair_feed_and_genuine_photos.sql`: a vote re-rates its dish at once, and trust,
-standing and lockstep partners are rebuilt a few seconds after a burst of votes and on
-the ranking timer.
+`backend/migrations/007_fair_ranking.sql`, `013_fair_feed_and_genuine_photos.sql` and
+`015_ranking_fixes.sql`: a vote re-rates its dish at once (under a lock for that dish
+only, so it never waits for a full rebuild), and trust, standing and lockstep partners
+are rebuilt a few seconds after a burst of votes and on the ranking timer (a rebuild that
+finds another one running leaves it to finish).
 
 ## People like you: Taste Match and For You
 
@@ -159,11 +175,13 @@ A photo can't be proven real, but these make faking one costly and copying one u
 * **Fingerprint.** Every upload gets a 64-bit difference hash (the photo shrunk to 9x8
   greys; each bit says whether a pixel is brighter than its neighbour). Resizing or
   recompressing barely changes it; a different photo differs in about half the bits.
-  Within `copy_distance` (6) bits it's the same photo:
+  Within `copy_distance` (6) bits it's the same photo. The fingerprint is also kept as
+  its 8 bytes (`ph_bands`, indexed): two photos 6 bits apart still share at least 2 of
+  them, so only photos sharing one are compared bit by bit.
   * your own photo again is refused ("You've already posted this photo");
   * someone else's is **held** for an admin, shown side by side with the original
     (Allow if it's genuine, say friends at one table; Remove if it was copied). A held
-    photo gets no credit and can't be a cover.
+    photo gets no credit and can't be a cover: its "Worth a bite?" answer isn't counted.
 * **Verified visit.** The app sends where the phone is when posting, and how and when the
   photo was taken (camera now, or the gallery photo's own date). Within `visit_radius_m`
   (300 m) of the place, with a camera photo or one taken in the last `photo_fresh_days`
@@ -171,9 +189,16 @@ A photo can't be proven real, but these make faking one costly and copying one u
   Both come from the phone, so a determined cheat can fake them (GPS spoofing): they're a
   strong hint, which reports and the other checks back up.
 * **One photo of a dish per person per day**, so many photos of one plate are never many
-  votes. Each person has one vote per dish however many photos they post.
+  votes. Each person has one vote per dish however many photos they post. Uploads are
+  counted (`post_uploads`), not posts, so deleting a photo doesn't free the slot, and the
+  limit follows the dish the photo lands on (a merged-away name counts as its dish).
 * **Did you mean…?** Posting "Butter Chkn" where "Butter Chicken" exists offers the
-  existing dish; adding a place with a similar name within 150 m offers the existing
+  existing dish. If the app posts the new name anyway and it's a near typo (trigram
+  similarity ≥ 0.5 and at most one edit per six letters, e.g. "Buter Chiken"), the photo
+  joins the existing dish and the reply carries its real name; "Paneer Tikka Masala" is
+  still its own dish next to "Paneer Tikka". A name an admin merged away posts to the
+  dish it became, and a dish an admin hid can't be brought back by posting it
+  (`dish_unavailable`); adding a place with a similar name within 150 m offers the existing
   place. Admins see look-alike dish names at one place and can **merge** them: photos
   and votes move over, each person's latest love or "not for me" is their one vote, and
   old links open the merged dish.

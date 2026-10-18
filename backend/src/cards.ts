@@ -109,13 +109,15 @@ export async function loadDishCards(
             coalesce(s.recommenders, 0) as recommenders, coalesce(s.saves, 0) as saves,
             coalesce(s.tried, 0) as tried, coalesce(s.endorsers, 0) as endorsers,
             (select array_agg(e.kind) from engagements e where e.user_id = $2 and e.dish_id = d.id) as my_kinds,
+            -- The latest people who loved it ("tried" alone isn't a recommendation), never
+            -- whoever added the place, nor anyone the viewer blocked.
             (select coalesce(json_agg(x), '[]'::json) from (
                select pr.handle, pr.display_name, pr.avatar_path
                from engagements e join profiles pr on pr.id = e.user_id
-               where e.dish_id = d.id and e.kind in ('recommend', 'tried')
-                 and not exists (select 1 from engagements x where x.user_id = e.user_id and x.dish_id = d.id and x.kind = 'pass')
-               group by pr.id, pr.handle, pr.display_name, pr.avatar_path
-               order by max(e.created_at) desc limit 3) x) as recent,
+               where e.dish_id = d.id and e.kind = 'recommend'
+                 and e.user_id is distinct from r.created_by
+                 and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = e.user_id))
+               order by e.created_at desc, pr.handle limit 3) x) as recent,
             case when $3::float8 is not null and $4::float8 is not null
                  then st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography) end as distance_m,
             dr.loves, dr.passes, dr.confidence,
