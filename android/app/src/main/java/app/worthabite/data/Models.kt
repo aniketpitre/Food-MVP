@@ -686,6 +686,9 @@ data class Person(
     val isMe: Boolean = false,
     val followers: Int = 0,
     val followsYou: Boolean = false,
+    /** In the share list: whether they take shares from you, and why not when they don't. */
+    val canShare: Boolean = true,
+    val cantShareReason: String? = null,
 )
 
 @Serializable

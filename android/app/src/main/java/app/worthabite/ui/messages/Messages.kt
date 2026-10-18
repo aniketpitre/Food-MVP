@@ -1,5 +1,6 @@
 package app.worthabite.ui.messages
 
+import androidx.compose.ui.draw.alpha
 import app.worthabite.data.DishCard
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
@@ -311,7 +312,9 @@ private fun PeopleToShareWith(people: List<Person>, imageUrl: (String?) -> Strin
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         items(people, key = { it.handle }) { p ->
             Row(
-                Modifier.fillMaxWidth().clickable { onPick(p.handle) }.padding(horizontal = 16.dp, vertical = 10.dp)
+                Modifier.fillMaxWidth().clickable(enabled = p.canShare) { onPick(p.handle) }
+                    .alpha(if (p.canShare) 1f else 0.45f)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
                     .testTag("person_${p.handle}"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -321,6 +324,7 @@ private fun PeopleToShareWith(people: List<Person>, imageUrl: (String?) -> Strin
                     Text(
                         listOfNotNull(
                             "@${p.handle}",
+                            if (!p.canShare) p.cantShareReason ?: "Can't take shares" else null,
                             when {
                                 p.isFollowing && p.followsYou -> "Friends"
                                 p.followsYou -> "Follows you"
@@ -950,17 +954,29 @@ fun SendToSheet(
                     }
                     else -> items(shown, key = { it.handle }) { p ->
                         val on = p.handle in picked
+                        // Someone who doesn't take shares from you is shown (so nobody seems to
+                        // be missing), greyed out with the reason, and can't be picked.
                         Row(
-                            Modifier.fillMaxWidth().clickable { if (on) picked.remove(p.handle) else picked.add(p.handle) }
+                            Modifier.fillMaxWidth()
+                                .clickable(enabled = p.canShare) { if (on) picked.remove(p.handle) else picked.add(p.handle) }
+                                .alpha(if (p.canShare) 1f else 0.45f)
                                 .padding(vertical = 8.dp).testTag("friend_${p.handle}"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Avatar(p.handle, p.displayName, 44.dp, photo = app.mediaUrl(p.avatarUrl))
                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                 Text(p.displayName ?: p.handle, style = MaterialTheme.typography.titleSmall)
-                                Text("@${p.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    if (p.canShare) "@${p.handle}" else "@${p.handle} · ${p.cantShareReason ?: "Can't take shares"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                            androidx.compose.material3.RadioButton(selected = on, onClick = { if (on) picked.remove(p.handle) else picked.add(p.handle) })
+                            androidx.compose.material3.RadioButton(
+                                selected = on,
+                                enabled = p.canShare,
+                                onClick = { if (on) picked.remove(p.handle) else picked.add(p.handle) },
+                            )
                         }
                     }
                 }

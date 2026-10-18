@@ -124,8 +124,10 @@ async function follow(a: { auth: Record<string, string> }, handle: string) {
   return app.inject({ method: 'PUT', url: `/users/${handle}/follow`, headers: a.auth });
 }
 
+/** The people you can share with right now (the list also shows the others, greyed out). */
 async function friends(u: { auth: Record<string, string> }, q = '') {
-  return (await app.inject({ url: `/me/friends${q ? `?q=${q}` : ''}`, headers: u.auth })).json().map((p: { handle: string }) => p.handle);
+  return (await app.inject({ url: `/me/friends${q ? `?q=${q}` : ''}`, headers: u.auth })).json()
+    .filter((p: { canShare: boolean }) => p.canShare).map((p: { handle: string }) => p.handle);
 }
 
 describe('sharing with followers', () => {
@@ -282,3 +284,18 @@ describe('likes across a block', () => {
     expect((await app.inject({ url: `/stories/${storyId}/viewers`, headers: me.auth })).json().items).toHaveLength(0);
   });
 });
+
+describe('the share list explains who can\'t take shares', () => {
+  it('lists a follower with sharing off, greyed out with the reason, after the ones you can share with', async () => {
+    const me = await signUp();
+    const open = await signUp();
+    const closed = await signUp();
+    await follow(open, me.handle);
+    await follow(closed, me.handle);
+    await app.inject({ method: 'PATCH', url: '/me/profile', headers: closed.auth, payload: { dmPolicy: 'off' } });
+    const list = (await app.inject({ url: '/me/friends', headers: me.auth })).json();
+    expect(list.map((p: { handle: string; canShare: boolean; cantShareReason: string | null }) => [p.handle, p.canShare, p.cantShareReason]))
+      .toEqual([[open.handle, true, null], [closed.handle, false, 'Turned off sharing']]);
+  });
+});
+

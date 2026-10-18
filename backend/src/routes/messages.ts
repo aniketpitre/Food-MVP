@@ -421,18 +421,21 @@ export async function messageRoutes(app: FastifyInstance) {
        )
        select p.handle, p.display_name as "displayName", p.avatar_path as "avatarUrl",
               exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = p.id) as "isFollowing",
-              exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1) as "followsYou"
+              exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1) as "followsYou",
+              -- Whether they take shares from you (exactly what canMessage allows). People who
+              -- don't are still listed, greyed out with the reason, instead of silently missing.
+              (p.dm_policy = 'everyone'
+               or (p.dm_policy = 'following' and exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1))) as "canShare",
+              case when p.dm_policy = 'off' then 'Turned off sharing'
+                   when p.dm_policy = 'following' and not exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1)
+                     then 'Only takes shares from people they follow' end as "cantShareReason"
        from connected cn
        join profiles p on p.id = cn.id
        left join conversations c on c.pair_key = least(p.id, $1::uuid)::text || ':' || greatest(p.id, $1::uuid)::text
-       -- Exactly the people canMessage allows: sharing not turned off, and for "only people I
-       -- follow", only if they follow you.
-       where (p.dm_policy = 'everyone'
-              or (p.dm_policy = 'following' and exists (select 1 from follows f where f.follower_id = p.id and f.followee_id = $1)))
-         and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.id)
+       where not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.id)
                                                 or (b.blocker_id = p.id and b.blocked_id = $1))
          and ($2 = '' or p.handle like $2 || '%' or lower(coalesce(p.display_name, '')) like '%' || $2 || '%')
-       order by c.last_message_at desc nulls last, p.handle
+       order by "canShare" desc, c.last_message_at desc nulls last, p.handle
        limit 200`,
       [me, term],
     );
