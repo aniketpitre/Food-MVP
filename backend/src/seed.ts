@@ -19,6 +19,62 @@ export async function demoCredits(dir = imagesDir): Promise<Record<string, DemoC
 export const creditLine = (c: DemoCredit | undefined) =>
   c ? `Photo: ${c.author}, ${c.licence}, via Wikimedia Commons` : 'WorthAbite demo';
 
+/**
+ * Brings the dish vocabulary up to date on any server: categories added since it was set up
+ * (matched by slug, existing ones keep their ids and order), and every spelling people type.
+ * Then dishes posted without a category get one from their name. Runs on every start-up.
+ */
+export async function syncVocabulary(db: Db, log: (m: string) => void = () => {}): Promise<void> {
+  const catIds = new Map<string, number>();
+  for (const [i, c] of data.categories.entries()) {
+    const { rows } = await db.query<{ id: number }>(
+      `insert into dish_categories (slug, name, emoji, sort) values ($1, $2, $3, $4)
+       on conflict (slug) do update set name = excluded.name, emoji = excluded.emoji
+       returning id`,
+      [c.slug, c.name, c.emoji, i],
+    );
+    catIds.set(c.slug, rows[0]!.id);
+  }
+  const values: string[] = [];
+  const params: unknown[] = [];
+  for (const [canonical, cat, spellings] of data.aliases) {
+    for (const sp of spellings) {
+      params.push(catIds.get(cat), canonical, sp);
+      values.push(`($${params.length - 2}::int, $${params.length - 1}, norm_name($${params.length}))`);
+    }
+  }
+  await db.query(
+    `insert into dish_aliases (category_id, canonical, alias_norm) values ${values.join(', ')} on conflict do nothing`,
+    params,
+  );
+  const n = await categoriseDishes(db);
+  if (n > 0) log(`vocabulary: gave ${n} dishes a category from their name`);
+}
+
+/**
+ * The category a dish name belongs to, from the spellings people type: an exact spelling, a
+ * spelling inside the name ("Special Kolhapuri Misal"), or a close match. Null if unsure.
+ */
+export const CATEGORY_FOR_NAME_SQL = `
+  (select a.category_id from dish_aliases a
+   where a.category_id is not null
+     and (a.alias_norm = norm_name($1)
+          or (' ' || norm_name($1) || ' ') like ('% ' || a.alias_norm || ' %')
+          or similarity(a.alias_norm, norm_name($1)) >= 0.55)
+   order by (a.alias_norm = norm_name($1)) desc, length(a.alias_norm) desc, similarity(a.alias_norm, norm_name($1)) desc
+   limit 1)`;
+
+/** Fills in the category of dishes that have none, from their names. Returns how many. */
+export async function categoriseDishes(db: Db): Promise<number> {
+  const { rowCount } = await db.query(
+    `update dishes d set category_id = c.category_id
+     from (select d2.id, ${CATEGORY_FOR_NAME_SQL.replaceAll('$1', 'd2.name')} as category_id
+           from dishes d2 where d2.category_id is null) c
+     where d.id = c.id and c.category_id is not null`,
+  );
+  return rowCount ?? 0;
+}
+
 /** Inserts cities, categories, aliases and the demo restaurants/dishes/photos once. */
 export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => void = () => {}): Promise<boolean> {
   const { rows } = await db.query<{ n: number }>('select count(*)::int as n from cities');

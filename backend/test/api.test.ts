@@ -12,7 +12,7 @@ import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { createPool, migrate, type Db } from '../src/db.js';
 import { ensureCities } from '../src/geo.js';
-import { seedCatalog, seedDemoActivity } from '../src/seed.js';
+import { seedCatalog, seedDemoActivity, syncVocabulary } from '../src/seed.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5433/postgres';
 const dbName = `worthabite_test_${process.pid}`;
@@ -58,6 +58,7 @@ beforeAll(async () => {
   };
   await migrate(db);
   await seedCatalog(db, mediaDir);
+  await syncVocabulary(db);
   await ensureCities(db);
   app = await buildApp(config, db, { logger: false });
   cityId = (await db.query("select id from cities where slug = 'nashik'")).rows[0].id;
@@ -123,7 +124,7 @@ describe('browsing as a guest', () => {
     expect((await app.inject('/health')).json()).toEqual({ ok: true });
     const cities = (await app.inject('/cities')).json();
     expect(cities[0]).toMatchObject({ slug: 'nashik', isActive: true });
-    expect((await app.inject('/categories')).json()).toHaveLength(12);
+    expect((await app.inject('/categories')).json()).toHaveLength(23);
   });
 
   it('finds the nearest active city and says when you are out of range', async () => {
@@ -2395,5 +2396,22 @@ describe('best dishes at a place', () => {
     expect(page.dishes.map((d: { name: string }) => d.name)).toEqual(['Ghee Roast Dosa', 'Plain Dosa', 'Rava Dosa']);
     const near = (await app.inject('/restaurants/nearby?lat=20.0&lng=73.79&radius=300')).json();
     expect(near.find((r: { name: string }) => r.name === 'Best Bites')).toMatchObject({ lat: 20, lng: 73.79 });
+  });
+});
+
+describe('dish categories', () => {
+  it('gives a dish posted without a category one from its name', async () => {
+    const place = await testPlace('Category Corner');
+    const u = await signUp({ established: true });
+    const cats = (await app.inject('/categories')).json() as { id: number; slug: string }[];
+    const slug = (id: number) => cats.find((c) => c.id === id)?.slug;
+    for (const [name, want] of [['Special Kolhapuri Misal', 'misal'], ['Chicken Momos', 'momos'], ['Mango Lassi', 'drinks'], ['Paneer Tikka', 'tandoor']]) {
+      const dish = (await post(u.auth, { dishName: name!, restaurantId: place })).json().dishId;
+      const { rows } = await db.query('select category_id from dishes where id = $1', [dish]);
+      expect([name, slug(rows[0].category_id)]).toEqual([name, want]);
+    }
+    // Something it can't place stays without one rather than guessing.
+    const odd = (await post(u.auth, { dishName: 'Chef Surprise', restaurantId: place })).json().dishId;
+    expect((await db.query('select category_id from dishes where id = $1', [odd])).rows[0].category_id).toBeNull();
   });
 });

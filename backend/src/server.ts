@@ -3,7 +3,7 @@ import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { startRankingRefresh } from './ranking.js';
 import { ensureCities } from './geo.js';
-import { seedCatalog, seedDemoActivity } from './seed.js';
+import { seedCatalog, seedDemoActivity, syncVocabulary } from './seed.js';
 import { cleanupStories, refreshDemoStories } from './routes/stories.js';
 
 const config = loadConfig();
@@ -16,6 +16,7 @@ if (config.seedOnStart) {
   if (config.demoActivity) await seedDemoActivity(db, (m) => app.log.info(m));
 }
 await ensureCities(db, (m) => app.log.info(m));
+await syncVocabulary(db, (m) => app.log.info(m));
 await db.query('select refresh_dish_stats()');
 await db.query('select refresh_people_pick()');
 const stopRefresh = startRankingRefresh(db, config.rankRefreshSeconds, (err) => app.log.error(err));

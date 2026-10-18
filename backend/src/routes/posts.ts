@@ -7,6 +7,7 @@ import { parse } from '../app.js';
 import { requireAuth, userId } from '../auth.js';
 import { deletePostImages, photoFingerprint, storePostImage } from '../media.js';
 import { scheduleTrustRefresh } from '../ranking.js';
+import { CATEGORY_FOR_NAME_SQL } from '../seed.js';
 
 const postFields = z
   .object({
@@ -160,8 +161,9 @@ export async function postRoutes(app: FastifyInstance) {
       const visit = vis[0]?.near ? (vis[0].fresh ? 'verified' : 'nearby') : null;
 
       const { rows: dish } = await client.query<{ id: string }>(
+        // No category picked: the name tells us ("Kolhapuri Misal" is Misal).
         `insert into dishes (restaurant_id, city_id, category_id, name, name_norm, price_inr, is_veg, created_by)
-         values ($1, $2, $3, $4, norm_name($4), $5, $6, $7)
+         values ($1, $2, coalesce($3::int, ${CATEGORY_FOR_NAME_SQL.replaceAll('$1', '$4')}), $4, norm_name($4), $5, $6, $7)
          on conflict (restaurant_id, name_norm) do update
            set price_inr   = coalesce(dishes.price_inr, excluded.price_inr),
                is_veg      = coalesce(dishes.is_veg, excluded.is_veg),
