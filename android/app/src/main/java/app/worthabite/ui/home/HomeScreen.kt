@@ -271,7 +271,7 @@ fun HomeContent(
         LazyColumn(Modifier.fillMaxSize().testTag("home_list"), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "stories") {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    app.worthabite.ui.components.Wordmark(modifier = Modifier.weight(1f))
+                    Box(Modifier.weight(1f)) { app.worthabite.ui.components.Wordmark() }
                     MessagesButton(unreadMessages, onInbox)
                 }
                 StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
