@@ -238,6 +238,7 @@ fun CommentsSheet(
         CommentsContent(
             state = state,
             me = session?.user?.handle,
+            myPhoto = session?.user?.avatarUrl,
             onDraft = vm::setDraft,
             onSend = { vm.send(onNeedSignIn, showMessage) },
             onReply = vm::replyTo,
@@ -258,6 +259,8 @@ private val QuickEmoji = listOf("❤️", "🔥", "😋", "🤤", "👏", "🙌"
 fun CommentsContent(
     state: CommentsUiState,
     me: String?,
+    /** Your profile photo, for the face next to the comment box. */
+    myPhoto: String? = null,
     onDraft: (String) -> Unit,
     onSend: () -> Unit,
     onReply: (Comment) -> Unit,
@@ -338,7 +341,7 @@ fun CommentsContent(
                 }
             }
         }
-        Composer(state, me, onDraft, onSend, onCancelReply)
+        Composer(state, me, myPhoto, onDraft, onSend, onCancelReply)
     }
 }
 
@@ -484,6 +487,7 @@ private fun LikeHeart(c: Comment, onClick: () -> Unit) {
 private fun Composer(
     state: CommentsUiState,
     me: String?,
+    myPhoto: String?,
     onDraft: (String) -> Unit,
     onSend: () -> Unit,
     onCancelReply: () -> Unit,
@@ -535,8 +539,6 @@ private fun Composer(
             Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Your own face (the people map has your latest photo once you've changed it).
-            val myPhoto = LocalApp.current.session.collectAsState().value?.user?.avatarUrl
             Avatar(me ?: "you", null, 36.dp, photo = myPhoto)
             Spacer(Modifier.width(10.dp))
             val canSend = state.draft.isNotBlank() && !state.sending

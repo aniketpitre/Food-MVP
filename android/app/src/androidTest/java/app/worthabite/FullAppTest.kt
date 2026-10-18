@@ -694,26 +694,25 @@ class FullAppTest {
         }
         step("Activity: follow back and unfollow straight from the row") {
             call("PUT", "/users/${me.user.handle}/follow", chef.token)
-            // Their profile is open underneath, loaded before I follow them from Activity.
-            open("worthabite://user/${chef.user.handle}")
-            waitMerged(hasText("Follow back") and hasClickAction(), 20_000)
             open("worthabite://activity")
+            waitMerged(hasText("Follow back") and hasClickAction(), 20_000)
+            // Their profile on top of Activity: following them there...
+            open("worthabite://user/${chef.user.handle}")
             waitMerged(hasText("Follow back") and hasClickAction(), 20_000)
             compose.onAllNodes(hasText("Follow back") and hasClickAction()).onFirst().performClick()
             waitMerged(hasText("Following") and hasClickAction())
-            assertTrue(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
-            shot("96_activity_follow_back")
-            // Back on their profile (not reloaded): it already says Following, with one more follower.
+            // ...shows at once on the Activity row underneath, loaded before.
             device.pressBack()
             waitMerged(hasText("Following") and hasClickAction(), 10_000)
-            shot("97_profile_follows_at_once")
-            open("worthabite://activity")
-            waitMerged(hasText("Following") and hasClickAction(), 20_000)
+            shot("97_activity_follows_at_once")
+            assertTrue(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
+            // Unfollow straight from the row.
             compose.onAllNodes(hasText("Following") and hasClickAction()).onFirst().performClick()
             waitMerged(hasText("Follow back") and hasClickAction())
             val end = System.currentTimeMillis() + 10_000
             while (System.currentTimeMillis() < end && call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing")) Thread.sleep(300)
             assertFalse(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
+            shot("96_activity_follow_back")
         }
         step("their new name and photo reach my phone") {
             call("PATCH", "/me/profile", chef.token, JSONObject().put("displayName", "Chef Renamed"))
