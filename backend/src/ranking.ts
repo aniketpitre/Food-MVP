@@ -8,7 +8,8 @@ export function startRankingRefresh(db: Db, everySeconds: number, onError: (err:
   if (everySeconds <= 0) return () => {};
   const timer = setInterval(() => {
     // The first rebuild of each day also keeps a copy of each city's Top, to see how it moves.
-    db.query('select refresh_dish_stats(); select refresh_people_pick(); select snapshot_top();').catch(onError);
+    // The taste table is kept current per person; a full rebuild catches dish types changing.
+    db.query('select refresh_dish_stats(); select refresh_people_pick(); select snapshot_top(); select refresh_taste_affinity();').catch(onError);
   }, everySeconds * 1000);
   timer.unref();
   return () => clearInterval(timer);

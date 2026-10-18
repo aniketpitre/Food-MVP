@@ -228,7 +228,13 @@ export async function commentRoutes(app: FastifyInstance) {
     const p = parse(z.object({ id: uuid }), req.params, reply);
     if (!p) return;
     const me = userId(req)!;
-    const { rowCount } = await db.query("select 1 from comments where id = $1 and status = 'live'", [p.id]);
+    // Gone, or by someone on either side of a block: there's nothing to like.
+    const { rowCount } = await db.query(
+      `select 1 from comments c where c.id = $1 and c.status = 'live'
+         and not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = c.author_id)
+                                                or (b.blocker_id = c.author_id and b.blocked_id = $2))`,
+      [p.id, me],
+    );
     if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'That comment is gone.' });
     const { rowCount: added } = await db.query(
       'insert into comment_likes (comment_id, user_id) values ($1, $2) on conflict do nothing',

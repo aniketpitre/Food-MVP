@@ -361,27 +361,32 @@ export async function adminRoutes(app: FastifyInstance) {
     const prediction = {
       ...(await predictionCheck(30)),
       // Trust is learned from these same votes, so the check isn't fully out-of-sample.
-      note: 'Skill may be slightly optimistic: voter trust is learned from the same votes this check hides one at a time.',
+      note: 'Each vote is predicted only from the votes cast before it, as if recommending at that moment. "Without trust" counts every voter equally: the gap is what trust weighting adds.',
     };
     return { totals, votesPerDay, topChange, taps, prediction };
   });
 
   /**
-   * The prediction check: for every love or "not for me" in the last [days] days, hide
-   * that one vote, work out the dish's People's Pick from everyone else's votes, and see
-   * how well it predicted the hidden vote. "skill" compares it with always guessing the
-   * overall share of loves: above 0 means the ranking knows something, 1 would be perfect.
+   * The prediction check, done honestly: every love or "not for me" in the last [days] days
+   * is predicted from the votes cast on that dish BEFORE it, as if we had to recommend the
+   * dish at that moment. Nothing from the future leaks in. "skill" compares that with always
+   * guessing the overall share of loves: above 0 means the ranking knows something, 1 would
+   * be perfect. "skillWithoutTrust" is the same with every voter counted equally, so the
+   * difference shows what the trust weighting adds (trust itself is learned from all votes,
+   * so a small part of its edge can still come from hindsight).
    */
   async function predictionCheck(days: number) {
-    const { rows } = await db.query<{ n: number; accuracy: number | null; brier: number | null; base_rate: number | null; base_brier: number | null }>(
+    const { rows } = await db.query<{
+      n: number; accuracy: number | null; brier: number | null; brier_plain: number | null; base_rate: number | null; base_brier: number | null;
+    }>(
       `with votes as (
-         select e.dish_id, e.kind,
-                coalesce(ts.trust, tall.trust, cfg('trust_floor')) * standing(p.created_at, vi.twins)
+         select e.dish_id, e.kind, e.created_at,
+                coalesce(ts.trust, tall.trust, cfg('trust_floor')) as trust,
+                standing(p.created_at, vi.twins)
                   * (case when exists (select 1 from posts vp where vp.dish_id = e.dish_id and vp.author_id = e.user_id
                                          and vp.status = 'live' and vp.visit = 'verified')
                           then least(greatest(cfg('visit_weight'), 1), 2) else 1 end)
-                  * decay(e.created_at, greatest(cfg('pp_half_life_days'), 0.01)) as w,
-                e.created_at
+                  * decay(e.created_at, greatest(cfg('pp_half_life_days'), 0.01)) as w0
          from engagements e
          join dishes d on d.id = e.dish_id and d.status = 'live'
          join restaurants r on r.id = d.restaurant_id and e.user_id is distinct from r.created_by
@@ -389,32 +394,44 @@ export async function adminRoutes(app: FastifyInstance) {
          left join voter_independence vi on vi.user_id = e.user_id
          left join taster_stats ts on ts.user_id = e.user_id and ts.category_id = coalesce(d.category_id, -1)
          left join taster_stats tall on tall.user_id = e.user_id and tall.category_id = 0
-         where e.kind in ('recommend', 'pass') and e.created_at > now() - make_interval(days => $1)
+         where e.kind in ('recommend', 'pass')
+       ),
+       -- What the dish's earlier votes said, just before each vote.
+       before as (
+         select v.kind, v.created_at,
+                coalesce(sum(v.trust * v.w0) filter (where v.kind = 'recommend') over earlier, 0) as wl,
+                coalesce(sum(v.trust * v.w0) filter (where v.kind = 'pass') over earlier, 0) as wp,
+                coalesce(sum(v.w0) filter (where v.kind = 'recommend') over earlier, 0) as pl,
+                coalesce(sum(v.w0) filter (where v.kind = 'pass') over earlier, 0) as pp
+         from votes v
+         window earlier as (partition by v.dish_id order by v.created_at rows between unbounded preceding and 1 preceding)
        ),
        pred as (
-         select (v.kind = 'recommend')::int as y,
-                (greatest(dr.w_loves - case when v.kind = 'recommend' then v.w else 0 end, 0) + cfg('pp_prior_weight') * cfg('pp_prior'))
-                / (greatest(dr.w_loves - case when v.kind = 'recommend' then v.w else 0 end, 0)
-                   + greatest(dr.w_passes - case when v.kind = 'pass' then v.w else 0 end, 0) + cfg('pp_prior_weight')) as p
-         from votes v join dish_rating dr on dr.dish_id = v.dish_id
+         select (kind = 'recommend')::int as y,
+                (wl + cfg('pp_prior_weight') * cfg('pp_prior')) / (wl + wp + cfg('pp_prior_weight')) as p,
+                (pl + cfg('pp_prior_weight') * cfg('pp_prior')) / (pl + pp + cfg('pp_prior_weight')) as q
+         from before where created_at > now() - make_interval(days => $1)
        ),
        base as (select avg(y)::float8 as r from pred)
        select count(*)::int as n,
               avg(((p >= 0.5)::int = y)::int)::float8 as accuracy,
               avg((y - p) ^ 2)::float8 as brier,
+              avg((y - q) ^ 2)::float8 as brier_plain,
               (select r from base) as base_rate,
               avg((y - (select r from base)) ^ 2)::float8 as base_brier
        from pred`,
       [days],
     );
     const r = rows[0]!;
-    const skill = r.brier !== null && r.base_brier ? 1 - r.brier / r.base_brier : null;
+    const round = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 1000);
+    const skillOf = (b: number | null) => (b !== null && r.base_brier ? 1 - b / r.base_brier : null);
     return {
       days,
       votes: r.n,
-      accuracy: r.accuracy === null ? null : Math.round(r.accuracy * 1000) / 1000,
-      alwaysLoveAccuracy: r.base_rate === null ? null : Math.round(Math.max(r.base_rate, 1 - r.base_rate) * 1000) / 1000,
-      skill: skill === null ? null : Math.round(skill * 1000) / 1000,
+      accuracy: round(r.accuracy),
+      alwaysLoveAccuracy: r.base_rate === null ? null : round(Math.max(r.base_rate, 1 - r.base_rate)),
+      skill: round(skillOf(r.brier)),
+      skillWithoutTrust: round(skillOf(r.brier_plain)),
     };
   }
 

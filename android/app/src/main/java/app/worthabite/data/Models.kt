@@ -597,6 +597,8 @@ data class PredictionCheck(
     val accuracy: Double? = null,
     val alwaysLoveAccuracy: Double? = null,
     val skill: Double? = null,
+    /** The same with every voter counted equally: the gap is what trust weighting adds. */
+    val skillWithoutTrust: Double? = null,
 )
 
 @Serializable

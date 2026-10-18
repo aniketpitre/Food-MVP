@@ -427,3 +427,59 @@ describe('refreshes', () => {
     expect((await db.query('select dish_ids from top_snapshots where city_id = $1 and day = current_date', [cityId])).rows[0].dish_ids).toEqual([]);
   });
 });
+
+describe('scaling and diet', () => {
+  it('keeps each person\'s taste table current as they vote or change their taste', async () => {
+    const u = await signUp({ established: true });
+    const dish = (await db.query("select id, category_id from dishes where status = 'live' and category_id is not null limit 1")).rows[0];
+    await app.inject({ method: 'PUT', url: `/dishes/${dish.id}/engagements/recommend`, headers: u.auth });
+    const row = async () => (await db.query('select score from taste_affinity_cache where user_id = $1 and category_id = $2', [u.id, dish.category_id])).rows[0]?.score;
+    expect(await row()).toBe(1);
+    await app.inject({ method: 'DELETE', url: `/dishes/${dish.id}/engagements/recommend`, headers: u.auth });
+    expect(await row()).toBeUndefined();
+    await app.inject({ method: 'PUT', url: '/me/taste', headers: u.auth, payload: { categories: [dish.category_id], diet: 'nonveg', spice: 3 } });
+    expect(await row()).toBe(1);
+  });
+
+  it('matches taste the same way as before (one match from shared votes)', async () => {
+    const a = await signUp({ established: true });
+    const b = await signUp({ established: true });
+    const dishes = (await db.query("select id from dishes where status = 'live' order by name limit 4")).rows;
+    for (const d of dishes) {
+      for (const u of [a, b]) await app.inject({ method: 'PUT', url: `/dishes/${d.id}/engagements/recommend`, headers: u.auth });
+    }
+    const all = (await db.query('select other_id, match from taste_matches($1)', [a.id])).rows.find((r) => r.other_id === b.id);
+    const pair = (await db.query('select other_id, match from taste_matches($1, $2)', [a.id, b.id])).rows[0];
+    expect(all.match).toBeCloseTo(pair.match, 6);
+    expect(all.match).toBeGreaterThan(0.7);
+  });
+
+  it('keeps meat, fish and egg dishes of unknown type out of a vegetarian\'s For You', async () => {
+    const veg = await signUp({ established: true });
+    const friend = await signUp({ established: true });
+    const place = (await db.query("select id from restaurants where status = 'active' limit 1")).rows[0].id;
+    const made: Record<string, string> = {};
+    for (const name of ['Chicken Handi Special', 'Paneer Handi Special']) {
+      const r = await app.inject({ method: 'POST', url: '/posts', ...multipart(friend.auth, { idempotencyKey: `veg-${name.length}-${Math.random().toString(36).slice(2, 8)}`, dishName: name, restaurantId: place }, await photo()) });
+      made[name] = r.json().dishId;
+      await db.query('update dishes set is_veg = null where id = $1', [made[name]]);
+      await app.inject({ method: 'PUT', url: `/dishes/${made[name]}/engagements/recommend`, headers: friend.auth });
+    }
+    await app.inject({ method: 'PUT', url: '/me/taste', headers: veg.auth, payload: { categories: [], diet: 'veg', spice: 3 } });
+    await app.inject({ method: 'PUT', url: `/users/${friend.handle}/follow`, headers: veg.auth });
+    const items = (await app.inject({ url: `/foryou?city=${cityId}&limit=50`, headers: veg.auth })).json().items.map((i: { name: string }) => i.name);
+    expect(items).toContain('Paneer Handi Special');
+    expect(items).not.toContain('Chicken Handi Special');
+  });
+
+  it('answers a duplicate upload racing the first with the same post', async () => {
+    const u = await signUp({ established: true });
+    const place = (await db.query("select id from restaurants where status = 'active' limit 1")).rows[0].id;
+    const img = await photo();
+    const send = () => app.inject({ method: 'POST', url: '/posts', ...multipart(u.auth, { idempotencyKey: 'race-key-12345', dishName: 'Race Dosa', restaurantId: place }, img) });
+    const [a, b] = await Promise.all([send(), send()]);
+    expect([a.statusCode, b.statusCode].sort()).toEqual([200, 201]);
+    expect(a.json().id).toBe(b.json().id);
+  });
+});
+

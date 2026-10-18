@@ -249,8 +249,9 @@ private fun HealthCard(h: AlgorithmHealth) {
                 HealthLine("Votes checked", "${p.votes}")
                 HealthLine("Predicted right", "${(p.accuracy * 100).toInt()}% (always guessing: ${((p.alwaysLoveAccuracy ?: 0.0) * 100).toInt()}%)")
                 HealthLine("Skill", p.skill?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "–")
+                HealthLine("Skill without trust", p.skillWithoutTrust?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "–")
                 Text(
-                    "Each recent vote is hidden in turn and predicted from everyone else's. Skill above 0 means the ranking knows more than guessing; 1 would be perfect.",
+                    "Each recent vote is predicted from only the votes cast before it, as if recommending the dish at that moment. Skill above 0 means the ranking knows more than guessing; 1 would be perfect.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

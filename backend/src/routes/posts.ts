@@ -105,6 +105,9 @@ export async function postRoutes(app: FastifyInstance) {
     );
     if (copies[0]?.mine) {
       await deletePostImages(config.mediaDir, postId);
+      // A retry of this very upload that raced the first try: that's the same post, not a repeat.
+      const same = await db.query('select id from posts where author_id = $1 and idempotency_key = $2', [me, f.idempotencyKey]);
+      if (same.rows[0]) return reply.code(200).send(await postJson(same.rows[0].id));
       return reply.code(409).send({ error: 'duplicate_photo', message: "You've already posted this photo." });
     }
     const copyOf = copies[0]?.id ?? null;
@@ -247,6 +250,10 @@ export async function postRoutes(app: FastifyInstance) {
     } catch (err) {
       await client.query('rollback');
       await deletePostImages(config.mediaDir, postId);
+      // The same upload sent twice at once (a retry racing the first try) trips a limit or the
+      // unique key here: the other one won, so answer with that post, as a later retry would.
+      const again = await db.query('select id from posts where author_id = $1 and idempotency_key = $2', [me, f.idempotencyKey]);
+      if (again.rows[0]) return reply.code(200).send(await postJson(again.rows[0].id));
       throw err;
     } finally {
       client.release();

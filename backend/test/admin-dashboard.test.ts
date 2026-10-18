@@ -204,9 +204,10 @@ describe('overview and lists', () => {
     expect(o.places.find((p: { source: string }) => p.source === 'seed')).toBeTruthy();
   });
 
-  it('notes that the prediction check may be optimistic', async () => {
+  it('explains the prediction check and reports skill with and without trust', async () => {
     const h = (await app.inject({ url: '/admin/health', headers: await adminAuth() })).json();
-    expect(h.prediction.note).toMatch(/optimistic/);
+    expect(h.prediction.note).toMatch(/before it/);
+    expect(h.prediction).toHaveProperty('skillWithoutTrust');
   });
 
   it('finds users and places and lists the latest activity', async () => {

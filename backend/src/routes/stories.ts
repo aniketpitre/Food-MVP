@@ -1,4 +1,5 @@
 import { notify, notifyFollowers } from '../notify.js';
+import { blockedEither } from '../messaging.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -166,6 +167,8 @@ export async function storyRoutes(app: FastifyInstance) {
       [p.id],
     );
     if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'This story has ended.' });
+    // Not across a block, either way.
+    if (await blockedEither(db, me, rows[0].owner)) return reply.code(404).send({ error: 'not_found', message: 'This story has ended.' });
     await db.query(
       `insert into story_views (story_id, viewer_id, liked) values ($1, $2, $3)
        on conflict (story_id, viewer_id) do update set liked = excluded.liked`,
@@ -187,6 +190,7 @@ export async function storyRoutes(app: FastifyInstance) {
       `select pr.handle, pr.display_name as "displayName", pr.avatar_path as "avatarUrl", v.liked, v.viewed_at as "viewedAt"
        from story_views v join stories s on s.id = v.story_id join profiles pr on pr.id = v.viewer_id
        where v.story_id = $1 and s.user_id = $2
+         and not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = v.viewer_id)
        order by v.liked desc, v.viewed_at desc limit 500`,
       [p.id, userId(req)],
     );

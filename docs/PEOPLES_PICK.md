@@ -213,11 +213,22 @@ how many dishes have 3+ votes, verified photos, own-place votes ignored, account
 in lockstep, copies held and removed, dishes merged, how much each city's Top 20 changed
 in a week (a snapshot is kept daily), and how often people open the cards each tab shows.
 
-The **prediction check** hides each love or "not for me" from the last 30 days in turn,
-rates the dish from everyone else's votes, and sees whether it predicted the hidden vote.
-"Skill" compares that with always guessing the overall share of loves: above 0 means the
-ranking knows something, 1 would be perfect. Watch it before and after changing a setting.
+The **prediction check** takes every love or "not for me" from the last 30 days and predicts
+it from only the votes cast on that dish **before** it, as if recommending the dish at that
+moment: nothing from the future leaks in. "Skill" compares that with always guessing the
+overall share of loves (above 0 means the ranking knows something, 1 would be perfect).
+"Skill without trust" does the same with every voter counted equally, so the gap shows what
+trust weighting adds. Watch both before and after changing a setting.
 
 The backend tests include a **test village**: 20 honest diners rate a great, an okay and a
 poor dish; a ring of 8 new accounts and the place's owner all love the poor one. The
 great dish must beat the okay one, and the okay one must beat the spammed one.
+
+## Keeping it fast
+
+* Trust reads, for each vote, the standing of everyone who voted on the dish after it from
+  running totals per dish (one pass), not by comparing every vote with every other.
+* Each person's taste per dish type lives in `taste_affinity_cache`, rebuilt for that person
+  by the database whenever their votes or stated taste change (and fully on the ranking
+  timer), so Taste Match reads one indexed table instead of re-adding every vote.
+* A vote re-rates only its dish; the full rebuild never makes a vote wait.

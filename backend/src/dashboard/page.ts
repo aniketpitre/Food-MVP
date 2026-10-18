@@ -390,11 +390,12 @@ input[type=number] { width: 110px; }
       $('main').innerHTML =
         '<h2>Is the ranking working?</h2>' +
         '<div class="card"><h3>Prediction check (last ' + p.days + ' days)</h3>' +
-        '<div class="explain">For every love or "not for me", hide that one vote, work out the dish' + "'" + 's People' + "'" + 's Pick from everyone else' + "'" + 's votes, and see whether it predicted the hidden vote. <b>Skill</b> compares it with always guessing the overall share of loves: above 0 means the ranking knows something, 1 would be perfect.</div>' +
+        '<div class="explain">For every recent love or "not for me", work out the dish' + "'" + 's People' + "'" + 's Pick from only the votes cast <b>before</b> it (as if recommending it at that moment) and see whether it predicted the vote. <b>Skill</b> compares it with always guessing the overall share of loves: above 0 means the ranking knows something, 1 would be perfect.</div>' +
         '<div class="grid">' +
         tile(num(p.votes), 'Votes checked') +
         tile(pct(p.accuracy), 'Accuracy', 'always guessing "love": ' + pct(p.alwaysLoveAccuracy)) +
         tile(p.skill === null ? '-' : badge(p.skill.toFixed(3), skillTone), 'Skill') +
+        tile(p.skillWithoutTrust === null || p.skillWithoutTrust === undefined ? '-' : p.skillWithoutTrust.toFixed(3), 'Skill without trust', 'every voter counted equally') +
         '</div><p class="note">' + esc(p.note || '') + '</p></div>' +
         '<div class="card"><h3>Votes per day (14 days)</h3>' + barChart(h.votesPerDay, ['loves', 'passes'], ['#E2531E', '#3E7CB1'], ['Loves', 'Not for me']) +
         table(['Day', '#Loves', '#Not for me', '#Voters'], h.votesPerDay.slice().reverse().map(function (d) { return tr([td(esc(d.day)), tdn(d.loves), tdn(d.passes), tdn(d.voters)]); })) + '</div>' +

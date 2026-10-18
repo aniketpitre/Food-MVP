@@ -263,3 +263,22 @@ describe('a new place from a verified visit', () => {
   });
 });
 
+
+describe('likes across a block', () => {
+  it('a blocked person can\'t like your comment or story, and leaves your story viewers', async () => {
+    const me = await signUp();
+    const pest = await signUp();
+    const dish = await dishId('Misal Pav');
+    const postId = (await app.inject(`/dishes/${dish}`)).json().cover.postId;
+    const c = (await app.inject({ method: 'POST', url: `/posts/${postId}/comments`, headers: me.auth, payload: { body: 'Mine' } })).json();
+    const story = await app.inject({ method: 'POST', url: '/stories', ...multipart(me.auth, { cityId: String(cityId) }, await photo()) });
+    expect(story.statusCode).toBe(201);
+    const storyId = story.json().id;
+    await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: pest.auth, payload: { liked: true } });
+    expect((await app.inject({ url: `/stories/${storyId}/viewers`, headers: me.auth })).json().items).toHaveLength(1);
+    await app.inject({ method: 'POST', url: '/blocks', headers: me.auth, payload: { handle: pest.handle } });
+    expect((await app.inject({ method: 'PUT', url: `/comments/${c.id}/like`, headers: pest.auth })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'PUT', url: `/stories/${storyId}/like`, headers: pest.auth, payload: { liked: true } })).statusCode).toBe(404);
+    expect((await app.inject({ url: `/stories/${storyId}/viewers`, headers: me.auth })).json().items).toHaveLength(0);
+  });
+});
