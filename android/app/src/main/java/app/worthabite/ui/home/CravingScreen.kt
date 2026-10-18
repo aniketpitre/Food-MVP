@@ -267,7 +267,8 @@ fun HowItWorksSheet(onDismiss: () -> Unit) {
             Point("1", "Only people who tried it decide", "After trying a dish, people say Loved it or Not for me. Saves and shares never count.")
             Point("2", "Track records matter", "When you love a dish and the people who try it after you love it too, your future votes count a little more (up to 1.4×). Get it wrong and they count a little less (down to 0.6×).")
             Point("3", "Many votes beat a lucky few", "A dish needs both a high share of loves and enough votes to reach the top. One love doesn't beat thirty.")
-            Point("4", "Nobody can buy it", "New accounts count half for their first day, and one person is one vote per dish.")
+            Point("4", "Nobody can buy it", "New accounts grow to full weight over their first week, accounts voting in lockstep count as one, whoever added a place can't vote for its dishes, and one person is one vote per dish.")
+            Point("5", "Being there counts", "A vote from someone who posted a photo at the place, with their phone there (a verified visit), counts a little more (1.25×).")
         }
     }
 }

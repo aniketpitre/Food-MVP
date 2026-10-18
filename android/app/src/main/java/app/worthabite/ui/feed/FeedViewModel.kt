@@ -21,6 +21,8 @@ import java.util.UUID
 enum class FeedTab(val api: String, val label: String) {
     /** Dishes from people whose taste matches yours and people you follow (signed in only). */
     ForYou("foryou", "For you"),
+    /** Photos from the people you follow, newest first (signed in only): its own list, not the pager. */
+    Following("following", "Following"),
     Top("top", "Top"),
     Nearby("nearby", "Nearby"),
     /** Places, with filters: shown by its own screen (ui/explore), not the dish pager. */
@@ -42,7 +44,7 @@ data class FeedUiState(
     val generation: Int = 0,
     val signedIn: Boolean = false,
 ) {
-    val tabs: List<FeedTab> get() = FeedTab.entries.filter { it != FeedTab.ForYou || signedIn }
+    val tabs: List<FeedTab> get() = FeedTab.entries.filter { (it != FeedTab.ForYou && it != FeedTab.Following) || signedIn }
 }
 
 class FeedViewModel(private val app: AppContainer) : ViewModel() {
@@ -67,8 +69,8 @@ class FeedViewModel(private val app: AppContainer) : ViewModel() {
                 val signedIn = s != null
                 if (signedIn == _state.value.signedIn) return@collect
                 _state.update { it.copy(signedIn = signedIn) }
-                // Signed out on For You: back to Top.
-                if (!signedIn && _state.value.tab == FeedTab.ForYou) selectTab(FeedTab.Top)
+                // Signed out on For You or Following: back to Top.
+                if (!signedIn && (_state.value.tab == FeedTab.ForYou || _state.value.tab == FeedTab.Following)) selectTab(FeedTab.Top)
             }
         }
         viewModelScope.launch {
@@ -138,7 +140,7 @@ class FeedViewModel(private val app: AppContainer) : ViewModel() {
         val s = _state.value
         val city = s.city ?: return
         val loc = app.location.value
-        if (s.tab == FeedTab.Places) {
+        if (s.tab == FeedTab.Places || s.tab == FeedTab.Following) {
             _state.update { it.copy(loading = false, refreshing = false, items = emptyList()) }
             return
         }

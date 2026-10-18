@@ -163,6 +163,27 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     /** Bumped when content changes (a new post, a sign-in) so lists reload. */
     val contentVersion = MutableStateFlow(0)
 
+    /** Bumped whenever you follow or unfollow someone, so lists built from follows reload. */
+    val followVersion = MutableStateFlow(0)
+    private val followLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Follows or unfollows [handle]. Calls go out one at a time, in the order they were
+     * tapped, so quick taps can't land on the server out of order.
+     */
+    suspend fun setFollowing(handle: String, on: Boolean): FollowState = followLock.withLock {
+        val r = apiCall { if (on) api.follow(handle) else api.unfollow(handle) }
+        followVersion.update { it + 1 }
+        r
+    }
+
+    /** Removes [handle] from your followers. */
+    suspend fun removeFollower(handle: String): RemovedFollower = followLock.withLock {
+        val r = apiCall { api.removeFollower(handle) }
+        followVersion.update { it + 1 }
+        r
+    }
+
     var deviceId: String = ""
         private set
 
@@ -459,10 +480,18 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     }
 
     // ---- Impressions: a card on screen for a second, batched every 10 seconds ----
-    private val seen = MutableStateFlow<Set<String>>(emptySet())
+    // Each is (dish, feed tab, tapped open?), so the admin health page can show how often
+    // people open what each tab shows them.
+    private data class Seen(val dishId: String, val tab: String?, val opened: Boolean)
+    private val seen = MutableStateFlow<Set<Seen>>(emptySet())
 
-    fun recordImpression(dishId: String) {
-        seen.update { it + dishId }
+    fun recordImpression(dishId: String, tab: String? = null) {
+        seen.update { it + Seen(dishId, tab, false) }
+    }
+
+    /** A card someone tapped open from a feed tab. */
+    fun recordOpen(dishId: String, tab: String) {
+        seen.update { it + Seen(dishId, tab, true) }
     }
 
     fun flushImpressions() {
@@ -470,8 +499,10 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         if (batch.isEmpty() || _serverUrl.value.isBlank()) return
         seen.update { it - batch }
         scope.launch {
-            batch.chunked(50).forEach { chunk ->
-                runCatching { apiCall { api.views(ViewsBody(chunk, deviceId)) } }
+            batch.groupBy { it.tab to it.opened }.forEach { (key, group) ->
+                group.map { it.dishId }.chunked(50).forEach { chunk ->
+                    runCatching { apiCall { api.views(ViewsBody(chunk, deviceId, tab = key.first, opened = key.second)) } }
+                }
             }
         }
     }

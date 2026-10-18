@@ -1,5 +1,5 @@
 <resources>
     <!-- Warm cream, as the app's light theme; the launcher icon sits on the logo's charcoal tile. -->
     <color name="window_background">#FBF7EF</color>
-    <color name="launcher_background">#151413</color>
+    <color name="launcher_background">#2B1B12</color>
 </resources>

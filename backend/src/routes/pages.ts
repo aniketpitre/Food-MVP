@@ -7,9 +7,9 @@ const esc = (s: unknown) =>
 /** The WorthAbite mark: a white frying pan with a bite out of it, a chef's hat and a yellow sizzle (it sits on charcoal). */
 export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 20 156 130" width="40" height="33" aria-hidden="true">
 <path d="M66,107 L28,98.5" stroke="#FFFFFF" stroke-width="13.5" stroke-linecap="round" fill="none"/>
-<circle cx="33.0" cy="99.2" r="2.6" fill="#151413"/>
+<circle cx="33.0" cy="99.2" r="2.6" fill="#2B1B12"/>
 <path d="M123.78,71.68 A40,40 0 1,0 144.85,103.51 A6.76,6.76 0 0,1 134.44,100.25 A6.76,6.76 0 0,1 126.53,92.75 A6.76,6.76 0 0,1 122.72,82.53 A6.76,6.76 0 0,1 123.78,71.68 Z" fill="#FFFFFF"/>
-<path d="M99.27,74.5 A33,33 0 0,0 84.68,133 A46,46 0 0,1 99.27,74.5 Z" fill="#151413"/>
+<path d="M99.27,74.5 A33,33 0 0,0 84.68,133 A46,46 0 0,1 99.27,74.5 Z" fill="#2B1B12"/>
 <path d="M134.5,64 L141.6,46.5 M147,72 L162.6,56.6 M151.3,82.9 L169,80.3" stroke="#F5C518" stroke-width="4" stroke-linecap="round" fill="none"/>
 <g transform="translate(80,67) rotate(-26) scale(1.0)">
 <path d="M-13,-10 C-24,-11 -25,-28 -12,-28 C-10,-39 7,-41 9,-31 C15,-38 28,-32 22,-21 C28,-17 25,-10 13,-10 Z" fill="#FFFFFF"/>
@@ -20,7 +20,7 @@ export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 20
 </svg>`;
 
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="#151413"/><g transform="translate(100 100) scale(1.2) translate(-100 -84)">${LOGO_MARK.replace(/<svg[^>]*>|<\/svg>/g, '')}</g></svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="#2B1B12"/><g transform="translate(100 100) scale(1.2) translate(-100 -84)">${LOGO_MARK.replace(/<svg[^>]*>|<\/svg>/g, '')}</g></svg>`,
 )}`;
 
 function page(title: string, body: string, head = ''): string {
@@ -38,7 +38,7 @@ function page(title: string, body: string, head = ''): string {
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
   main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 1.6rem; margin: .2em 0; } h2 { font-size: 1.15rem; margin-top: 1.6em; }
-  .brand { display:inline-flex; align-items:center; gap:8px; background:#151413; color:#fff; padding:6px 14px 6px 8px; border-radius:16px; font-family: Poppins, system-ui, sans-serif; font-weight: 700; font-size: 1.3rem; text-decoration:none; }
+  .brand { display:inline-flex; align-items:center; gap:8px; background:#2B1B12; color:#fff; padding:6px 14px 6px 8px; border-radius:16px; font-family: Poppins, system-ui, sans-serif; font-weight: 700; font-size: 1.3rem; text-decoration:none; }
   .brand b { color: var(--accent); font-weight: 700; }
   .card { background: var(--card); border-radius: 18px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
   .card img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }

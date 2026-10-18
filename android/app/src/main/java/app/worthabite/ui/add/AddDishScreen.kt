@@ -1,5 +1,6 @@
 package app.worthabite.ui.add
 
+import androidx.compose.ui.platform.testTag
 import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -101,8 +102,12 @@ fun AddDishScreen(
     LaunchedEffect(state.created) {
         state.created?.let { post ->
             showMessage(
-                if (post.restaurantStatus == "pending") "Posted! The new place appears once it's reviewed."
-                else "Posted! Thanks for recommending.",
+                when {
+                    post.held -> "Posted! It looks like a photo that's already on WorthAbite, so a person will check it first."
+                    post.restaurantStatus == "pending" -> "Posted! The new place appears once it's reviewed."
+                    post.visit == "verified" -> "Posted with a verified visit. Thanks for recommending!"
+                    else -> "Posted! Thanks for recommending."
+                },
             )
             vm.reset()
             onPosted(post.dishId)
@@ -111,10 +116,10 @@ fun AddDishScreen(
 
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.setPhoto(uri)
+        if (uri != null) vm.setPhoto(context, uri, "gallery")
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) vm.setPhoto(cameraUri)
+        if (ok) vm.setPhoto(context, cameraUri, "camera")
     }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.any { it }) scope.launch {
@@ -153,6 +158,9 @@ fun AddDishScreen(
         onCaption = vm::setCaption,
         onSponsored = vm::setSponsored,
         onSubmit = { vm.submit(context) },
+        onVerdict = vm::setVerdict,
+        onSimilarDish = vm::useSimilarDish,
+        onSimilarPlace = vm::useSimilarPlace,
     )
 }
 
@@ -179,6 +187,9 @@ fun AddDishContent(
     onCaption: (String) -> Unit,
     onSponsored: (Boolean) -> Unit,
     onSubmit: () -> Unit,
+    onVerdict: (Verdict?) -> Unit = {},
+    onSimilarDish: (app.worthabite.data.SimilarDish) -> Unit = {},
+    onSimilarPlace: (app.worthabite.data.SimilarPlace) -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp),
@@ -239,6 +250,23 @@ fun AddDishContent(
                     }
                 }
             }
+            // At this place already, under a slightly different name: join it instead of splitting its votes.
+            state.similarDishes.firstOrNull()?.let { d ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().testTag("did_you_mean"),
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Did you mean ${d.name}? It's already here" + if (d.photos > 0) " with ${d.photos} photo${if (d.photos == 1) "" else "s"}." else ".",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { onSimilarDish(d) }) { Text("Use it") }
+                    }
+                }
+            }
         }
 
         if (state.categories.isNotEmpty()) {
@@ -276,6 +304,22 @@ fun AddDishContent(
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("New place", style = MaterialTheme.typography.titleMedium)
                         OutlinedTextField(state.newPlaceName, onNewPlaceName, label = { Text("Place name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        state.similarPlaces.forEach { sp ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.fillMaxWidth().testTag("similar_place"),
+                            ) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "${sp.name} is already on WorthAbite, ${sp.distanceM} m from you.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(onClick = { onSimilarPlace(sp) }) { Text("Use it") }
+                                }
+                            }
+                        }
                         OutlinedTextField(state.newPlaceLocality, onNewPlaceLocality, label = { Text("Area (e.g. College Road)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.LocationOn, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
@@ -370,6 +414,31 @@ fun AddDishContent(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+
+        // "Worth a bite?": your verdict is your vote on the dish, like the buttons on its page.
+        Text("Worth a bite?", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = state.verdict == Verdict.Loved,
+                onClick = { onVerdict(Verdict.Loved) },
+                label = { Text("Loved it") },
+                leadingIcon = { Icon(AppIcons.Heart, null, Modifier.size(16.dp)) },
+                modifier = Modifier.testTag("verdict_loved"),
+            )
+            FilterChip(
+                selected = state.verdict == Verdict.Pass,
+                onClick = { onVerdict(Verdict.Pass) },
+                label = { Text("Not for me") },
+                leadingIcon = { Icon(AppIcons.ThumbDownOutline, null, Modifier.size(16.dp)) },
+                modifier = Modifier.testTag("verdict_pass"),
+            )
+        }
+        Text(
+            if (state.photoSource == "camera") "Taken here and now: with your location on, it shows as a verified visit and your vote counts a little more."
+            else "Tip: take the photo with the camera at the place to get a verified visit badge.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 

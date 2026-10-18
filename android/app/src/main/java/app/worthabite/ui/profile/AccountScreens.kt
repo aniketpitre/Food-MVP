@@ -1,5 +1,8 @@
 package app.worthabite.ui.profile
 
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.OutlinedButton
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -248,6 +251,7 @@ fun FollowListScreen(
         Segmented(listOf("0" to "Followers", "1" to "Following"), pager.currentPage.toString()) {
             scope.launch { pager.animateScrollToPage(it.toInt()) }
         }
+        val mine = LocalApp.current.session.collectAsState().value?.user?.handle == handle
         HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
             PeopleList(
                 load = { api -> if (page == 0) api.followers(handle) else api.following(handle) },
@@ -255,6 +259,8 @@ fun FollowListScreen(
                 onOpenUser = onOpenUser,
                 onNeedSignIn = onNeedSignIn,
                 showMessage = showMessage,
+                // Your own followers can be removed, like Instagram.
+                removable = mine && page == 0,
             )
         }
     }
@@ -268,6 +274,7 @@ fun PeopleList(
     onOpenUser: (String) -> Unit,
     onNeedSignIn: () -> Unit,
     showMessage: (String) -> Unit,
+    removable: Boolean = false,
 ) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
@@ -299,17 +306,40 @@ fun PeopleList(
                     onOpen = { onOpenUser(p.handle) },
                     onFollow = {
                         if (app.session.value == null) return@PersonRow onNeedSignIn()
-                        val i = people.indexOfFirst { it.handle == p.handle }
                         val on = !p.isFollowing
-                        if (i >= 0) people[i] = p.copy(isFollowing = on)
+                        fun set(v: Boolean) {
+                            val i = people.indexOfFirst { it.handle == p.handle }
+                            if (i >= 0) people[i] = people[i].copy(isFollowing = v)
+                        }
+                        set(on)
                         scope.launch {
-                            runCatching { apiCall { if (on) app.api.follow(p.handle) else app.api.unfollow(p.handle) } }
+                            runCatching { app.setFollowing(p.handle, on) }
                                 .onFailure {
-                                    if (i >= 0) people[i] = p
+                                    set(!on)
                                     showMessage(it.message ?: "Couldn't update.")
                                 }
                         }
                     },
+                    trailing = if (removable && !p.isMe) {
+                        {
+                            OutlinedButton(
+                                onClick = {
+                                    val i = people.indexOfFirst { it.handle == p.handle }
+                                    if (i >= 0) people.removeAt(i)
+                                    scope.launch {
+                                        runCatching { app.removeFollower(p.handle) }
+                                            .onSuccess { showMessage("Removed @${p.handle} from your followers.") }
+                                            .onFailure {
+                                                people.add(i.coerceIn(0, people.size), p)
+                                                showMessage(it.message ?: "Couldn't remove.")
+                                            }
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp).testTag("remove_follower"),
+                            ) { Text("Remove") }
+                        }
+                    } else null,
                     modifier = Modifier.animateItem(),
                 )
             }

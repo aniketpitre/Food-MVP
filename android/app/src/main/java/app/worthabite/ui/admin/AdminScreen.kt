@@ -1,5 +1,12 @@
 package app.worthabite.ui.admin
 
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.aspectRatio
+import app.worthabite.data.MergeBody
+import app.worthabite.data.SimilarDishPair
+import app.worthabite.data.AlgorithmHealth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,7 +56,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class AdminUiState(val loading: Boolean = true, val queue: AdminQueue? = null, val error: String? = null)
+data class AdminUiState(
+    val loading: Boolean = true,
+    val queue: AdminQueue? = null,
+    val error: String? = null,
+    val health: AlgorithmHealth? = null,
+    val similar: List<SimilarDishPair> = emptyList(),
+)
 
 class AdminViewModel(private val app: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(AdminUiState())
@@ -60,9 +73,12 @@ class AdminViewModel(private val app: AppContainer) : ViewModel() {
     fun load() {
         viewModelScope.launch {
             try {
-                _state.value = AdminUiState(false, apiCall { app.api.adminQueue() })
+                val queue = apiCall { app.api.adminQueue() }
+                val health = runCatching { apiCall { app.api.adminHealth() } }.getOrNull()
+                val similar = runCatching { apiCall { app.api.adminSimilarDishes() } }.getOrDefault(emptyList())
+                _state.value = AdminUiState(false, queue, null, health, similar)
             } catch (e: ApiException) {
-                _state.value = AdminUiState(false, _state.value.queue, e.message)
+                _state.value = _state.value.copy(loading = false, error = e.message)
             }
         }
     }
@@ -95,8 +111,47 @@ fun AdminScreen(vm: AdminViewModel, onBack: () -> Unit, onOpenDish: (String) -> 
         when {
             state.loading -> LoadingBox()
             q == null -> CenteredMessage("Couldn't load the queue", state.error)
-            q.pendingPlaces.isEmpty() && q.reported.isEmpty() -> CenteredMessage("All clear", "No new places or reports to review.", AppIcons.Shield)
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> LazyColumn(Modifier.fillMaxSize().testTag("admin_list")) {
+                state.health?.let { h -> item(key = "health") { HealthCard(h) } }
+                if (q.pendingPlaces.isEmpty() && q.reported.isEmpty() && q.heldPhotos.isEmpty() && state.similar.isEmpty()) {
+                    item(key = "clear") { CenteredMessage("All clear", "No new places, reports or photos to review.", AppIcons.Shield) }
+                }
+                if (q.heldPhotos.isNotEmpty()) item { SectionTitle("Possible copies (${q.heldPhotos.size})") }
+                items(q.heldPhotos, key = { "h" + it.id }) { h ->
+                    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(h.dishName, style = MaterialTheme.typography.titleMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                HeldThumb(app.mediaUrl(h.thumbUrl), "New, by @${h.authorHandle ?: "?"}", Modifier.weight(1f))
+                                HeldThumb(app.mediaUrl(h.originalThumbUrl), "Earlier, by @${h.originalAuthorHandle ?: "?"}", Modifier.weight(1f))
+                            }
+                            Text(
+                                "These look like the same photo. Allow it if it's genuinely theirs (say, friends at one table); remove it if it was copied.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { vm.act({ apiCall { app.api.adminContent("posts", h.id, "restore") } }, showMessage, "Allowed") }) { Text("Allow") }
+                                OutlinedButton(onClick = { vm.act({ apiCall { app.api.adminContent("posts", h.id, "hide") } }, showMessage, "Removed") }) { Text("Remove") }
+                            }
+                        }
+                    }
+                }
+                if (state.similar.isNotEmpty()) item { SectionTitle("Same dish, two names? (${state.similar.size})") }
+                items(state.similar, key = { "s" + it.aId + it.bId }) { d ->
+                    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("\"${d.aName}\" and \"${d.bName}\"", style = MaterialTheme.typography.titleMedium)
+                            Text("${d.placeName} · ${d.aPosts} and ${d.bPosts} photo(s)", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // The one with more photos keeps its name.
+                                val (from, into, name) = if (d.aPosts >= d.bPosts) Triple(d.bId, d.aId, d.aName) else Triple(d.aId, d.bId, d.bName)
+                                Button(onClick = { vm.act({ apiCall { app.api.adminMergeDish(from, MergeBody(into)) } }, showMessage, "Merged into $name") }) {
+                                    Text("Merge as \"$name\"")
+                                }
+                            }
+                        }
+                    }
+                }
                 if (q.pendingPlaces.isNotEmpty()) item { SectionTitle("New places (${q.pendingPlaces.size})") }
                 items(q.pendingPlaces, key = { "p" + it.id }) { p ->
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -151,5 +206,63 @@ fun AdminScreen(vm: AdminViewModel, onBack: () -> Unit, onOpenDish: (String) -> 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HeldThumb(url: String?, label: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        DishImage(url, null, label, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp)))
+        Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+    }
+}
+
+/**
+ * Is the ranking working? Votes this week, what the fairness rules caught, how much Top
+ * moved, how often people open what each tab shows, and the prediction check.
+ */
+@Composable
+private fun HealthCard(h: AlgorithmHealth) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("health_card")) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Algorithm health", style = MaterialTheme.typography.titleMedium)
+            val week = h.votesPerDay.takeLast(7)
+            val t = h.totals
+            HealthLine("Votes in the last 7 days", "${week.sumOf { it.loves }} loves · ${week.sumOf { it.passes }} not for me")
+            HealthLine("Dishes with 3+ votes", "${t.dishesWith3Votes} of ${t.liveDishes}")
+            HealthLine("Verified-visit photos", "${t.verifiedPhotos} of ${t.userPhotos}")
+            HealthLine("Own-place votes ignored", "${t.ownPlaceVotesIgnored}")
+            HealthLine("Accounts voting in lockstep", "${t.lockstepAccounts}")
+            HealthLine("Copied photos held / removed", "${t.copiesHeld} / ${t.copiesRemoved}")
+            HealthLine("Dishes merged", "${t.dishesMerged}")
+            h.topChange.forEach { c -> HealthLine("New in ${c.city}'s Top 20 this week", "${c.newInTop} of ${c.size}") }
+            h.taps.forEach { tap ->
+                val rate = if (tap.seen > 0) "${(100.0 * tap.opened / tap.seen).toInt()}%" else "–"
+                HealthLine("Opened from ${tap.tab}", "$rate (${tap.opened} of ${tap.seen})")
+            }
+            val p = h.prediction
+            Spacer(Modifier.height(4.dp))
+            Text("Prediction check (last ${p.days} days)", style = MaterialTheme.typography.titleSmall)
+            if (p.votes == 0 || p.accuracy == null) {
+                Text("Not enough votes yet.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                HealthLine("Votes checked", "${p.votes}")
+                HealthLine("Predicted right", "${(p.accuracy * 100).toInt()}% (always guessing: ${((p.alwaysLoveAccuracy ?: 0.0) * 100).toInt()}%)")
+                HealthLine("Skill", p.skill?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "–")
+                Text(
+                    "Each recent vote is hidden in turn and predicted from everyone else's. Skill above 0 means the ranking knows more than guessing; 1 would be perfect.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
     }
 }

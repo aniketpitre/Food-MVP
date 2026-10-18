@@ -177,18 +177,22 @@ class ProfileViewModel(private val app: AppContainer, private val handle: String
         }
     }
 
+    private var followTaps = 0
+
     /** Optimistic follow toggle; the server's follower count replaces ours when it answers. */
     fun toggleFollow(onNeedSignIn: () -> Unit, showMessage: (String) -> Unit) {
         val p = _state.value.profile ?: return
         if (app.session.value == null) return onNeedSignIn()
         val on = !p.isFollowing
         _state.update { it.copy(profile = p.copy(isFollowing = on, followers = (p.followers + if (on) 1 else -1).coerceAtLeast(0))) }
+        val tap = ++followTaps
         viewModelScope.launch {
             try {
-                val r = apiCall { if (on) app.api.follow(p.handle) else app.api.unfollow(p.handle) }
-                _state.update { s -> s.copy(profile = s.profile?.copy(isFollowing = r.isFollowing, followers = r.followers)) }
+                val r = app.setFollowing(p.handle, on)
+                // Only the answer to the latest tap is shown, so quick taps never flicker back.
+                if (tap == followTaps) _state.update { s -> s.copy(profile = s.profile?.copy(isFollowing = r.isFollowing, followers = r.followers)) }
             } catch (e: ApiException) {
-                _state.update { it.copy(profile = p) }
+                if (tap == followTaps) _state.update { it.copy(profile = p) }
                 showMessage(e.message)
             }
         }

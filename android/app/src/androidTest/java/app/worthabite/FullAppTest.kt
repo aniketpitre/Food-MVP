@@ -1,5 +1,7 @@
 package app.worthabite
 
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import android.app.NotificationManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -630,6 +632,69 @@ class FullAppTest {
             open("worthabite://stories/${cook.user.handle}")
             Thread.sleep(2500)
             shot("69_story_from_notification")
+        }
+    }
+
+    @Test
+    fun followingFeed_followUnfollowRemoveFollower() {
+        val chef = friend("f")
+        val city = container.city.value!!.id
+        val place = runBlocking { container.api.feed(city, null, "top", 5, 0, "full", null, null) }.items.first().restaurant.id
+        step("they posted before I followed them") {
+            waitFor(hasContentDescription("Explore"), 30_000)
+            upload("/posts", chef.token, mapOf("idempotencyKey" to "fol-$suffix", "dishName" to "Following Poha $suffix", "restaurantId" to place))
+        }
+        step("I follow them from their profile, at once") {
+            open("worthabite://user/${chef.user.handle}")
+            waitFor(hasText("Follow") and hasClickAction(), 20_000)
+            compose.onAllNodes(hasText("Follow") and hasClickAction()).onFirst().performClick()
+            waitFor(hasText("Following") and hasClickAction())
+            shot("93_followed")
+        }
+        step("their older post is in my Following tab, then all caught up") {
+            backTo(hasContentDescription("Explore"))
+            tab("Explore")
+            waitFor(hasText("Following"), 20_000)
+            compose.onAllNodes(hasText("Following")).onFirst().performClick()
+            waitFor(hasTestTag("following_post"), 20_000)
+            waitText("Following Poha $suffix", substring = true)
+            waitFor(hasTestTag("following_caught_up"))
+            shot("94_following_feed")
+        }
+        step("unfollow: their posts leave my Following tab") {
+            open("worthabite://user/${chef.user.handle}")
+            waitFor(hasText("Following") and hasClickAction(), 20_000)
+            compose.onAllNodes(hasText("Following") and hasClickAction()).onFirst().performClick()
+            waitFor(hasText("Follow") and hasClickAction())
+            backTo(hasContentDescription("Explore"))
+            tab("Explore")
+            waitText("Nothing from people you follow yet", substring = true, timeoutMs = 20_000)
+        }
+        step("they follow me, and I remove them from my followers") {
+            call("PUT", "/users/${me.user.handle}/follow", chef.token)
+            tab("Profile")
+            waitText("followers", timeoutMs = 20_000)
+            compose.onAllNodes(hasText("followers"), useUnmergedTree = true).onFirst().performClick()
+            waitFor(hasTestTag("remove_follower"), 20_000)
+            shot("95_followers_remove")
+            compose.onAllNodes(hasTestTag("remove_follower")).onFirst().performClick()
+            waitText("Removed @${chef.user.handle}", substring = true)
+            val profile = call("GET", "/users/${me.user.handle}", me.token)
+            assertEquals(0, profile.getInt("followers"))
+        }
+        step("Activity: follow back and unfollow straight from the row") {
+            call("PUT", "/users/${me.user.handle}/follow", chef.token)
+            open("worthabite://activity")
+            waitFor(hasText("Follow back") and hasClickAction(), 20_000)
+            compose.onAllNodes(hasText("Follow back") and hasClickAction()).onFirst().performClick()
+            waitFor(hasText("Following") and hasClickAction())
+            assertTrue(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
+            shot("96_activity_follow_back")
+            compose.onAllNodes(hasText("Following") and hasClickAction()).onFirst().performClick()
+            waitFor(hasText("Follow back") and hasClickAction())
+            val end = System.currentTimeMillis() + 10_000
+            while (System.currentTimeMillis() < end && call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing")) Thread.sleep(300)
+            assertFalse(call("GET", "/users/${chef.user.handle}", me.token).getBoolean("isFollowing"))
         }
     }
 

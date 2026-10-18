@@ -44,6 +44,8 @@ val Mint = Color(0xFF13A05B)
 val Lagoon = Color(0xFF16B3A6)
 /** The logo's tile: charcoal ink. */
 val Ink = Color(0xFF151413)
+/** Espresso brown: the logo's tile (app icon, wordmark, welcome panel). */
+val Espresso = Color(0xFF2B1B12)
 val Cream = Color(0xFFFBF7EF)
 
 val VegGreen = Mint

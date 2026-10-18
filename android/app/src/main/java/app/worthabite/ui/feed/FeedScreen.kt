@@ -112,7 +112,7 @@ fun FeedScreen(
         onRefresh = vm::refresh,
         onRetry = { vm.reload() },
         onLoadMore = vm::loadMore,
-        onOpenDish = onOpenDish,
+        onOpenDish = { id -> app.recordOpen(id, state.tab.api); onOpenDish(id) },
         onOpenRestaurant = onOpenRestaurant,
         onToggle = actions::toggle,
         onShare = { sendingCard = it },
@@ -121,6 +121,19 @@ fun FeedScreen(
         onAddDish = onAddDish,
         onAskLocation = { locationPermission.launch(DeviceLocation.PERMISSIONS) },
         commentCountOf = { card -> card.cover?.let { commentCounts[it.postId] ?: it.commentCount } ?: 0 },
+        followingContent = {
+            val followingVm = appViewModel { FollowingViewModel(it) }
+            FollowingFeed(
+                followingVm,
+                onOpenDish = { id -> app.recordOpen(id, "following"); onOpenDish(id) },
+                onOpenRestaurant = onOpenRestaurant,
+                onOpenUser = onOpenUser,
+                onToggle = actions::toggle,
+                engagementOf = { card -> overrides[card.id] ?: card.engagement() },
+                onShare = { sendingCard = it },
+                onComments = { postId -> commentsFor = postId },
+            )
+        },
         placesContent = {
             val placesVm = appViewModel { PlacesViewModel(it) }
             PlacesScreen(
@@ -139,7 +152,7 @@ fun FeedScreen(
             if (post == null) showMessage("This dish has no photo to comment on yet.") else commentsFor = post
         },
         onSettled = { card, next ->
-            app.recordImpression(card.id)
+            app.recordImpression(card.id, state.tab.api)
             // Prefetch the next few photos so the next swipe is instant.
             // Screen-sized (not original-sized) so the memory cache keeps more photos.
             val loader = SingletonImageLoader.get(context)
@@ -168,7 +181,7 @@ fun FeedScreen(
     }
 }
 
-private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards, Map, Places }
+private enum class FeedBody { Loading, Error, NeedsLocation, Empty, Cards, Map, Places, Following }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,6 +207,7 @@ fun FeedContent(
     onComments: (DishCard) -> Unit = {},
     nearbyContent: (@Composable () -> Unit)? = null,
     placesContent: (@Composable () -> Unit)? = null,
+    followingContent: (@Composable () -> Unit)? = null,
 ) {
     var showFilter by remember { mutableStateOf(false) }
     val selectedCategory = state.categories.firstOrNull { it.id == state.selectedCategory }
@@ -207,11 +221,12 @@ fun FeedContent(
             onFilter = { showFilter = true },
         )
         FeedTabs(state.tab, state.tabs, onTab)
-        if (state.tab != FeedTab.Places) ActiveFilterChip(selectedCategory) { onCategory(null) }
+        if (state.tab != FeedTab.Places && state.tab != FeedTab.Following) ActiveFilterChip(selectedCategory) { onCategory(null) }
 
         val body = when {
             state.tab == FeedTab.Nearby && nearbyContent != null -> FeedBody.Map
             state.tab == FeedTab.Places && placesContent != null -> FeedBody.Places
+            state.tab == FeedTab.Following && followingContent != null -> FeedBody.Following
             state.loading && state.items.isEmpty() -> FeedBody.Loading
             state.error != null && state.items.isEmpty() -> FeedBody.Error
             state.needsLocation -> FeedBody.NeedsLocation
@@ -232,6 +247,7 @@ fun FeedContent(
             when (b) {
                 FeedBody.Map -> nearbyContent?.invoke()
                 FeedBody.Places -> placesContent?.invoke()
+                FeedBody.Following -> followingContent?.invoke()
                 FeedBody.Loading -> FeedSkeleton()
                 FeedBody.Error -> CenteredMessage("Couldn't load dishes", state.error, Icons.Filled.Refresh, "Try again", onRetry)
                 FeedBody.NeedsLocation -> CenteredMessage(

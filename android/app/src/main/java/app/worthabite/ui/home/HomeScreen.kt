@@ -143,7 +143,7 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
     /** Follows someone suggested for their taste; they leave the suggestions. */
     fun followMate(handle: String) {
         _state.update { s -> s.copy(mates = s.mates.filterNot { it.handle == handle }) }
-        viewModelScope.launch { runCatching { apiCall { app.api.follow(handle) } } }
+        viewModelScope.launch { runCatching { app.setFollowing(handle, true) } }
     }
 
     fun load() {

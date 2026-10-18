@@ -139,6 +139,23 @@ interface WorthAbiteApi {
 
     @DELETE("users/{handle}/follow") suspend fun unfollow(@Path("handle") handle: String): FollowState
 
+    @DELETE("me/followers/{handle}") suspend fun removeFollower(@Path("handle") handle: String): RemovedFollower
+
+    @GET("feed/following")
+    suspend fun followingFeed(
+        @Query("before") before: String? = null,
+        @Query("beforeId") beforeId: String? = null,
+        @Query("limit") limit: Int = 15,
+        @Query("lat") lat: Double? = null,
+        @Query("lng") lng: Double? = null,
+    ): FollowingPage
+
+    @GET("dishes/similar")
+    suspend fun similarDishes(@Query("restaurantId") restaurantId: String, @Query("name") name: String): List<SimilarDish>
+
+    @GET("restaurants/similar")
+    suspend fun similarPlaces(@Query("name") name: String, @Query("lat") lat: Double, @Query("lng") lng: Double): List<SimilarPlace>
+
     @GET("users/{handle}/followers") suspend fun followers(@Path("handle") handle: String): List<Person>
 
     @GET("users/{handle}/following") suspend fun following(@Path("handle") handle: String): List<Person>
@@ -288,4 +305,11 @@ interface WorthAbiteApi {
 
     @POST("admin/users/{id}/dismiss")
     suspend fun adminDismissUser(@Path("id") id: String): OkResult
+
+    @GET("admin/health") suspend fun adminHealth(): AlgorithmHealth
+
+    @GET("admin/dishes/similar") suspend fun adminSimilarDishes(): List<SimilarDishPair>
+
+    @POST("admin/dishes/{id}/merge")
+    suspend fun adminMergeDish(@Path("id") id: String, @Body body: MergeBody): OkResult
 }

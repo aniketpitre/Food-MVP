@@ -1,5 +1,6 @@
 package app.worthabite.ui.dish
 
+import app.worthabite.ui.feed.VerifiedVisitChip
 import app.worthabite.ui.components.DemoTag
 import app.worthabite.ui.components.rememberTakeMeThere
 import app.worthabite.data.DishCard
@@ -411,15 +412,29 @@ fun DishContent(
                                         )
                                         .padding(horizontal = 14.dp, vertical = 10.dp),
                                 ) {
-                                    Text(
-                                        when {
-                                            handle != null -> "@$handle"
-                                            post.photoCredit != null -> post.photoCredit
-                                            else -> "WorthAbite"
-                                        },
-                                        style = MaterialTheme.typography.labelLarge,
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            when {
+                                                handle != null -> "@$handle"
+                                                post.photoCredit != null -> post.photoCredit
+                                                else -> "WorthAbite"
+                                            },
+                                            style = MaterialTheme.typography.labelLarge,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        )
+                                        if (post.verifiedVisit) {
+                                            Spacer(Modifier.width(8.dp))
+                                            VerifiedVisitChip()
+                                        }
+                                    }
                                     post.caption?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                                    if (dish.photographers > 1) {
+                                        Text(
+                                            "Photos by ${dish.photographers} people",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                     if (post.isSponsored && post.sponsorNote != null) {
                                         Text(post.sponsorNote, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }

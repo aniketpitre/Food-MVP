@@ -11,6 +11,9 @@ import app.worthabite.data.CreatedPost
 import app.worthabite.data.DishSuggestion
 import app.worthabite.data.ImageCompressor
 import app.worthabite.data.PlaceOption
+import app.worthabite.data.SimilarDish
+import app.worthabite.data.SimilarPlace
+import androidx.exifinterface.media.ExifInterface
 import app.worthabite.data.apiCall
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,6 +25,9 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 enum class VegChoice { Veg, NonVeg, Unsure }
+
+/** "Worth a bite?": your verdict when you post, which counts as your vote on the dish. */
+enum class Verdict(val api: String) { Loved("loved"), Pass("pass") }
 
 data class AddDishUiState(
     val photo: Uri? = null,
@@ -43,6 +49,15 @@ data class AddDishUiState(
     val submitting: Boolean = false,
     val error: String? = null,
     val created: CreatedPost? = null,
+    val verdict: Verdict? = null,
+    /** "camera" (taken just now in the app) or "gallery". */
+    val photoSource: String? = null,
+    /** When the photo was taken, from the photo itself (ISO time), if it says. */
+    val takenAt: String? = null,
+    /** Dishes already at the chosen place with a similar name ("Did you mean…?"). */
+    val similarDishes: List<SimilarDish> = emptyList(),
+    /** Places already near here with a similar name, before adding a new one. */
+    val similarPlaces: List<SimilarPlace> = emptyList(),
 ) {
     val hasLocation get() = placesNearby
     val canSubmit: Boolean
@@ -66,10 +81,30 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
         loadPlaces()
     }
 
-    fun setPhoto(uri: Uri?) = _state.update { it.copy(photo = uri, error = null) }
+    fun setPhoto(uri: Uri?) = _state.update { it.copy(photo = uri, error = null, photoSource = null, takenAt = null) }
+
+    /**
+     * A photo from the camera (taken now) or the gallery (when it was taken comes from the
+     * photo's own details). With your location, that's how a post becomes a verified visit.
+     */
+    fun setPhoto(context: Context, uri: Uri?, source: String) {
+        _state.update { it.copy(photo = uri, error = null, photoSource = uri?.let { source }, takenAt = null) }
+        if (uri == null) return
+        if (source == "camera") {
+            _state.update { it.copy(takenAt = java.time.Instant.now().toString()) }
+            return
+        }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val taken = runCatching { context.contentResolver.openInputStream(uri)?.use { photoTakenAt(ExifInterface(it)) } }.getOrNull()
+            _state.update { if (it.photo == uri) it.copy(takenAt = taken) else it }
+        }
+    }
+
+    fun setVerdict(v: Verdict?) = _state.update { it.copy(verdict = if (it.verdict == v) null else v) }
 
     fun setDishName(name: String) {
         _state.update { it.copy(dishName = name.take(60)) }
+        checkSimilarDishes()
         suggestJob?.cancel()
         if (name.isBlank()) {
             _state.update { it.copy(suggestions = emptyList()) }
@@ -120,14 +155,61 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
         }
     }
 
-    fun selectPlace(p: PlaceOption?) = _state.update { it.copy(selectedPlace = p, addingNewPlace = false) }
+    fun selectPlace(p: PlaceOption?) {
+        _state.update { it.copy(selectedPlace = p, addingNewPlace = false, similarPlaces = emptyList()) }
+        checkSimilarDishes()
+    }
 
-    fun startNewPlace() = _state.update {
-        it.copy(addingNewPlace = true, selectedPlace = null, newPlaceName = it.placeQuery)
+    /** Uses a place that's already on WorthAbite instead of adding it again. */
+    fun useSimilarPlace(p: SimilarPlace) = selectPlace(PlaceOption(p.id, p.name, p.locality, p.distanceM))
+
+    /** Takes the existing dish's name, so your photo joins it instead of splitting its votes. */
+    fun useSimilarDish(d: SimilarDish) = _state.update {
+        it.copy(dishName = d.name, similarDishes = emptyList(), suggestions = emptyList(), categoryId = d.categoryId ?: it.categoryId)
+    }
+
+    private var similarDishJob: Job? = null
+    private fun checkSimilarDishes() {
+        similarDishJob?.cancel()
+        val s = _state.value
+        val place = s.selectedPlace
+        if (place == null || s.dishName.trim().length < 3) {
+            _state.update { it.copy(similarDishes = emptyList()) }
+            return
+        }
+        similarDishJob = viewModelScope.launch {
+            delay(400)
+            val found = runCatching { apiCall { app.api.similarDishes(place.id, s.dishName.trim()) } }.getOrDefault(emptyList())
+            _state.update { it.copy(similarDishes = found) }
+        }
+    }
+
+    private var similarPlaceJob: Job? = null
+    private fun checkSimilarPlaces() {
+        similarPlaceJob?.cancel()
+        val name = _state.value.newPlaceName.trim()
+        val loc = app.location.value
+        if (!_state.value.addingNewPlace || name.length < 3 || loc == null) {
+            _state.update { it.copy(similarPlaces = emptyList()) }
+            return
+        }
+        similarPlaceJob = viewModelScope.launch {
+            delay(400)
+            val found = runCatching { apiCall { app.api.similarPlaces(name, loc.lat, loc.lng) } }.getOrDefault(emptyList())
+            _state.update { it.copy(similarPlaces = found) }
+        }
+    }
+
+    fun startNewPlace() {
+        _state.update { it.copy(addingNewPlace = true, selectedPlace = null, newPlaceName = it.placeQuery, similarDishes = emptyList()) }
+        checkSimilarPlaces()
     }
 
     fun cancelNewPlace() = _state.update { it.copy(addingNewPlace = false) }
-    fun setNewPlaceName(v: String) = _state.update { it.copy(newPlaceName = v.take(80)) }
+    fun setNewPlaceName(v: String) {
+        _state.update { it.copy(newPlaceName = v.take(80)) }
+        checkSimilarPlaces()
+    }
     fun setNewPlaceLocality(v: String) = _state.update { it.copy(newPlaceLocality = v.take(60)) }
     fun setPrice(v: String) = _state.update { it.copy(price = v.filter(Char::isDigit).take(5)) }
     fun setVeg(v: VegChoice) = _state.update { it.copy(veg = v) }
@@ -171,6 +253,14 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
                     }
                     if (s.caption.isNotBlank()) put("caption", s.caption.trim())
                     put("isSponsored", s.sponsored.toString())
+                    s.verdict?.let { put("verdict", it.api) }
+                    s.photoSource?.let { put("capture", it) }
+                    s.takenAt?.let { put("takenAt", it) }
+                    // Where the phone is now: near the place, that's a verified visit.
+                    app.location.value?.let {
+                        put("lat", it.lat.toString())
+                        put("lng", it.lng.toString())
+                    }
                 }
                 val created = app.createPost(fields, jpeg)
                 _state.update { it.copy(submitting = false, created = created) }
@@ -187,4 +277,19 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
         val places = _state.value.places
         _state.value = AddDishUiState(categories = categories, places = places, placesNearby = app.location.value != null)
     }
+}
+
+/**
+ * When a photo was taken, from its EXIF details ("2026:10:18 13:05:22", in the phone's
+ * time zone unless the photo says otherwise), as an ISO time; null if it doesn't say.
+ */
+internal fun photoTakenAt(exif: ExifInterface): String? {
+    val raw = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: exif.getAttribute(ExifInterface.TAG_DATETIME) ?: return null
+    val local = runCatching {
+        java.time.LocalDateTime.parse(raw.trim(), java.time.format.DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss"))
+    }.getOrNull() ?: return null
+    val offset = exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL)
+        ?.let { runCatching { java.time.ZoneOffset.of(it.trim()) }.getOrNull() }
+    val zoned = if (offset != null) local.atOffset(offset).toInstant() else local.atZone(java.time.ZoneId.systemDefault()).toInstant()
+    return zoned.toString()
 }

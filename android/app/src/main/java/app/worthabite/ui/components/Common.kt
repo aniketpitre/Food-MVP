@@ -298,21 +298,17 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 
 /**
  * The logo: the white bitten pan with its chef's hat, then "Worth" in white and "Abite" in
- * saffron, on charcoal as in the app icon. On the light theme that's a small charcoal pill;
- * on the dark theme the page is already charcoal.
+ * saffron, on the espresso-brown tile of the app icon: a small brown pill, in both themes.
  */
 @Composable
 fun Wordmark(large: Boolean = false, modifier: Modifier = Modifier) {
     val style = if (large) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineSmall
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     androidx.compose.foundation.layout.Row(
         modifier
             .semantics(mergeDescendants = true) { contentDescription = "WorthAbite" }
-            .then(
-                if (dark) Modifier
-                else Modifier.clip(RoundedCornerShape(if (large) 22.dp else 14.dp)).background(app.worthabite.ui.theme.Ink)
-                    .padding(start = if (large) 10.dp else 6.dp, end = if (large) 16.dp else 10.dp, top = 4.dp, bottom = 4.dp),
-            ),
+            .clip(RoundedCornerShape(if (large) 22.dp else 14.dp))
+            .background(app.worthabite.ui.theme.Espresso)
+            .padding(start = if (large) 10.dp else 6.dp, end = if (large) 16.dp else 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.Image(

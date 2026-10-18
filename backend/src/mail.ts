@@ -74,7 +74,7 @@ function escapeHtml(s: string) {
 /** An email in WorthAbite's colours (the wordmark on its charcoal pill, cream paper), the lines, an optional big code. */
 function branded(lines: string[], big?: string) {
   return `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;background:#FBF7EF;border-radius:16px;color:#151413">
-<p style="display:inline-block;font-size:20px;font-weight:bold;margin:0 0 12px;background:#151413;color:#FFFFFF;padding:6px 14px;border-radius:12px">Worth<span style="color:#F5C518">Abite</span></p>
+<p style="display:inline-block;font-size:20px;font-weight:bold;margin:0 0 12px;background:#2B1B12;color:#FFFFFF;padding:6px 14px;border-radius:12px">Worth<span style="color:#F5C518">Abite</span></p>
 ${lines.slice(0, 1).map((l) => `<p>${escapeHtml(l)}</p>`).join('')}
 ${big ? `<p style="font-size:32px;letter-spacing:8px;font-weight:bold;margin:20px 0">${escapeHtml(big)}</p>` : ''}
 ${lines.slice(1).map((l) => `<p style="color:#666">${escapeHtml(l)}</p>`).join('\n')}

@@ -329,7 +329,7 @@ private fun WelcomeHero() {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(bottomStart = 40.dp, bottomEnd = 40.dp))
-            .background(Ink)
+            .background(app.worthabite.ui.theme.Espresso)
             .statusBarsPadding()
             .padding(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 30.dp),
     ) {

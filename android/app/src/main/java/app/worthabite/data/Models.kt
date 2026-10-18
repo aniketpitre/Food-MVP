@@ -53,6 +53,8 @@ data class Cover(
     val width: Int? = null,
     val height: Int? = null,
     val commentCount: Int = 0,
+    /** The photographer's phone was at the place when they posted it. */
+    val verifiedVisit: Boolean = false,
 )
 
 @Serializable
@@ -111,6 +113,8 @@ data class DishCard(
     val champion: Champion? = null,
     /** Why it's in For You: who loved it (and how close their taste is to yours), or a dish type. */
     val because: Because? = null,
+    /** How many different people posted photos of this dish. */
+    val photographers: Int = 0,
 )
 
 @Serializable
@@ -146,6 +150,7 @@ data class Post(
     val authorHandle: String? = null,
     val authorName: String? = null,
     val commentCount: Int = 0,
+    val verifiedVisit: Boolean = false,
 )
 
 @Serializable
@@ -168,11 +173,13 @@ data class DishDetail(
     val moreAtPlace: List<DishCard> = emptyList(),
     val rating: Rating = Rating(),
     val champion: Champion? = null,
+    val photographers: Int = 0,
 ) {
     fun toCard() = DishCard(
         id = id, name = name, priceInr = priceInr, isVeg = isVeg, categoryId = categoryId,
         createdAt = createdAt, restaurant = restaurant, cover = cover, stats = stats, me = me,
         recentRecommenders = recentRecommenders, distanceM = distanceM, rating = rating, champion = champion,
+        photographers = photographers,
     )
 }
 
@@ -475,7 +482,14 @@ data class ReportBody(
 data class BlockBody(val handle: String)
 
 @Serializable
-data class ViewsBody(val dishIds: List<String>, val deviceId: String? = null)
+data class ViewsBody(
+    val dishIds: List<String>,
+    val deviceId: String? = null,
+    /** Which feed the cards were in. */
+    val tab: String? = null,
+    /** These are cards someone tapped open (not just saw). */
+    val opened: Boolean = false,
+)
 
 @Serializable
 data class CreatedPost(
@@ -489,6 +503,101 @@ data class CreatedPost(
     val restaurantId: String,
     val restaurantName: String,
     val restaurantStatus: String,
+    /** "verified" (phone at the place, photo taken there and then), "nearby", or null. */
+    val visit: String? = null,
+    /** It looks like a copy of someone else's photo and waits for a person to check it. */
+    val held: Boolean = false,
+)
+
+/** A photo in the Following feed: who posted it, and the dish it's of. */
+@Serializable
+data class FollowingPost(
+    val id: String,
+    val caption: String? = null,
+    val imageUrl: String,
+    val thumbUrl: String,
+    val placeholderColor: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val createdAt: String = "",
+    val verifiedVisit: Boolean = false,
+    val author: UserRef,
+    val dish: DishCard,
+)
+
+@Serializable
+data class FollowingCursor(val before: String, val beforeId: String)
+
+@Serializable
+data class FollowingPage(val items: List<FollowingPost> = emptyList(), val next: FollowingCursor? = null)
+
+@Serializable
+data class SimilarDish(val id: String, val name: String, val categoryId: Int? = null, val photos: Int = 0)
+
+@Serializable
+data class SimilarPlace(val id: String, val name: String, val locality: String? = null, val status: String = "active", val distanceM: Int = 0)
+
+@Serializable
+data class RemovedFollower(val ok: Boolean = true, val followers: Int = 0)
+
+@Serializable
+data class HeldPhoto(
+    val id: String,
+    val thumbUrl: String,
+    val dishId: String,
+    val dishName: String,
+    val authorHandle: String? = null,
+    val originalThumbUrl: String? = null,
+    val originalAuthorHandle: String? = null,
+)
+
+@Serializable
+data class SimilarDishPair(
+    val aId: String, val aName: String, val bId: String, val bName: String, val placeName: String,
+    val aPosts: Int = 0, val bPosts: Int = 0,
+)
+
+@Serializable
+data class MergeBody(val into: String)
+
+@Serializable
+data class HealthTotals(
+    val liveDishes: Int = 0,
+    val dishesWith3Votes: Int = 0,
+    val ownPlaceVotesIgnored: Int = 0,
+    val lockstepAccounts: Int = 0,
+    val copiesHeld: Int = 0,
+    val copiesRemoved: Int = 0,
+    val userPhotos: Int = 0,
+    val verifiedPhotos: Int = 0,
+    val dishesMerged: Int = 0,
+)
+
+@Serializable
+data class DayVotes(val day: String, val loves: Int = 0, val passes: Int = 0, val voters: Int = 0)
+
+@Serializable
+data class TopChange(val city: String, val day: String, val comparedWith: String, val size: Int = 0, val newInTop: Int = 0)
+
+@Serializable
+data class TabTaps(val tab: String, val seen: Int = 0, val opened: Int = 0)
+
+@Serializable
+data class PredictionCheck(
+    val days: Int = 30,
+    val votes: Int = 0,
+    val accuracy: Double? = null,
+    val alwaysLoveAccuracy: Double? = null,
+    val skill: Double? = null,
+)
+
+@Serializable
+data class AlgorithmHealth(
+    val totals: HealthTotals = HealthTotals(),
+    val votesPerDay: List<DayVotes> = emptyList(),
+    val topChange: List<TopChange> = emptyList(),
+    val taps: List<TabTaps> = emptyList(),
+    val prediction: PredictionCheck = PredictionCheck(),
 )
 
 @Serializable
@@ -517,7 +626,11 @@ data class ReportedItem(
 )
 
 @Serializable
-data class AdminQueue(val pendingPlaces: List<PendingPlace> = emptyList(), val reported: List<ReportedItem> = emptyList())
+data class AdminQueue(
+    val pendingPlaces: List<PendingPlace> = emptyList(),
+    val reported: List<ReportedItem> = emptyList(),
+    val heldPhotos: List<HeldPhoto> = emptyList(),
+)
 
 @Serializable
 data class ApiError(val error: String = "error", val message: String = "Something went wrong.")
