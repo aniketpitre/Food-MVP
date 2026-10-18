@@ -74,8 +74,7 @@ export async function pageRoutes(app: FastifyInstance) {
     if (!p.success) return reply.code(404).type('text/html').send(page('Not found', '<h1>Dish not found</h1>'));
     const { rows } = await db.query(
       `select d.name, r.name as place, r.locality, coalesce(s.recommenders, 0) as n,
-              (select image_path from posts p where p.dish_id = d.id and p.status = 'live'
-               order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1) as img
+              (select image_path from posts where id = dish_cover(d.id, null)) as img
        from dishes d join restaurants r on r.id = d.restaurant_id
        left join dish_stats s on s.dish_id = d.id
        where d.id = $1 and d.status = 'live' and r.status = 'active'`,

@@ -26,7 +26,11 @@ export interface DishCard {
     width: number | null;
     height: number | null;
     commentCount: number;
+    /** The photographer was at the place when they posted it. */
+    verifiedVisit: boolean;
   } | null;
+  /** How many different people posted photos of this dish. */
+  photographers: number;
   stats: { recommenders: number; saves: number; tried: number; endorsers: number };
   me: { recommended: boolean; saved: boolean; tried: boolean; passed: boolean };
   recentRecommenders: { handle: string; displayName: string | null; avatarUrl: string | null }[];
@@ -60,6 +64,8 @@ interface CardRow {
   width: number | null;
   height: number | null;
   comment_count: number | null;
+  visit: string | null;
+  photographers: number | null;
   recommenders: number;
   saves: number;
   tried: number;
@@ -80,8 +86,8 @@ interface CardRow {
 
 /**
  * Loads card data for the given dish ids, preserving their order.
- * The cover is the dish's chosen cover if it is still live, otherwise the newest
- * live photo; photos by people the viewer blocked are never used.
+ * The cover is the dish's best recent photo (see dish_cover); photos by people the
+ * viewer blocked are never used.
  */
 export async function loadDishCards(
   db: Db,
@@ -97,7 +103,8 @@ export async function loadDishCards(
             (r.source = 'seed') as restaurant_demo,
             st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
             cov.id as post_id, cov.image_path, cov.thumb_path, cov.placeholder_color, cov.is_sponsored,
-            cov.width, cov.height,
+            cov.width, cov.height, cov.visit,
+            (select count(distinct ap.author_id)::int from posts ap where ap.dish_id = d.id and ap.status = 'live') as photographers,
             (select count(*)::int from comments cm where cm.post_id = cov.id and cm.status = 'live') as comment_count,
             coalesce(s.recommenders, 0) as recommenders, coalesce(s.saves, 0) as saves,
             coalesce(s.tried, 0) as tried, coalesce(s.endorsers, 0) as endorsers,
@@ -124,11 +131,7 @@ export async function loadDishCards(
      left join taster_stats ct on ct.user_id = dr.champion_id and ct.category_id = coalesce(d.category_id, -1)
      left join lateral (
        select p.* from posts p
-       where p.dish_id = d.id and p.status = 'live'
-         and ($2::uuid is null or not exists
-              (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = p.author_id))
-       order by (p.id = d.cover_post_id) desc, p.created_at desc
-       limit 1) cov on true
+       where p.id = dish_cover(d.id, $2::uuid)) cov on true
      order by ids.ord`,
     [ids, viewer, lat ?? null, lng ?? null],
   );
@@ -163,8 +166,10 @@ function toCard(r: CardRow): DishCard {
           width: r.width,
           height: r.height,
           commentCount: Number(r.comment_count ?? 0),
+          verifiedVisit: r.visit === 'verified',
         }
       : null,
+    photographers: Number(r.photographers ?? 0),
     stats: {
       recommenders: Number(r.recommenders),
       saves: Number(r.saves),

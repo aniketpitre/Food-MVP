@@ -229,7 +229,7 @@ export async function socialRoutes(app: FastifyInstance) {
     return followState(me, target);
   });
 
-  app.delete('/users/:handle/follow', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/users/:handle/follow', { preHandler: requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     const p = parse(z.object({ handle: username }), req.params, reply);
     if (!p) return;
     const me = userId(req)!;
@@ -237,6 +237,77 @@ export async function socialRoutes(app: FastifyInstance) {
     if (!target) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
     await db.query('delete from follows where follower_id = $1 and followee_id = $2', [me, target]);
     return followState(me, target);
+  });
+
+  // Remove someone from your followers (they aren't told, like Instagram).
+  app.delete('/me/followers/:handle', { preHandler: requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const p = parse(z.object({ handle: username }), req.params, reply);
+    if (!p) return;
+    const me = userId(req)!;
+    const follower = await profileId(p.handle);
+    if (!follower) return reply.code(404).send({ error: 'not_found', message: 'No such person.' });
+    await db.query('delete from follows where follower_id = $1 and followee_id = $2', [follower, me]);
+    const { rows } = await db.query('select count(*)::int as followers from follows where followee_id = $1', [me]);
+    return { ok: true, followers: rows[0].followers };
+  });
+
+  // ---------- Following feed ----------
+
+  // Photos from the people you follow (and your own), newest first, like Instagram. No
+  // time limit, so someone you've just followed shows up with their older posts too.
+  // Paged by the last post's time and id, so new posts never shift a page you've seen.
+  app.get('/feed/following', { preHandler: requireAuth }, async (req, reply) => {
+    const q = parse(
+      z.object({
+        before: z.string().datetime({ offset: true }).optional(),
+        beforeId: z.string().uuid().optional(),
+        limit: z.coerce.number().int().min(1).max(30).default(15),
+        lat: z.coerce.number().min(-90).max(90).optional(),
+        lng: z.coerce.number().min(-180).max(180).optional(),
+      }),
+      req.query,
+      reply,
+    );
+    if (!q) return;
+    const me = userId(req)!;
+    const { rows } = await db.query<{
+      id: string; dish_id: string; caption: string | null; image_path: string; thumb_path: string;
+      placeholder_color: string | null; width: number | null; height: number | null; created_at: Date;
+      visit: string | null; handle: string; display_name: string | null; avatar_path: string | null;
+    }>(
+      `select p.id, p.dish_id, p.caption, p.image_path, p.thumb_path, p.placeholder_color, p.width, p.height,
+              p.created_at, p.visit, a.handle, a.display_name, a.avatar_path
+       from posts p
+       join profiles a on a.id = p.author_id
+       join dishes d on d.id = p.dish_id and d.status = 'live'
+       join restaurants r on r.id = d.restaurant_id and r.status = 'active'
+       where p.status = 'live'
+         and (p.author_id = $1 or p.author_id in (select followee_id from follows where follower_id = $1))
+         and not exists (select 1 from blocks b where b.blocker_id = $1 and b.blocked_id = p.author_id)
+         and ($2::timestamptz is null or (p.created_at, p.id) < ($2::timestamptz, coalesce($3::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+       order by p.created_at desc, p.id desc
+       limit $4`,
+      [me, q.before ?? null, q.beforeId ?? null, q.limit],
+    );
+    const cards = await loadDishCards(db, [...new Set(rows.map((r) => r.dish_id))], me, q.lat, q.lng);
+    const byId = new Map(cards.map((c) => [c.id, c]));
+    const last = rows.at(-1);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        caption: r.caption,
+        imageUrl: r.image_path,
+        thumbUrl: r.thumb_path,
+        placeholderColor: r.placeholder_color,
+        width: r.width,
+        height: r.height,
+        createdAt: r.created_at.toISOString(),
+        verifiedVisit: r.visit === 'verified',
+        author: { handle: r.handle, displayName: r.display_name, avatarUrl: r.avatar_path },
+        dish: byId.get(r.dish_id)!,
+      })),
+      next: rows.length < q.limit || !last ? null : { before: last.created_at.toISOString(), beforeId: last.id },
+    };
   });
 
   async function followState(me: string, target: string) {
@@ -302,8 +373,7 @@ export async function socialRoutes(app: FastifyInstance) {
       `select n.id, n.kind, n.created_at as "createdAt", (n.read_at is not null) as read,
               json_build_object('handle', a.handle, 'displayName', a.display_name, 'avatarUrl', a.avatar_path) as actor,
               case when d.id is null then null else json_build_object('id', d.id, 'name', d.name,
-                'thumbUrl', (select p.thumb_path from posts p where p.dish_id = d.id and p.status = 'live'
-                             order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1)) end as dish,
+                'thumbUrl', (select thumb_path from posts where id = dish_cover(d.id, null))) end as dish,
               n.post_id as "postId",
               c.body as "commentBody",
               ($1::uuid is not null and exists (select 1 from follows x where x.follower_id = $1 and x.followee_id = a.id)) as "followingActor"

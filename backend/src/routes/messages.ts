@@ -15,8 +15,7 @@ const messageSql = `
   select m.id, m.kind, m.body, m.created_at as "createdAt", (m.sender_id = $2) as mine,
          case when d.id is not null then json_build_object(
            'id', d.id, 'name', d.name, 'restaurantName', r.name, 'priceInr', d.price_inr,
-           'thumbUrl', (select p.thumb_path from posts p where p.dish_id = d.id and p.status = 'live'
-                        order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1)) end as dish,
+           'thumbUrl', (select thumb_path from posts where id = dish_cover(d.id, null))) end as dish,
          case when pl.id is not null then json_build_object(
            'id', pl.id, 'name', pl.name, 'locality', pl.locality, 'cuisine', pl.cuisine,
            'lat', st_y(pl.geo::geometry), 'lng', st_x(pl.geo::geometry),
@@ -169,8 +168,7 @@ export async function messageRoutes(app: FastifyInstance) {
        )
        select f.kind, f.place_id as "placeId", r.name as "placeName", r.locality, f.dish_id as "dishId", d.name as "dishName",
               c.emoji, d.is_veg as "isVeg",
-              (select p.thumb_path from posts p where p.dish_id = d.id and p.status = 'live'
-               order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1) as "thumbUrl",
+              (select thumb_path from posts where id = dish_cover(d.id, null)) as "thumbUrl",
               case when here.g is not null then round(st_distance(r.geo, here.g))::int end as "distanceM"
        from found f
        cross join here

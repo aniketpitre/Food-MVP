@@ -67,8 +67,7 @@ export async function actionRoutes(app: FastifyInstance) {
    */
   async function tellPeople(dishId: string, me: string) {
     const { rows: cover } = await db.query<{ author_id: string | null; id: string }>(
-      `select p.author_id, p.id from posts p join dishes d on d.id = p.dish_id
-       where p.dish_id = $1 and p.status = 'live' order by (p.id = d.cover_post_id) desc, p.created_at desc limit 1`,
+      'select p.author_id, p.id from posts p where p.id = dish_cover($1, null)',
       [dishId],
     );
     if (cover[0]) await notify(db, { userId: cover[0].author_id, actorId: me, kind: 'recommend', dishId, postId: cover[0].id });
@@ -218,15 +217,21 @@ export async function actionRoutes(app: FastifyInstance) {
   // from the token only, so nobody can record views as someone else.
   app.post('/views', { preHandler: optionalAuth, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     const body = parse(
-      z.object({ dishIds: z.array(uuid).min(1).max(50), deviceId: z.string().max(64).optional() }),
+      z.object({
+        dishIds: z.array(uuid).min(1).max(50),
+        deviceId: z.string().max(64).optional(),
+        // Which feed the cards were in, and whether these are cards someone tapped open.
+        tab: z.string().max(20).regex(/^[a-z_]+$/).optional(),
+        opened: z.boolean().default(false),
+      }),
       req.body,
       reply,
     );
     if (!body) return;
     await db.query(
-      `insert into dish_views (dish_id, user_id, device_id)
-       select d.id, $2, $3 from dishes d where d.id = any($1::uuid[])`,
-      [[...new Set(body.dishIds)], userId(req), body.deviceId ?? null],
+      `insert into dish_views (dish_id, user_id, device_id, tab, opened)
+       select d.id, $2, $3, $4, $5 from dishes d where d.id = any($1::uuid[])`,
+      [[...new Set(body.dishIds)], userId(req), body.deviceId ?? null, body.tab ?? null, body.opened],
     );
     return reply.code(202).send({ ok: true });
   });

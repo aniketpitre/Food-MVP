@@ -93,6 +93,9 @@ export async function browseRoutes(app: FastifyInstance) {
     const q = parse(z.object(coords), req.query, reply);
     if (!q) return;
     const viewer = userId(req);
+    // A dish merged into another opens as that one.
+    const { rows: merged } = await db.query<{ into_id: string }>('select into_id from dish_merges where from_id = $1', [p.id]);
+    if (merged[0]) p.id = merged[0].into_id;
     const { rows: found } = await db.query<{ status: string; restaurant_id: string; category_id: number | null; description: string | null; created_by: string | null }>(
       'select status, restaurant_id, category_id, description, created_by from dishes where id = $1',
       [p.id],
@@ -108,12 +111,13 @@ export async function browseRoutes(app: FastifyInstance) {
               p.photo_credit as "photoCredit", p.is_sponsored as "isSponsored", p.sponsor_note as "sponsorNote",
               p.instagram_url as "instagramUrl", p.created_at as "createdAt",
               pr.handle as "authorHandle", pr.display_name as "authorName",
+              (p.visit = 'verified') as "verifiedVisit",
               (select count(*)::int from comments cm where cm.post_id = p.id and cm.status = 'live') as "commentCount"
        from posts p left join profiles pr on pr.id = p.author_id
        where p.dish_id = $1 and p.status = 'live'
          and ($2::uuid is null or not exists
               (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = p.author_id))
-       order by (p.id = (select cover_post_id from dishes where id = $1)) desc, p.created_at desc
+       order by (p.id = dish_cover($1, $2::uuid)) desc, p.created_at desc
        limit 20`,
       [p.id, viewer],
     );
@@ -298,6 +302,49 @@ export async function browseRoutes(app: FastifyInstance) {
        ) d
        limit 10`,
       [q.q, q.city ?? null],
+    );
+    return rows;
+  });
+
+  // "Did you mean…?" while posting: dishes already at this place with a similar name, so
+  // "Butter Chkn" joins "Butter Chicken" instead of splitting its votes.
+  app.get('/dishes/similar', async (req, reply) => {
+    const q = parse(
+      z.object({ restaurantId: uuid, name: z.string().trim().min(2).max(60) }),
+      req.query,
+      reply,
+    );
+    if (!q) return;
+    const { rows } = await db.query(
+      `select d.id, d.name, d.category_id as "categoryId",
+              (select count(*)::int from posts p where p.dish_id = d.id and p.status = 'live') as photos
+       from dishes d
+       where d.restaurant_id = $1 and d.status = 'live' and d.name_norm <> norm_name($2)
+         and (similarity(d.name_norm, norm_name($2)) >= 0.4 or word_similarity(norm_name($2), d.name_norm) >= 0.6)
+       order by similarity(d.name_norm, norm_name($2)) desc limit 3`,
+      [q.restaurantId, q.name],
+    );
+    return rows;
+  });
+
+  // Before adding a new place: places already this close with a similar name (or right
+  // on the same spot), so one restaurant doesn't end up on the map twice.
+  app.get('/restaurants/similar', async (req, reply) => {
+    const q = parse(
+      z.object({ name: z.string().trim().min(2).max(80), lat: coords.lat.unwrap(), lng: coords.lng.unwrap() }),
+      req.query,
+      reply,
+    );
+    if (!q) return;
+    const { rows } = await db.query(
+      `select id, name, locality, status,
+              round(st_distance(geo, st_setsrid(st_makepoint($3, $2), 4326)::geography))::int as "distanceM"
+       from restaurants
+       where status <> 'hidden'
+         and st_dwithin(geo, st_setsrid(st_makepoint($3, $2), 4326)::geography, 150)
+         and (similarity(name_norm, norm_name($1)) >= 0.35 or word_similarity(norm_name($1), name_norm) >= 0.6)
+       order by similarity(name_norm, norm_name($1)) desc limit 3`,
+      [q.name, q.lat, q.lng],
     );
     return rows;
   });

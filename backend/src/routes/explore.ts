@@ -72,8 +72,7 @@ export async function exploreRoutes(app: FastifyInstance) {
                         'percent', case when coalesce(dr.loves, 0) + coalesce(dr.passes, 0) > 0
                                         then round(100.0 * dr.loves / (dr.loves + dr.passes)) end,
                         'priceInr', d2.price_inr, 'isVeg', d2.is_veg, 'emoji', c.emoji,
-                        'thumbUrl', (select p.thumb_path from posts p where p.dish_id = d2.id and p.status = 'live'
-                                     order by (p.id = d2.cover_post_id) desc, p.created_at desc limit 1))
+                        'thumbUrl', (select thumb_path from posts where id = dish_cover(d2.id, null)))
                from dishes d2 left join dish_rating dr on dr.dish_id = d2.id
                left join dish_categories c on c.id = d2.category_id
                where d2.restaurant_id = b.id and d2.status = 'live'

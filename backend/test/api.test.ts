@@ -108,8 +108,10 @@ function multipart(auth: Record<string, string>, fields: Record<string, string>,
   return { payload: Buffer.concat(parts), headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` } };
 }
 
+/** A different photo every time (a soft blur of random colours), as real photos are. */
 async function photo(withGps = false): Promise<Buffer> {
-  let img = sharp({ create: { width: 1600, height: 1200, channels: 3, background: { r: 200, g: 90, b: 30 } } }).jpeg();
+  const raw = Buffer.from(Array.from({ length: 16 * 12 * 3 }, () => Math.floor(Math.random() * 256)));
+  let img = sharp(raw, { raw: { width: 16, height: 12, channels: 3 } }).resize(1600, 1200).jpeg();
   if (withGps) {
     img = img.withExif({ IFD0: { Make: 'TestPhone' }, IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '20/1 0/1 0/1' } });
   }
@@ -324,8 +326,9 @@ describe('ranking tabs with demo activity', () => {
     const lanes = items.map((i: { lane: string }) => i.lane);
     expect(lanes.slice(0, 4)).toEqual(['top', 'top', 'top', 'top']);
     expect(lanes[4]).toBe('fresh');
-    const scores = (await db.query('select d.name, s.score from dish_stats s join dishes d on d.id = s.dish_id order by s.score desc limit 1')).rows[0];
-    expect(items[0].name).toBe(scores.name);
+    // Top follows People's Pick: the first card has the best rating of all the Top cards.
+    const top = items.filter((i: { lane: string }) => i.lane === 'top');
+    for (const i of top) expect(items[0].rating.score).toBeGreaterThanOrEqual(i.rating.score);
     expect(items[0].stats.recommenders).toBeGreaterThan(5);
     expect(items[0].recentRecommenders.length).toBe(3);
   });
@@ -2102,5 +2105,250 @@ describe('removing demo content', () => {
     const recropped = await sharp({ create: { width: 1080, height: 1350, channels: 3, background: { r: 20, g: 120, b: 60 } } }).jpeg().toBuffer();
     await fs.writeFile(path.join(dir, 'katta_vada_pav.jpg'), recropped);
     expect((await refreshDemoDishPhotos(db, mediaDir, () => {}, dir)).updated).toBe(1);
+  });
+});
+
+// ---------- 0.19: fair ranking, genuine photos, the Following feed ----------
+
+async function adminAuth() {
+  const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@example.com', password: 'correct horse' } });
+  if (login.statusCode === 200) return { authorization: `Bearer ${login.json().token}` };
+  return (await signUp({ email: 'admin@example.com' })).auth;
+}
+
+/** A place of our own in the test city, so these tests don't lean on the demo data. */
+async function testPlace(name: string, createdBy: string | null = null) {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into restaurants (city_id, name, name_norm, geo, status, created_by)
+     values ($1, $2, norm_name($2), st_setsrid(st_makepoint(73.79, 20.0), 4326)::geography, 'active', $3) returning id`,
+    [cityId, name, createdBy],
+  );
+  return rows[0]!.id;
+}
+
+async function post(auth: Record<string, string>, fields: Record<string, string>, image?: Buffer) {
+  return app.inject({
+    method: 'POST', url: '/posts',
+    ...multipart(auth, { idempotencyKey: `k-${Math.random().toString(36).slice(2, 12)}`, ...fields }, image ?? (await photo())),
+  });
+}
+
+describe('fair ranking', () => {
+  it('ignores "tried" on its own, and votes from whoever added the place', async () => {
+    const owner = await signUp({ established: true });
+    const place = await testPlace('Owner Dhaba', owner.id);
+    const p = await post(owner.auth, { dishName: 'Dal Tadka', restaurantId: place });
+    expect(p.statusCode).toBe(201);
+    const dish = p.json().dishId;
+    await app.inject({ method: 'PUT', url: `/dishes/${dish}/engagements/recommend`, headers: owner.auth });
+    const fan = await signUp({ established: true });
+    await app.inject({ method: 'PUT', url: `/dishes/${dish}/engagements/tried`, headers: fan.auth });
+    const stats = (await db.query('select coalesce(sum(score), 0)::float8 as score from dish_stats where dish_id = $1', [dish])).rows[0];
+    expect(stats.score).toBe(0);
+    const rating = (await db.query('select loves, passes from dish_rating where dish_id = $1', [dish])).rows[0];
+    expect(rating).toMatchObject({ loves: 0, passes: 0 });
+  });
+
+  it('keeps one place from filling Top: at most two of its dishes in any ten cards', async () => {
+    const { items } = (await app.inject(`/feed?city=${cityId}&limit=30`)).json();
+    const top = items.filter((i: { lane: string }) => i.lane === 'top');
+    for (let s = 0; s + 10 <= top.length; s++) {
+      const counts = new Map<string, number>();
+      for (const i of top.slice(s, s + 10)) counts.set(i.restaurant.id, (counts.get(i.restaurant.id) ?? 0) + 1);
+      expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('test village: honest diners beat a spam ring and an owner', async () => {
+    const owner = await signUp({ established: true });
+    const place = await testPlace('Village Bhojanalay', owner.id);
+    const dishes: Record<string, string> = {};
+    for (const name of ['Great Thali', 'Okay Thali', 'Spam Thali']) {
+      dishes[name] = (await post(owner.auth, { dishName: name, restaurantId: place })).json().dishId;
+    }
+    // 20 established diners: they love the great one 90% of the time, the okay one 50%, the spam one 30%.
+    const share = { 'Great Thali': 0.9, 'Okay Thali': 0.5, 'Spam Thali': 0.3 } as Record<string, number>;
+    for (let i = 0; i < 20; i++) {
+      const u = await signUp({ established: true });
+      for (const [name, love] of Object.entries(share)) {
+        const kind = (i + 0.5) / 20 < love ? 'recommend' : 'pass';
+        await app.inject({ method: 'PUT', url: `/dishes/${dishes[name]}/engagements/${kind}`, headers: u.auth });
+      }
+    }
+    // A ring of 8 brand-new accounts and the owner all love the spam dish.
+    for (let i = 0; i < 8; i++) {
+      const u = await signUp();
+      await app.inject({ method: 'PUT', url: `/dishes/${dishes['Spam Thali']}/engagements/recommend`, headers: u.auth });
+    }
+    await app.inject({ method: 'PUT', url: `/dishes/${dishes['Spam Thali']}/engagements/recommend`, headers: owner.auth });
+    await db.query('select refresh_dish_stats(); select refresh_people_pick();');
+    const score = async (name: string) =>
+      Number((await db.query('select confidence from dish_rating where dish_id = $1', [dishes[name]])).rows[0].confidence);
+    expect(await score('Great Thali')).toBeGreaterThan(await score('Okay Thali'));
+    expect(await score('Okay Thali')).toBeGreaterThan(await score('Spam Thali'));
+  });
+
+  it('checks itself: the admin health page and the prediction check', async () => {
+    const admin = await adminAuth();
+    const res = await app.inject({ url: '/admin/health', headers: admin });
+    expect(res.statusCode).toBe(200);
+    const h = res.json();
+    expect(h.totals.liveDishes).toBeGreaterThan(0);
+    expect(h.totals.ownPlaceVotesIgnored).toBeGreaterThan(0);
+    expect(h.votesPerDay).toHaveLength(14);
+    expect(h.prediction.votes).toBeGreaterThan(0);
+    expect(typeof h.prediction.accuracy).toBe('number');
+    expect(typeof h.prediction.skill).toBe('number');
+    // The village above is consistent, so the ranking predicts better than guessing.
+    expect(h.prediction.skill).toBeGreaterThan(0);
+    const notAdmin = await signUp();
+    expect((await app.inject({ url: '/admin/health', headers: notAdmin.auth })).statusCode).toBe(403);
+  });
+
+  it('counts card taps by feed tab', async () => {
+    const dish = await dishId('Misal Pav');
+    await app.inject({ method: 'POST', url: '/views', payload: { dishIds: [dish], tab: 'top' } });
+    await app.inject({ method: 'POST', url: '/views', payload: { dishIds: [dish], tab: 'top', opened: true } });
+    const h = (await app.inject({ url: '/admin/health', headers: await adminAuth() })).json();
+    expect(h.taps.find((t: { tab: string }) => t.tab === 'top')).toMatchObject({ seen: 1, opened: 1 });
+  });
+});
+
+describe('genuine photos', () => {
+  it('turns away your own photo twice, and holds a copy of someone else\'s for review', async () => {
+    const place = await testPlace('Copy Corner');
+    const a = await signUp({ established: true });
+    const img = await photo();
+    const first = await post(a.auth, { dishName: 'Pav Bhaji', restaurantId: place }, img);
+    expect(first.statusCode).toBe(201);
+    // Same photo, made smaller and recompressed: still the same photo.
+    const smaller = await sharp(img).resize(800).jpeg({ quality: 60 }).toBuffer();
+    const again = await post(a.auth, { dishName: 'Cheese Pav Bhaji', restaurantId: place }, smaller);
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toBe('duplicate_photo');
+
+    const b = await signUp({ established: true });
+    const copy = await post(b.auth, { dishName: 'Pav Bhaji', restaurantId: place }, smaller);
+    expect(copy.statusCode).toBe(201);
+    expect(copy.json()).toMatchObject({ status: 'pending', held: true });
+    const page = (await app.inject(`/dishes/${first.json().dishId}`)).json();
+    expect(page.posts.map((x: { id: string }) => x.id)).not.toContain(copy.json().id);
+    expect(page.photographers).toBe(1);
+
+    const admin = await adminAuth();
+    const queue = (await app.inject({ url: '/admin/queue', headers: admin })).json();
+    const held = queue.heldPhotos.find((h: { id: string }) => h.id === copy.json().id);
+    expect(held).toMatchObject({ authorHandle: b.handle, originalAuthorHandle: a.handle });
+    // A person decides it's fine (say, friends at the same table): it goes live.
+    await app.inject({ method: 'POST', url: `/admin/posts/${copy.json().id}/restore`, headers: admin });
+    expect((await app.inject(`/dishes/${first.json().dishId}`)).json().photographers).toBe(2);
+  });
+
+  it('marks a verified visit: phone at the place and a photo taken there and then', async () => {
+    const place = await testPlace('Visit Point');
+    const u = await signUp({ established: true });
+    const here = await post(u.auth, { dishName: 'Kanda Bhaji', restaurantId: place, lat: '20.0001', lng: '73.7901', capture: 'camera', verdict: 'loved' });
+    expect(here.json().visit).toBe('verified');
+    const card = (await app.inject(`/dishes/${here.json().dishId}`)).json();
+    expect(card.cover.verifiedVisit).toBe(true);
+    expect(card.posts[0].verifiedVisit).toBe(true);
+    // Posting with "Loved it" is a vote.
+    expect(card.rating.loves).toBe(1);
+
+    const v = await signUp({ established: true });
+    const oldPhoto = await post(v.auth, { dishName: 'Kanda Bhaji', restaurantId: place, lat: '20.0001', lng: '73.7901', capture: 'gallery', takenAt: new Date(Date.now() - 30 * 86400_000).toISOString(), verdict: 'pass' });
+    expect(oldPhoto.json().visit).toBe('nearby');
+    const w = await signUp({ established: true });
+    const far = await post(w.auth, { dishName: 'Kanda Bhaji', restaurantId: place, lat: '20.2', lng: '73.9', capture: 'camera' });
+    expect(far.json().visit).toBeNull();
+    const after = (await app.inject(`/dishes/${here.json().dishId}`)).json();
+    expect(after.rating).toMatchObject({ loves: 1, passes: 1 });
+  });
+
+  it('allows one photo of a dish per person per day', async () => {
+    const place = await testPlace('Daily Dosa');
+    const u = await signUp({ established: true });
+    expect((await post(u.auth, { dishName: 'Masala Dosa', restaurantId: place })).statusCode).toBe(201);
+    const second = await post(u.auth, { dishName: 'masala dosa!', restaurantId: place });
+    expect(second.statusCode).toBe(429);
+    expect(second.json().error).toBe('dish_daily_limit');
+  });
+
+  it('asks "did you mean…?" for a dish or a place that already exists', async () => {
+    const place = await testPlace('Butter Bistro');
+    const u = await signUp({ established: true });
+    await post(u.auth, { dishName: 'Butter Chicken', restaurantId: place });
+    const similar = (await app.inject(`/dishes/similar?restaurantId=${place}&name=Buter Chiken`)).json();
+    expect(similar.map((d: { name: string }) => d.name)).toEqual(['Butter Chicken']);
+    expect((await app.inject(`/dishes/similar?restaurantId=${place}&name=Butter Chicken`)).json()).toEqual([]);
+    const places = (await app.inject('/restaurants/similar?name=Butter Bistroo&lat=20.0003&lng=73.7902')).json();
+    expect(places[0]).toMatchObject({ name: 'Butter Bistro' });
+    expect((await app.inject('/restaurants/similar?name=Butter Bistro&lat=20.1&lng=73.9')).json()).toEqual([]);
+  });
+
+  it('merges two names for one dish, keeping one vote per person', async () => {
+    const place = await testPlace('Merge Mess');
+    const u = await signUp({ established: true });
+    const a = (await post(u.auth, { dishName: 'Paneer Tikka', restaurantId: place })).json().dishId;
+    const b = (await post(u.auth, { dishName: 'Paneer Tika', restaurantId: place })).json().dishId;
+    const voter = await signUp({ established: true });
+    await app.inject({ method: 'PUT', url: `/dishes/${b}/engagements/recommend`, headers: voter.auth });
+    await new Promise((r) => setTimeout(r, 20));
+    await app.inject({ method: 'PUT', url: `/dishes/${a}/engagements/pass`, headers: voter.auth });
+    const admin = await adminAuth();
+    const pairs = (await app.inject({ url: '/admin/dishes/similar', headers: admin })).json();
+    expect(pairs.some((p: { aName: string; bName: string }) => [p.aName, p.bName].sort().join() === 'Paneer Tika,Paneer Tikka')).toBe(true);
+    const res = await app.inject({ method: 'POST', url: `/admin/dishes/${b}/merge`, headers: admin, payload: { into: a } });
+    expect(res.statusCode).toBe(200);
+    const page = (await app.inject(`/dishes/${b}`)).json();
+    expect(page.id).toBe(a);
+    expect(page.posts).toHaveLength(2);
+    // The voter's latest word ("not for me") is their one vote.
+    expect(page.rating).toMatchObject({ loves: 0, passes: 1 });
+  });
+});
+
+describe('following feed', () => {
+  it("shows the people you follow, older posts included, newest first, page by page", async () => {
+    const place = await testPlace('Feed Point');
+    const chef = await signUp({ established: true });
+    for (const name of ['Poha', 'Upma', 'Sabudana Khichdi']) {
+      expect((await post(chef.auth, { dishName: name, restaurantId: place })).statusCode).toBe(201);
+    }
+    const fan = await signUp({ established: true });
+    expect((await app.inject({ url: '/feed/following', headers: fan.auth })).json().items).toEqual([]);
+    // Following now shows their earlier posts at once.
+    await app.inject({ method: 'PUT', url: `/users/${chef.handle}/follow`, headers: fan.auth });
+    const page1 = (await app.inject({ url: '/feed/following?limit=2', headers: fan.auth })).json();
+    expect(page1.items.map((i: { dish: { name: string } }) => i.dish.name)).toEqual(['Sabudana Khichdi', 'Upma']);
+    expect(page1.items[0].author.handle).toBe(chef.handle);
+    const page2 = (await app.inject({
+      url: `/feed/following?limit=2&before=${encodeURIComponent(page1.next.before)}&beforeId=${page1.next.beforeId}`, headers: fan.auth,
+    })).json();
+    expect(page2.items.map((i: { dish: { name: string } }) => i.dish.name)).toEqual(['Poha']);
+    expect(page2.next).toBeNull();
+    await app.inject({ method: 'DELETE', url: `/users/${chef.handle}/follow`, headers: fan.auth });
+    expect((await app.inject({ url: '/feed/following', headers: fan.auth })).json().items).toEqual([]);
+  });
+
+  it('lets you remove a follower', async () => {
+    const me = await signUp();
+    const them = await signUp();
+    await app.inject({ method: 'PUT', url: `/users/${me.handle}/follow`, headers: them.auth });
+    const res = await app.inject({ method: 'DELETE', url: `/me/followers/${them.handle}`, headers: me.auth });
+    expect(res.json()).toMatchObject({ ok: true, followers: 0 });
+    const profile = (await app.inject({ url: `/users/${me.handle}`, headers: them.auth })).json();
+    expect(profile.isFollowing).toBe(false);
+  });
+
+  it('tells followers about a post at a new place once the place is approved', async () => {
+    const chef = await signUp({ established: true });
+    const fan = await signUp();
+    await app.inject({ method: 'PUT', url: `/users/${chef.handle}/follow`, headers: fan.auth });
+    const res = await post(chef.auth, { dishName: 'Thecha Bhakri', newPlaceName: 'Bhakri House', newPlaceLat: '20.01', newPlaceLng: '73.79' });
+    const kinds = async () => (await app.inject({ url: '/notifications', headers: fan.auth })).json().items.map((n: { kind: string }) => n.kind);
+    expect(await kinds()).not.toContain('post');
+    await app.inject({ method: 'POST', url: `/admin/restaurants/${res.json().restaurantId}/approve`, headers: await adminAuth() });
+    expect(await kinds()).toContain('post');
   });
 });

@@ -56,6 +56,24 @@ export async function storeImage(mediaDir: string, kind: 'posts' | 'stories' | '
   };
 }
 
+/**
+ * A photo's fingerprint: a 64-bit difference hash. Each bit says whether a pixel of the
+ * photo, shrunk to 9x8 greys, is brighter than its right-hand neighbour. Resizing,
+ * recompressing or small colour changes leave it almost the same, so a copy of a photo is
+ * a few bits away while a different photo is about half of them (32) away.
+ * Returned as a signed 64-bit integer in a string, the way Postgres stores a bigint.
+ */
+export async function photoFingerprint(input: Buffer): Promise<string | null> {
+  const px = await sharp(input).rotate().greyscale().resize(9, 8, { fit: 'fill' }).raw().toBuffer();
+  // A flat picture (all black, one colour) has no pattern to recognise: no fingerprint.
+  if (Math.max(...px) - Math.min(...px) < 8) return null;
+  let h = 0n;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) h = (h << 1n) | (px[y * 9 + x]! > px[y * 9 + x + 1]! ? 1n : 0n);
+  }
+  return BigInt.asIntN(64, h).toString();
+}
+
 export async function deleteImages(mediaDir: string, kind: 'posts' | 'stories' | 'places' | 'messages', id: string): Promise<void> {
   await fs.rm(path.join(mediaDir, kind, id), { recursive: true, force: true });
 }

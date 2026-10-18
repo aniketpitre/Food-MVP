@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { requireAuth, userId } from '../auth.js';
+import { inTransaction } from '../db.js';
+import { notifyFollowers } from '../notify.js';
 
 export async function adminRoutes(app: FastifyInstance) {
   const { db } = app;
@@ -48,17 +50,43 @@ export async function adminRoutes(app: FastifyInstance) {
                 p.thumb_path, cp.thumb_path, p.dish_id, cp.dish_id, d.id, m.body, s.id, s.thumb_path, su.handle
        order by count(*) desc, max(rp.created_at) desc`,
     );
-    return { pendingPlaces, reported };
+    // Photos that look like a copy of someone else's: they wait here until a person decides.
+    const { rows: heldPhotos } = await db.query(
+      `select p.id, p.thumb_path as "thumbUrl", p.created_at as "createdAt", d.id as "dishId", d.name as "dishName",
+              a.handle as "authorHandle", o.thumb_path as "originalThumbUrl", oa.handle as "originalAuthorHandle",
+              o.created_at as "originalCreatedAt"
+       from posts p
+       join dishes d on d.id = p.dish_id
+       left join profiles a on a.id = p.author_id
+       left join posts o on o.id = p.copy_of
+       left join profiles oa on oa.id = o.author_id
+       where p.status = 'pending' and p.copy_of is not null
+       order by p.created_at`,
+    );
+    return { pendingPlaces, reported, heldPhotos };
   });
 
   app.post('/admin/restaurants/:id/:action', { preHandler: requireAdmin }, async (req, reply) => {
     const p = parse(z.object({ id: z.string().uuid(), action: z.enum(['approve', 'hide']) }), req.params, reply);
     if (!p) return;
     const status = p.action === 'approve' ? 'active' : 'hidden';
-    const { rows } = await db.query<{ city_id: number }>('update restaurants set status = $2 where id = $1 returning city_id', [p.id, status]);
+    const { rows } = await db.query<{ city_id: number; was: string }>(
+      `update restaurants r set status = $2 from (select id, status from restaurants where id = $1 for update) o
+       where r.id = o.id returning r.city_id, o.status as was`,
+      [p.id, status],
+    );
     if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'Place not found.' });
-    // A newly approved place is new food near people in that city.
-    if (status === 'active') await app.push.tickleCity(rows[0].city_id);
+    if (status === 'active' && rows[0].was !== 'active') {
+      // The photos posted while it waited reach their authors' followers now.
+      const { rows: posts } = await db.query<{ id: string; dish_id: string; author_id: string }>(
+        `select p.id, p.dish_id, p.author_id from posts p join dishes d on d.id = p.dish_id
+         where d.restaurant_id = $1 and p.status = 'live' and p.author_id is not null`,
+        [p.id],
+      );
+      for (const post of posts) await notifyFollowers(db, { actorId: post.author_id, kind: 'post', postId: post.id, dishId: post.dish_id });
+      // A newly approved place is new food near people in that city.
+      await app.push.tickleCity(rows[0].city_id);
+    }
     return { ok: true, status };
   });
 
@@ -106,6 +134,183 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Two names for one dish at one place ("Butter Chkn" and "Butter Chicken"): everything
+  // moves to [into]. Each person still has one vote: if they voted on both, their latest
+  // love or "not for me" stays. Old links to the merged dish open the one it became.
+  app.post('/admin/dishes/:id/merge', { preHandler: requireAdmin }, async (req, reply) => {
+    const p = parse(z.object({ id: z.string().uuid() }), req.params, reply);
+    const b = parse(z.object({ into: z.string().uuid() }), req.body, reply);
+    if (!p || !b) return;
+    if (p.id === b.into) return reply.code(400).send({ error: 'invalid_input', message: 'Pick a different dish to merge into.' });
+    const { rows } = await db.query<{ id: string; restaurant_id: string }>(
+      "select id, restaurant_id from dishes where id = any($1::uuid[]) and status <> 'hidden'",
+      [[p.id, b.into]],
+    );
+    if (rows.length !== 2) return reply.code(404).send({ error: 'not_found', message: 'Dish not found.' });
+    if (rows[0]!.restaurant_id !== rows[1]!.restaurant_id) {
+      return reply.code(400).send({ error: 'invalid_input', message: 'Only dishes at the same place can be merged.' });
+    }
+    await inTransaction(db, async (tx) => {
+      const [from, into] = [p.id, b.into];
+      // Votes: the latest love / "not for me" per person wins; saves and the rest just join.
+      await tx.query(
+        `with v as (
+           select distinct on (user_id) user_id, kind, created_at from engagements
+           where dish_id = any($1::uuid[]) and kind in ('recommend', 'pass')
+           order by user_id, created_at desc
+         )
+         delete from engagements e using v
+         where e.dish_id = any($1::uuid[]) and e.user_id = v.user_id and e.kind in ('recommend', 'pass') and e.kind <> v.kind`,
+        [[from, into]],
+      );
+      await tx.query(
+        `insert into engagements (user_id, dish_id, kind, created_at)
+         select user_id, $2, kind, created_at from engagements where dish_id = $1
+         on conflict do nothing`,
+        [from, into],
+      );
+      await tx.query('delete from engagements where dish_id = $1', [from]);
+      for (const t of ['posts', 'dish_views', 'notifications', 'messages', 'stories']) {
+        await tx.query('savepoint move');
+        try {
+          await tx.query(`update ${t} set dish_id = $2 where dish_id = $1`, [from, into]);
+        } catch (err) {
+          // A notification about both dishes is the same notification: keep one.
+          if ((err as { code?: string }).code !== '23505') throw err;
+          await tx.query('rollback to savepoint move');
+          await tx.query(`delete from ${t} where dish_id = $1`, [from]);
+        }
+      }
+      await tx.query("update dishes set status = 'hidden', cover_post_id = null where id = $1", [from]);
+      await tx.query(
+        `insert into dish_merges (from_id, into_id, merged_by) values ($1, $2, $3)
+         on conflict (from_id) do update set into_id = excluded.into_id, merged_at = now()`,
+        [from, into, userId(req)],
+      );
+      // Anything merged into [from] earlier now points at [into] too.
+      await tx.query('update dish_merges set into_id = $2 where into_id = $1', [from, into]);
+    });
+    for (const id of [p.id, b.into]) {
+      await db.query('select refresh_dish_stats($1)', [id]);
+      await db.query('select refresh_people_pick($1)', [id]);
+    }
+    return { ok: true, into: b.into };
+  });
+
+  // Dishes at one place whose names look alike: candidates for a merge.
+  app.get('/admin/dishes/similar', { preHandler: requireAdmin }, async () => {
+    const { rows } = await db.query(
+      `select a.id as "aId", a.name as "aName", b.id as "bId", b.name as "bName", r.name as "placeName",
+              (select count(*)::int from posts p where p.dish_id = a.id and p.status = 'live') as "aPosts",
+              (select count(*)::int from posts p where p.dish_id = b.id and p.status = 'live') as "bPosts",
+              round(similarity(a.name_norm, b.name_norm)::numeric, 2)::float8 as similarity
+       from dishes a
+       join dishes b on b.restaurant_id = a.restaurant_id and a.id < b.id and b.status = 'live'
+       join restaurants r on r.id = a.restaurant_id
+       where a.status = 'live' and similarity(a.name_norm, b.name_norm) >= 0.45
+       order by similarity(a.name_norm, b.name_norm) desc limit 50`,
+    );
+    return rows;
+  });
+
+  // ---------- Is the ranking working? ----------
+
+  app.get('/admin/health', { preHandler: requireAdmin }, async () => {
+    const { rows: votesPerDay } = await db.query(
+      `select to_char(d.day, 'YYYY-MM-DD') as day,
+              count(e.*) filter (where e.kind = 'recommend')::int as loves,
+              count(e.*) filter (where e.kind = 'pass')::int as passes,
+              count(distinct e.user_id)::int as voters
+       from generate_series(current_date - 13, current_date, interval '1 day') d(day)
+       left join engagements e on e.created_at >= d.day and e.created_at < d.day + interval '1 day'
+                              and e.kind in ('recommend', 'pass')
+       group by d.day order by d.day`,
+    );
+    const { rows: [totals] } = await db.query(
+      `select (select count(*)::int from dishes where status = 'live') as "liveDishes",
+              (select count(*)::int from dish_rating where loves + passes >= 3) as "dishesWith3Votes",
+              (select count(*)::int from engagements e join dishes d on d.id = e.dish_id
+                 join restaurants r on r.id = d.restaurant_id
+                where e.kind in ('recommend', 'pass') and e.user_id = r.created_by) as "ownPlaceVotesIgnored",
+              (select count(*)::int from voter_independence where twins > 0) as "lockstepAccounts",
+              (select count(*)::int from posts where status = 'pending' and copy_of is not null) as "copiesHeld",
+              (select count(*)::int from posts where status = 'hidden' and copy_of is not null) as "copiesRemoved",
+              (select count(*)::int from posts where status = 'live' and source = 'user') as "userPhotos",
+              (select count(*)::int from posts where status = 'live' and visit = 'verified') as "verifiedPhotos",
+              (select count(*)::int from dish_merges) as "dishesMerged"`,
+    );
+    // How much each city's Top changed in a week: the share of today's top 20 that's new.
+    const { rows: topChange } = await db.query(
+      `select c.name as city, t.day::text as day, w.day::text as "comparedWith",
+              cardinality(t.dish_ids) as size,
+              (select count(*)::int from unnest(t.dish_ids) x where not x = any(w.dish_ids)) as "newInTop"
+       from top_snapshots t join cities c on c.id = t.city_id
+       join lateral (select * from top_snapshots w where w.city_id = t.city_id and w.day <= t.day - 7
+                     order by w.day desc limit 1) w on true
+       where t.day = (select max(day) from top_snapshots)`,
+    );
+    // Card taps by feed tab over the last week: cards opened / cards seen.
+    const { rows: taps } = await db.query(
+      `select coalesce(tab, 'other') as tab, count(*) filter (where not opened)::int as seen,
+              count(*) filter (where opened)::int as opened
+       from dish_views where viewed_at > now() - interval '7 days'
+       group by coalesce(tab, 'other') order by 2 desc`,
+    );
+    return { totals, votesPerDay, topChange, taps, prediction: await predictionCheck(30) };
+  });
+
+  /**
+   * The prediction check: for every love or "not for me" in the last [days] days, hide
+   * that one vote, work out the dish's People's Pick from everyone else's votes, and see
+   * how well it predicted the hidden vote. "skill" compares it with always guessing the
+   * overall share of loves: above 0 means the ranking knows something, 1 would be perfect.
+   */
+  async function predictionCheck(days: number) {
+    const { rows } = await db.query<{ n: number; accuracy: number | null; brier: number | null; base_rate: number | null; base_brier: number | null }>(
+      `with votes as (
+         select e.dish_id, e.kind,
+                coalesce(ts.trust, tall.trust, cfg('trust_floor')) * standing(p.created_at, vi.twins)
+                  * (case when exists (select 1 from posts vp where vp.dish_id = e.dish_id and vp.author_id = e.user_id
+                                         and vp.status = 'live' and vp.visit = 'verified')
+                          then least(greatest(cfg('visit_weight'), 1), 2) else 1 end)
+                  * decay(e.created_at, greatest(cfg('pp_half_life_days'), 0.01)) as w,
+                e.created_at
+         from engagements e
+         join dishes d on d.id = e.dish_id and d.status = 'live'
+         join restaurants r on r.id = d.restaurant_id and e.user_id is distinct from r.created_by
+         join profiles p on p.id = e.user_id
+         left join voter_independence vi on vi.user_id = e.user_id
+         left join taster_stats ts on ts.user_id = e.user_id and ts.category_id = coalesce(d.category_id, -1)
+         left join taster_stats tall on tall.user_id = e.user_id and tall.category_id = 0
+         where e.kind in ('recommend', 'pass') and e.created_at > now() - make_interval(days => $1)
+       ),
+       pred as (
+         select (v.kind = 'recommend')::int as y,
+                (greatest(dr.w_loves - case when v.kind = 'recommend' then v.w else 0 end, 0) + cfg('pp_prior_weight') * cfg('pp_prior'))
+                / (greatest(dr.w_loves - case when v.kind = 'recommend' then v.w else 0 end, 0)
+                   + greatest(dr.w_passes - case when v.kind = 'pass' then v.w else 0 end, 0) + cfg('pp_prior_weight')) as p
+         from votes v join dish_rating dr on dr.dish_id = v.dish_id
+       ),
+       base as (select avg(y)::float8 as r from pred)
+       select count(*)::int as n,
+              avg(((p >= 0.5)::int = y)::int)::float8 as accuracy,
+              avg((y - p) ^ 2)::float8 as brier,
+              (select r from base) as base_rate,
+              avg((y - (select r from base)) ^ 2)::float8 as base_brier
+       from pred`,
+      [days],
+    );
+    const r = rows[0]!;
+    const skill = r.brier !== null && r.base_brier ? 1 - r.brier / r.base_brier : null;
+    return {
+      days,
+      votes: r.n,
+      accuracy: r.accuracy === null ? null : Math.round(r.accuracy * 1000) / 1000,
+      alwaysLoveAccuracy: r.base_rate === null ? null : Math.round(Math.max(r.base_rate, 1 - r.base_rate) * 1000) / 1000,
+      skill: skill === null ? null : Math.round(skill * 1000) / 1000,
+    };
+  }
+
   app.get('/admin/ranking-config', { preHandler: requireAdmin }, async () => {
     const { rows } = await db.query('select key, value::float8 as value, note from ranking_config order by key');
     return rows;
@@ -145,4 +350,12 @@ const SETTING_RANGES: Record<string, [number, number]> = {
   expert_min_standing: [0, 1],
   gem_top_fraction: [0, 1],
   fresh_days: [1, 365],
+  visit_weight: [1, 2],
+  place_max_in_row: [1, 20],
+  place_spread: [0, 100],
+  visit_radius_m: [50, 5000],
+  photo_fresh_days: [0, 60],
+  posts_per_dish_day: [1, 20],
+  copy_distance: [0, 20],
+  cover_days: [1, 3650],
 };
