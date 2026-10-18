@@ -124,10 +124,19 @@ their illustrated photos; real imported places stay), and fill in the bracketed 
 | Recompute rankings now | `docker compose exec api node dist/cli.js refresh` |
 | Import real cafes and restaurants from OpenStreetMap | `docker compose exec api node dist/cli.js import-places nashik 12` |
 | Fetch real photos of those places (Wikimedia, Mapillary) | `docker compose exec api node dist/cli.js fetch-place-photos nashik` |
-| Restore a backup | `docker compose exec -T db pg_restore -U foodfeed -d foodfeed --clean < backups/db-<date>.dump` |
+| Restore a backup | `docker compose exec -T db pg_restore -U worthabite -d worthabite --clean < backups/db-<date>.dump` |
 | Become admin | put your email in `ADMIN_EMAILS`, restart the api, sign up or sign in |
 
 The database is not exposed outside Docker; only the API is. Photos are stored in the `media` volume.
+
+**A server set up before the rename to WorthAbite** keeps its data in Docker volumes named
+`foodfeed_…`. Move it once (it backs up first, checks the counts match, and leaves the old
+volumes in place until you remove them):
+
+```bash
+git pull
+scripts/rename-to-worthabite.sh
+```
 
 ## Install the Android app
 

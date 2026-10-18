@@ -10,16 +10,16 @@ plugins {
 //   ./gradlew assembleRelease -PversionName=0.2.0 -PversionCode=3 -PserverUrl=https://food.example.com
 val appVersionName = (findProperty("versionName") as String?) ?: "0.1.0"
 val appVersionCode = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-val defaultServerUrl = System.getenv("FOODFEED_SERVER_URL")?.takeIf { it.isNotBlank() }
+val defaultServerUrl = (System.getenv("WORTHABITE_SERVER_URL") ?: System.getenv("FOODFEED_SERVER_URL"))?.takeIf { it.isNotBlank() }
     ?: (findProperty("serverUrl") as String?)
     ?: ""
 
 android {
-    namespace = "app.foodfeed"
+    namespace = "app.worthabite"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.foodfeed.android"
+        applicationId = "app.worthabite"
         minSdk = 26
         targetSdk = 35
         versionCode = appVersionCode

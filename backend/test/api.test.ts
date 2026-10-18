@@ -15,7 +15,7 @@ import { ensureCities } from '../src/geo.js';
 import { seedCatalog, seedDemoActivity } from '../src/seed.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5433/postgres';
-const dbName = `foodfeed_test_${process.pid}`;
+const dbName = `worthabite_test_${process.pid}`;
 
 let app: FastifyInstance;
 let db: Db;
@@ -35,7 +35,7 @@ beforeAll(async () => {
   await admin.query(`create database ${dbName}`);
   await admin.end();
 
-  mediaDir = await fs.mkdtemp(path.join(os.tmpdir(), 'foodfeed-media-'));
+  mediaDir = await fs.mkdtemp(path.join(os.tmpdir(), 'worthabite-media-'));
   db = createPool(testUrl(dbName));
   const config: Config = {
     port: 0,
@@ -95,7 +95,7 @@ async function dishId(name: string): Promise<string> {
 }
 
 function multipart(auth: Record<string, string>, fields: Record<string, string>, image?: Buffer) {
-  const boundary = '----foodfeedtest' + Math.random().toString(16).slice(2);
+  const boundary = '----worthabitetest' + Math.random().toString(16).slice(2);
   const parts: Buffer[] = [];
   for (const [k, v] of Object.entries(fields)) {
     parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
@@ -225,7 +225,7 @@ describe('browsing as a guest', () => {
     expect(share.statusCode).toBe(200);
     expect(share.body).toContain('og:title');
     expect(share.body).toContain('Jalebi at Sweet Sangam');
-    expect(share.body).toContain(`foodfeed://dish/${id}`);
+    expect(share.body).toContain(`worthabite://dish/${id}`);
     for (const p of ['/privacy', '/terms', '/delete-account', '/']) expect((await app.inject(p)).statusCode).toBe(200);
   });
 });

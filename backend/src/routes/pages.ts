@@ -4,22 +4,23 @@ import { z } from 'zod';
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-/** The WorthAbite mark: a frying pan with a bite out of its rim, a chef's hat and a sizzle. */
-export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 28 140 116" width="40" height="33" aria-hidden="true">
-<path d="M80,98 L42,84" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round" fill="none"/>
-<circle cx="46" cy="85.6" r="2.4" fill="#FBF6EF"/>
-<path d="M131.55,78.42 A35,35 0 1,0 144.66,110.87 A4.97,4.97 0 0,1 137.48,107.3 A4.97,4.97 0 0,1 132.04,101.42 A4.97,4.97 0 0,1 129.03,93.99 A4.97,4.97 0 0,1 128.86,85.97 A4.97,4.97 0 0,1 131.55,78.42 Z" fill="#2B2B2B"/>
-<path d="M109.08,79.52 A26.5,26.5 0 0,0 88.03,120.82" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" fill="none"/>
-<path d="M142,70 L148,61 M151,79 L163,69 M154,90 L167,87" stroke="#F04E23" stroke-width="4.6" stroke-linecap="round" fill="none"/>
-<g transform="translate(82,66) rotate(10) scale(0.86)" stroke-linejoin="round">
-<path d="M-13,-10 C-24,-11 -25,-28 -12,-28 C-10,-39 7,-41 9,-31 C15,-38 28,-32 22,-21 C28,-17 25,-10 13,-10 Z" fill="#FFFFFF" stroke="#2B2B2B" stroke-width="3"/>
-<path d="M-11,-10 L11,-10 L11,1 L-11,1 Z" fill="#FFFFFF" stroke="#F04E23" stroke-width="3"/>
-<path d="M-12,-10 L12,-10" stroke="#2B2B2B" stroke-width="3" stroke-linecap="round"/>
+/** The WorthAbite mark: a white frying pan with a bite out of it, a chef's hat and a yellow sizzle (it sits on charcoal). */
+export const LOGO_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 20 156 130" width="40" height="33" aria-hidden="true">
+<path d="M66,107 L28,98.5" stroke="#FFFFFF" stroke-width="13.5" stroke-linecap="round" fill="none"/>
+<circle cx="33.0" cy="99.2" r="2.6" fill="#151413"/>
+<path d="M123.78,71.68 A40,40 0 1,0 144.85,103.51 A6.76,6.76 0 0,1 134.44,100.25 A6.76,6.76 0 0,1 126.53,92.75 A6.76,6.76 0 0,1 122.72,82.53 A6.76,6.76 0 0,1 123.78,71.68 Z" fill="#FFFFFF"/>
+<path d="M99.27,74.5 A33,33 0 0,0 84.68,133 A46,46 0 0,1 99.27,74.5 Z" fill="#151413"/>
+<path d="M134.5,64 L141.6,46.5 M147,72 L162.6,56.6 M151.3,82.9 L169,80.3" stroke="#F5C518" stroke-width="4" stroke-linecap="round" fill="none"/>
+<g transform="translate(80,67) rotate(-26) scale(1.0)">
+<path d="M-13,-10 C-24,-11 -25,-28 -12,-28 C-10,-39 7,-41 9,-31 C15,-38 28,-32 22,-21 C28,-17 25,-10 13,-10 Z" fill="#FFFFFF"/>
+<path d="M-12,-10 L12,-10 L12,-4 L-12,-4 Z" fill="#FFFFFF"/>
+<path d="M-12,-4 L12,-4 L12,2 L-12,2 Z" fill="#EED3AE"/>
+<path d="M-12,-5.6 L12,-5.6" stroke="#F0571E" stroke-width="2.4" fill="none"/>
 </g>
 </svg>`;
 
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="#FBF6EF"/>${LOGO_MARK.replace(/<svg[^>]*>|<\/svg>/g, '')}</svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="#151413"/><g transform="translate(100 100) scale(1.2) translate(-100 -84)">${LOGO_MARK.replace(/<svg[^>]*>|<\/svg>/g, '')}</g></svg>`,
 )}`;
 
 function page(title: string, body: string, head = ''): string {
@@ -28,21 +29,21 @@ function page(title: string, body: string, head = ''): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${head}
 <link rel="icon" href="${FAVICON}">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@600&display=swap">
-<meta name="theme-color" content="#FBF6EF">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap">
+<meta name="theme-color" content="#151413">
 <style>
-  :root { --brand:#D23D17; --ember:#F04E23; --ink:#2B2B2B; --muted:#6B645D; --bg:#FBF6EF; --card:#fff; }
-  @media (prefers-color-scheme: dark) { :root { --brand:#FF7A4D; --ink:#F6F1EA; --muted:#B5ADA4; --bg:#141312; --card:#211F1D; } }
+  :root { --brand:#151413; --on-brand:#FBF7EF; --accent:#F5C518; --ink:#151413; --muted:#6A6259; --bg:#FBF7EF; --card:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --brand:#F5C518; --on-brand:#151413; --ink:#F6F1EA; --muted:#B8AFA4; --bg:#151413; --card:#221F1D; } }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); line-height:1.55; }
   main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 1.6rem; margin: .2em 0; } h2 { font-size: 1.15rem; margin-top: 1.6em; }
-  .brand { display:inline-flex; align-items:center; gap:8px; color: var(--ink); font-family: Poppins, system-ui, sans-serif; font-weight: 600; font-size: 1.35rem; text-decoration:none; }
-  .brand b { color: var(--ember); font-weight: 600; }
+  .brand { display:inline-flex; align-items:center; gap:8px; background:#151413; color:#fff; padding:6px 14px 6px 8px; border-radius:16px; font-family: Poppins, system-ui, sans-serif; font-weight: 700; font-size: 1.3rem; text-decoration:none; }
+  .brand b { color: var(--accent); font-weight: 700; }
   .card { background: var(--card); border-radius: 18px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
   .card img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
   .pad { padding: 16px; } .muted { color: var(--muted); }
-  .btn { display:inline-block; background: var(--brand); color:#fff; padding: 12px 18px; border-radius: 12px; text-decoration:none; font-weight: 700; margin: 8px 8px 0 0; }
+  .btn { display:inline-block; background: var(--brand); color:var(--on-brand); padding: 12px 18px; border-radius: 12px; text-decoration:none; font-weight: 700; margin: 8px 8px 0 0; }
   .btn.alt { background: transparent; color: var(--brand); border: 2px solid var(--brand); }
   .note { background: #fff3cd; color:#5c4400; padding: 10px 12px; border-radius: 10px; font-size: .9rem; }
 </style></head>
@@ -96,7 +97,7 @@ export async function pageRoutes(app: FastifyInstance) {
           <div class="pad"><h1>${esc(d.name)}</h1>
           <div class="muted">${esc(d.place)}${d.locality ? ' · ' + esc(d.locality) : ''}</div>
           <p><strong>${esc(rec)}</strong></p>
-          <a class="btn" href="foodfeed://dish/${esc(p.data.id)}">Open in the app</a>
+          <a class="btn" href="worthabite://dish/${esc(p.data.id)}">Open in the app</a>
           <a class="btn alt" href="${esc(config.appDownloadUrl)}">Get the app</a></div></div>`,
         head,
       ),

@@ -40,11 +40,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Share links open the dish: foodfeed://dish/<id> -->
+            <!-- Share links open the dish: worthabite://dish/<id> (links from before the rename use foodfeed://) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="worthabite" android:host="dish" />
                 <data android:scheme="foodfeed" android:host="dish" />
             </intent-filter>
         </activity>

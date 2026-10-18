@@ -4,10 +4,10 @@
 # usage: scripts/device-smoke.sh path/to/app-release.apk
 set -u
 APK="$1"
-PKG=app.foodfeed.android
+PKG=app.worthabite
 adb install -r "$APK" || exit 1
 adb logcat -c
-adb shell am start -n "$PKG/app.foodfeed.MainActivity" >/dev/null
+adb shell am start -n "$PKG/app.worthabite.MainActivity" >/dev/null
 sleep 15
 adb shell monkey -p "$PKG" --pct-syskeys 0 --pct-appswitch 0 --pct-anyevent 0 --throttle 120 -s 42 -v 600 > monkey.log 2>&1
 sleep 3

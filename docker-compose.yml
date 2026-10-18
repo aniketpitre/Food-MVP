@@ -4,20 +4,20 @@
 # Optional extras:
 #   docker compose --profile backup up -d   # nightly database + photo backups into ./backups
 #   docker compose --profile https up -d    # automatic HTTPS with Caddy (needs DOMAIN and ports 80/443)
-name: foodfeed
+name: worthabite
 
 services:
   db:
     image: postgis/postgis:16-3.5
     restart: unless-stopped
     environment:
-      POSTGRES_DB: foodfeed
-      POSTGRES_USER: foodfeed
+      POSTGRES_DB: worthabite
+      POSTGRES_USER: worthabite
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U foodfeed -d foodfeed"]
+      test: ["CMD-SHELL", "pg_isready -U worthabite -d worthabite"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -25,13 +25,13 @@ services:
 
   api:
     build: ./backend
-    image: ${API_IMAGE:-foodfeed-api:local}
+    image: ${API_IMAGE:-worthabite-api:local}
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://foodfeed:${POSTGRES_PASSWORD}@db:5432/foodfeed
+      DATABASE_URL: postgres://worthabite:${POSTGRES_PASSWORD}@db:5432/worthabite
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
@@ -79,7 +79,7 @@ services:
       - |
         while true; do
           stamp=$$(date +%F-%H%M)
-          pg_dump -h db -U foodfeed -Fc foodfeed > /backups/db-$$stamp.dump &&
+          pg_dump -h db -U worthabite -Fc worthabite > /backups/db-$$stamp.dump &&
           tar czf /backups/media-$$stamp.tgz -C /media . &&
           echo "backup $$stamp done"
           find /backups -name 'db-*.dump' -mtime +$$KEEP_DAYS -delete

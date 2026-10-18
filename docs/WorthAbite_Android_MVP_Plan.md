@@ -931,7 +931,7 @@ Versions change quickly. Pin exact versions when you scaffold the project and re
 ### 9.2 Project structure
 
 ```
-foodfeed/
+worthabite/
 ├─ app/                      # expo-router screens
 │  ├─ (tabs)/
 │  │  ├─ index.tsx           # Feed
@@ -1028,7 +1028,7 @@ Test on a **low-cost Android phone** (2 to 3 GB RAM). Vendor benchmarks are not 
 
 ### 9.9 Build, signing and CI
 
-- Create the Android package name once (for example `app.foodfeed.android`). It cannot be changed after publishing.
+- Create the Android package name once (for example `app.worthabite`). It cannot be changed after publishing.
 - Use **Play App Signing**. Keep the upload key backed up securely.
 - Build an **Android App Bundle (.aab)** for release. Use EAS Build or a local Gradle build.
 - GitHub Actions on every push: install, typecheck, lint, unit tests. A manual workflow builds a preview APK for testers.
@@ -1982,8 +1982,8 @@ Do not send names, emails or precise locations to analytics.
 
 ```bash
 # App
-npx create-expo-app@latest foodfeed
-cd foodfeed
+npx create-expo-app@latest worthabite
+cd worthabite
 npx expo install expo-router expo-image expo-location expo-image-picker \
   expo-image-manipulator expo-secure-store react-native-reanimated \
   react-native-gesture-handler

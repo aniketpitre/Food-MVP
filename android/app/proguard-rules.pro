@@ -1,7 +1,7 @@
 # WorthAbite release shrinking rules.
 
 # API models are created by kotlinx.serialization and passed through Retrofit; keep them whole.
--keep class app.foodfeed.data.** { *; }
+-keep class app.worthabite.data.** { *; }
 -keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*, Exceptions
 
 # Retrofit service methods are suspend functions: keep the generic types R8 would strip.

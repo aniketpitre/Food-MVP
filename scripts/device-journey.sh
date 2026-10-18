@@ -5,13 +5,13 @@
 set -u
 APP="$1"
 TESTS="$2"
-PKG=app.foodfeed.android.debug
+PKG=app.worthabite.debug
 adb install -r -g "$APP" || exit 1
 adb install -r "$TESTS" || exit 1
 adb logcat -c
 # Put the emulator's GPS in Nashik (it starts in California), where the demo places are.
 adb emu geo fix 73.7898 19.9975 || true
-adb shell am instrument -w -r -e class app.foodfeed.MotionCheckTest,app.foodfeed.DeviceJourneyTest,app.foodfeed.FullAppTest "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee journey.log
+adb shell am instrument -w -r -e class app.worthabite.MotionCheckTest,app.worthabite.DeviceJourneyTest,app.worthabite.FullAppTest "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee journey.log
 mkdir -p device-shots
 # The test app's own files; run-as works because the debug build is debuggable.
 for f in $(adb shell run-as "$PKG" ls files/device-shots 2>/dev/null | tr -d '\r'); do
