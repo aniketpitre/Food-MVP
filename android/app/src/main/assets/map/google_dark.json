@@ -8,6 +8,15 @@
   ]
  },
  {
+  "featureType": "landscape",
+  "elementType": "geometry",
+  "stylers": [
+   {
+    "color": "#17100C"
+   }
+  ]
+ },
+ {
   "elementType": "labels.text.fill",
   "stylers": [
    {
@@ -93,7 +102,7 @@
   "elementType": "geometry",
   "stylers": [
    {
-    "color": "#1A2416"
+    "color": "#17100C"
    }
   ]
  },
@@ -247,6 +256,33 @@
   "stylers": [
    {
     "color": "#6FA3B0"
+   }
+  ]
+ },
+ {
+  "featureType": "landscape.natural.terrain",
+  "elementType": "geometry",
+  "stylers": [
+   {
+    "color": "#17100C"
+   }
+  ]
+ },
+ {
+  "featureType": "landscape.man_made",
+  "elementType": "geometry.fill",
+  "stylers": [
+   {
+    "color": "#1D140F"
+   }
+  ]
+ },
+ {
+  "featureType": "poi.park",
+  "elementType": "geometry",
+  "stylers": [
+   {
+    "color": "#1C2618"
    }
   ]
  }
