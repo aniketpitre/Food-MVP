@@ -46,9 +46,20 @@ import com.google.android.gms.maps.model.PolylineOptions
  * MAPS_API_KEY secret) and the phone has Google Play services. Otherwise MapLibre.
  */
 fun googleMapsUsable(context: Context): Boolean =
-    BuildConfig.GOOGLE_MAPS && runCatching {
+    BuildConfig.GOOGLE_MAPS && !GoogleMapsHealth.failed && runCatching {
         GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
     }.getOrDefault(false)
+
+/**
+ * Set when Google's map didn't draw (a key Google refuses, say): from then on, until the app
+ * restarts, every map uses MapLibre straight away instead of showing an empty Google map.
+ */
+object GoogleMapsHealth {
+    @Volatile var failed: Boolean = false
+}
+
+/** How long Google's map gets to draw its first tiles before we switch to MapLibre. */
+private const val GOOGLE_LOAD_TIMEOUT_MS = 10_000L
 
 /** Google's map, with businesses' own icons off (our food logos are the places) and a dark look at night. */
 internal fun googleMapStyle(dark: Boolean): MapStyleOptions = MapStyleOptions(if (dark) DARK_STYLE else LIGHT_STYLE)
@@ -75,9 +86,11 @@ private const val DARK_STYLE = """[
 
 /** A Google [MapView] for Compose: created once, given the screen's lifecycle. */
 @Composable
-internal fun rememberGoogleMapView(dark: Boolean, onReady: (GoogleMap) -> Unit): MapView {
+internal fun rememberGoogleMapView(dark: Boolean, onFailed: () -> Unit, onReady: (GoogleMap) -> Unit): MapView {
     val context = LocalContext.current
     val ready by rememberUpdatedState(onReady)
+    val failed by rememberUpdatedState(onFailed)
+    var loaded by remember { mutableStateOf(false) }
     val view = remember {
         MapsInitializer.initialize(context.applicationContext)
         MapView(context, GoogleMapOptions().mapToolbarEnabled(false).compassEnabled(false).rotateGesturesEnabled(false).tiltGesturesEnabled(false)).apply {
@@ -87,8 +100,19 @@ internal fun rememberGoogleMapView(dark: Boolean, onReady: (GoogleMap) -> Unit):
                 m.uiSettings.isIndoorLevelPickerEnabled = false
                 m.isBuildingsEnabled = true
                 runCatching { m.setMapStyle(googleMapStyle(dark)) }
+                m.setOnMapLoadedCallback { loaded = true }
                 ready(m)
             }
+        }
+    }
+    // A refused key (or Google unreachable) leaves the map empty with no error to catch:
+    // if no tiles have drawn in time, hand over to MapLibre.
+    LaunchedEffect(view) {
+        kotlinx.coroutines.delay(GOOGLE_LOAD_TIMEOUT_MS)
+        if (!loaded) {
+            android.util.Log.w("GoogleMaps", "Google map didn't load; using MapLibre")
+            GoogleMapsHealth.failed = true
+            failed()
         }
     }
     val owner = LocalLifecycleOwner.current
@@ -152,6 +176,7 @@ internal fun GoogleFoodMapView(
     popupLift: Float,
     dark: Boolean,
     modifier: Modifier,
+    onFailed: () -> Unit,
 ) {
     val context = LocalContext.current
     var map by remember { mutableStateOf<GoogleMap?>(null) }
@@ -165,7 +190,7 @@ internal fun GoogleFoodMapView(
         BitmapDescriptorFactory.fromBitmap(if (small) quietBitmap(full) else full)
     }
     var zoom by remember { mutableStateOf(12f) }
-    val view = rememberGoogleMapView(dark) { m ->
+    val view = rememberGoogleMapView(dark, onFailed) { m ->
         m.setOnMarkerClickListener { mk ->
             (mk.tag as? String)?.let { select(it) }
             true

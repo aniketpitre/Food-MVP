@@ -291,11 +291,11 @@ fun NavigateScreen(target: NavTarget, onBack: () -> Unit, onOpenPlace: (String) 
     }
 
     // Google Maps when the app has a key (see GoogleMaps.kt), else the open MapLibre map.
-    val google = remember { googleMapsUsable(context) }
+    var google by remember { mutableStateOf(googleMapsUsable(context)) }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("navigate")) {
         if (google) {
-            GoogleNavMap(target, route, here, following, heading, dark, { following = false }, Modifier.fillMaxSize())
+            GoogleNavMap(target, route, here, following, heading, dark, { following = false }, Modifier.fillMaxSize()) { google = false }
         } else {
             MapLibreNavMap(target, route, here, following, heading, dark, { following = false }, Modifier.fillMaxSize())
         }
@@ -556,11 +556,12 @@ private fun GoogleNavMap(
     dark: Boolean,
     onUserMove: () -> Unit,
     modifier: Modifier,
+    onFailed: () -> Unit,
 ) {
     val context = LocalContext.current
     var map by remember { mutableStateOf<com.google.android.gms.maps.GoogleMap?>(null) }
     val stopFollowing by rememberUpdatedState(onUserMove)
-    val view = rememberGoogleMapView(dark) { m ->
+    val view = rememberGoogleMapView(dark, onFailed) { m ->
         m.moveCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(com.google.android.gms.maps.model.LatLng(target.lat, target.lng), 14f))
         m.setOnCameraMoveStartedListener { reason ->
             if (reason == com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) stopFollowing()

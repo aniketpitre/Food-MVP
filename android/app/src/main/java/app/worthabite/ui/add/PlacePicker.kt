@@ -96,7 +96,7 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
     val pick by rememberUpdatedState(onPicked)
 
     // Google Maps when the app has a key (see GoogleMaps.kt), else the open MapLibre map.
-    val google = remember { googleMapsUsable(context) }
+    var google by remember { mutableStateOf(googleMapsUsable(context)) }
     val onTap: (String?) -> Unit = { id -> chosen = id?.let { i -> places.firstOrNull { it.id == i } }?.let { PickedPlace.Existing(it) } }
 
     // The WorthAbite places around wherever the map is.
@@ -107,7 +107,7 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("place_picker")) {
         if (google) {
-            GooglePickerMap(start, dark, places, { center = it }, onTap, Modifier.fillMaxSize())
+            GooglePickerMap(start, dark, places, { center = it }, onTap, Modifier.fillMaxSize()) { google = false }
         } else {
             MapLibrePickerMap(start, dark, places, { center = it }, onTap, Modifier.fillMaxSize())
         }
@@ -262,13 +262,14 @@ private fun GooglePickerMap(
     onCenter: (Coords) -> Unit,
     onTap: (String?) -> Unit,
     modifier: Modifier,
+    onFailed: () -> Unit,
 ) {
     val context = LocalContext.current
     var map by remember { mutableStateOf<com.google.android.gms.maps.GoogleMap?>(null) }
     val centerAt by rememberUpdatedState(onCenter)
     val tap by rememberUpdatedState(onTap)
     val markers = remember { HashMap<String, com.google.android.gms.maps.model.Marker>() }
-    val view = rememberGoogleMapView(dark) { m ->
+    val view = rememberGoogleMapView(dark, onFailed) { m ->
         val at = start ?: Coords(19.9975, 73.7898)
         m.moveCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(com.google.android.gms.maps.model.LatLng(at.lat, at.lng), 17f))
         m.setOnCameraIdleListener { m.cameraPosition.target.let { centerAt(Coords(it.latitude, it.longitude)) } }

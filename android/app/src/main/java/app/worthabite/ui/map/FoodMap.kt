@@ -296,7 +296,7 @@ fun FoodMap(
     var planning by remember { mutableStateOf(false) }
     // Google Maps when the app was built with a key and the phone has Google Play services;
     // otherwise the open MapLibre map. Everything around the map is the same either way.
-    val google = remember { googleMapsUsable(context) }
+    var google by remember { mutableStateOf(googleMapsUsable(context)) }
     val camera = remember { MapCamera() }
     // A long press on the map drops a pin there and plans a drive to it.
     val onLongPress: (Double, Double) -> Unit = { lat, lng ->
@@ -379,7 +379,7 @@ fun FoodMap(
     Box(modifier.fillMaxSize()) {
         val mapModifier = Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).testTag("food_map")
         if (google) {
-            GoogleFoodMapView(places, location, route, selected, { selected = it }, onLongPress, camera, popupLift, dark, mapModifier)
+            GoogleFoodMapView(places, location, route, selected, { selected = it }, onLongPress, camera, popupLift, dark, mapModifier) { google = false }
         } else {
             MapLibreFoodMapView(places, location, route, selected, { selected = it }, onLongPress, camera, popupLift, dark, mapModifier)
         }
