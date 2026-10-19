@@ -1,201 +1,426 @@
-<p align="center"><img src="docs/brand/worthabite-logo-1024.png" width="180" alt="WorthAbite logo"></p>
+<p align="center"><img src="docs/brand/worthabite-logo-1024.png" width="160" alt="WorthAbite logo"></p>
 
-# WorthAbite
+<h1 align="center">WorthAbite</h1>
 
-A local food app where the unit is **a specific dish at a specific place**, ranked by how many real
-people recommend it, whatever the restaurant's overall rating. The full idea, research and plan are in
-[`docs/WorthAbite_Android_MVP_Plan.md`](docs/WorthAbite_Android_MVP_Plan.md).
+<p align="center"><b>Which dish is worth a bite, and where?</b><br>
+A local food app that ranks <b>one dish at one place</b> by what real people who ate it decided.</p>
 
-The repository has two parts:
+<p align="center">
+<a href="https://github.com/aniketpitre/Food-MVP/releases/latest"><b>Download the Android app</b></a> ·
+<a href="docs/PEOPLES_PICK.md">How the ranking works</a> ·
+<a href="docs/REAL_PLACES.md">Real places</a> ·
+<a href="docs/WorthAbite_Android_MVP_Plan.md">Product plan</a>
+</p>
 
-| Part | What | Tech |
-|---|---|---|
-| [`backend/`](backend) | Self-hosted API, database and photo storage | Node 22 + Fastify, Postgres 16 + PostGIS, Docker Compose |
-| [`android/`](android) | The Android app (Android 8.0+) | Kotlin, Jetpack Compose, Material 3, Coil, Retrofit |
+---
 
-The look is a **street-food zine**: warm cream paper, tamarind ink and a saffron signature, with
-loud spice accents used like stickers on a menu board (chili for "recommended", turmeric price
-tags, mint for veg). Headlines are set in Bricolage Grotesque (OFL, bundled). The feed is a
-full-screen vertical deck with a Reels-style action rail; lists are menu cards; places are paper
-tokens with notches and a perforation.
+## Contents
 
-## Screenshots
+1. [The idea](#the-idea)
+2. [What's in the app](#whats-in-the-app)
+3. [How the algorithm works](#how-the-algorithm-works)
+4. [Real places and the demo](#real-places-and-the-demo)
+5. [How it's built](#how-its-built)
+6. [Run the server](#run-the-server)
+7. [The admin dashboard](#the-admin-dashboard)
+8. [The Android app: install, release, sign](#the-android-app-install-release-sign)
+9. [Develop and test](#develop-and-test)
+10. [Repository map](#repository-map)
+11. [Credits and licences](#credits-and-licences)
 
-Rendered by the app's screenshot tests with the illustrated demo data (refresh with the **Screenshots** workflow in GitHub Actions).
+---
+
+## The idea
+
+Star ratings answer the wrong question. A 4.2★ restaurant can serve a forgettable biryani and a
+legendary misal, and anyone can leave a star. When you're hungry you want to know: **"I want pav
+bhaji. Where should I go?"**
+
+WorthAbite answers that by ranking **dishes, not restaurants**:
+
+- **Real people vote on a dish they ate**: *Loved it* or *Not for me*.
+- **Not every vote counts the same.** People whose picks others later agree with earn trust for
+  that kind of food. New accounts and accounts voting in lockstep count for little. Owners can't
+  vote up their own menu.
+- **Photos come from diners**, with checks that make faking or copying them costly.
+- **The places are real**: every restaurant, cafe and stall in the city, from open map data.
+
+It starts in **Nashik** and works in any Indian city (about 900 cities with 50,000+ people are built in).
+
+---
+
+## What's in the app
+
+### Discover
+
+| | |
+|---|---|
+| **Home: "What are you craving?"** | Type *pav bhaji* (any spelling: paav bhaji, pavbhaji) or tap a chip and get the best pav bhaji in your city ranked by **People's Pick**, with "82 % loved it · 34 votes" and the most trusted person who loved it. The headline changes with the time of day (breakfast, lunch, chai time, dinner, late-night munchies). |
+| **For You** | Dishes loved by people with your taste and the people you follow, each saying why ("Loved by @diya · 92 % taste match"). Vegetarians never see non-veg dishes. |
+| **Explore deck** | A full-screen card deck you swipe through like Reels: **Top**, **Trending** (this week), **Hidden gems**, **For You**, **Following** (photos from people you follow, newest first) and **Nearby**. Double-tap a photo to love it. |
+| **Places** | Every place in the city with filters (veg, area, cuisine, dish type, distance), sorted by most loved, nearest, most dishes or newest. |
+| **Search with autocomplete** | Suggestions as you type: dishes people posted, cuisines, dish types, places, areas (College Road, Gangapur…) and people, with the typed part in bold. Before you type: recent searches, popular now, **20 cuisines** (Maharashtrian, North Indian & Punjabi, South Indian, Street Food, Mughlai & Biryani, Italian, Mexican, Thai/Japanese/Korean, Cafe…) and **33 dish types** to browse. |
+
+### Map
+
+- **Google Maps** in WorthAbite's own colours: cream ground, saffron roads and soft green parks by day; espresso and ember at night. Google's own shop icons are hidden, so the only places on it are WorthAbite's.
+- **A food logo per place** (🌶️ misal, ☕ cafe, 🍕 pizza…). Places with dishes always show; the rest appear when you zoom into a neighbourhood. Tap a logo and a card swings up in 3D with the photo, the best dish, the rating, hours, distance and **Take me there**.
+- **Friends' picks / Taste match** filters show only the places your friends or your taste matches loved.
+- **On the way**: pick a city (or long-press the map) and see the best dish at every place within 3 km of the drive, in the order you reach them.
+- **In-app directions**: the route on the map, the next turn, time and distance left, a new route if you go off it, and a "you're here" card with the place's best dishes.
+- Without a Google Maps key, or on phones without Google Play services, the maps use an open MapLibre map in the same colours. If Google's map doesn't load within 10 seconds, the app switches over by itself.
+
+### Dishes and places
+
+- **Dish page**: photos from different people, the place, the rating, who loved it, comments, *Open in Maps*, and more dishes at the same place.
+- **Place page**: its dishes in People's Pick order ("Best dishes here"), cuisine, hours, phone, website, photos and directions.
+- **Loved it / Not for me / Save / Tried / Send** on every dish.
+
+### Post a dish (under 30 seconds)
+
+- Camera or gallery photo, shrunk on the phone with location data removed.
+- **Pick the place on a map**: places near you show as dots with names. Tap one, or put the pin on the spot to add a new place.
+- Dish-name suggestions, with *Did you mean "Butter Chicken"?* so votes don't split across spellings.
+- Price, veg / non-veg, caption, a "sponsored / got it free" label, then **Worth a bite?** (Loved it / Not for me).
+- **Verified visit** badge when you post at the place with a fresh photo.
+
+### Social
+
+- **Profiles**: photo, bio, username, posts, loved dishes, **Taste Match %**, followers / following, and a story ring.
+- **Follow from anywhere**. It updates at once everywhere, and new followers see your older posts too.
+- **Comments**: threaded replies, likes, @mentions, quick emoji, and controls for who can comment.
+- **Activity tab**: follows, comments, replies, mentions, likes, loves and agreements. Tapping a comment opens the thread.
+- **Stories**: 24-hour photos tagged with a dish or place. A Home row, a full-screen viewer (cube swipe, tap to step, hold to pause), likes, and "Seen by" updating live.
+- **Share dishes and posts** with your followers and the people you follow. The chat holds shared dishes and posts, with reactions (double-tap ❤️), seen receipts and unsend; there's no free typing, which keeps it about food. People who turned sharing off show greyed out with the reason. Anything can also be shared to other apps.
+- **Your taste**: dish types you love, veg / egg / non-veg and spice level, asked once and learned from your votes. **People with your taste** suggestions on Home.
+- **Safety**: report posts, dishes, comments and people; block; auto-hide after 3 reports from established accounts; admin moderation.
+
+### Account
+
+- Guest browsing with no sign-up wall. Sign-in is asked for on your first love, save or post, and the action completes right after.
+- **Two-step sign-in** with an email code, signed-in devices (sign out elsewhere), change email (codes to both addresses), forgot username, reset password, change password, and delete account (in the app and on the web).
+- Profile changes (photo, name, username) show for everyone at once: comments, chats, lists, the feed.
+
+### Everything else
+
+- **Notifications** for messages, follows, comments, stories, new dishes nearby and more. They're instant with Firebase (optional); otherwise the app checks every 30 seconds while open and every 15 minutes in the background.
+- **In-app updates**: the app checks GitHub Releases and offers the new version.
+- **Light / dark / system theme**, and **Lite mode** (automatic on low-RAM phones) that drops blur and heavy animation.
+- **Motion with meaning**: cards land in a choreographed sequence; love bursts with spice confetti and floating hearts and a light vibration; the tab dock moves like liquid; photos morph from card to page.
 
 | Feed | Hidden gems (dark) | Dish | Place |
 |---|---|---|---|
 | ![Feed](docs/screenshots/01_feed_top.jpg) | ![Hidden gem](docs/screenshots/02_feed_hidden_gem_dark.jpg) | ![Dish](docs/screenshots/05_dish_detail.jpg) | ![Place](docs/screenshots/06_restaurant.jpg) |
-| **Search** | **Saved** | **Welcome** | **Comments** |
-| ![Search](docs/screenshots/07_search.jpg) | ![Saved](docs/screenshots/08_saved.jpg) | ![Welcome](docs/screenshots/12_onboarding_city.jpg) | ![Comments](docs/screenshots/16_comments.jpg) |
-| **Home: what are you craving?** | **People's Pick for pav bhaji** | **Profile** | **Activity** |
+| **Home** | **People's Pick: pav bhaji** | **Profile** | **Activity** |
 | ![Home](docs/screenshots/17_home.jpg) | ![Craving](docs/screenshots/18_craving_pav_bhaji.jpg) | ![Profile](docs/screenshots/10_profile.jpg) | ![Activity](docs/screenshots/19_activity.jpg) |
-| **Map place card** | **Messages** | **Chat** | |
-| ![Place card](docs/screenshots/20_map_place_card.jpg) | ![Messages](docs/screenshots/21_messages.jpg) | ![Chat](docs/screenshots/22_chat.jpg) | |
+| **Search suggestions** | **A cuisine** | **For You** | **Places** |
+| ![Autocomplete](docs/device/29b_search_autocomplete.jpg) | ![Cuisine](docs/device/33b_search_cuisine.jpg) | ![For you](docs/device/51_home_for_you.jpg) | ![Places](docs/device/61_explore_places.jpg) |
+| **Map place card** | **Food on the way** | **In-app directions** | **Share** |
+| ![Map](docs/device/05_map_popup.jpg) | ![On the way](docs/device/58_map_food_on_the_way.jpg) | ![Navigate](docs/device/65_navigate.jpg) | ![Share](docs/device/40_share_sheet.jpg) |
 
-### On a real (emulated) phone
+The `docs/device/` screenshots are taken on an Android emulator running against a real server by the
+**Device smoke test** workflow. The `docs/screenshots/` ones come from the app's screenshot tests.
 
-The **Device smoke test** workflow also runs the app on an Android emulator against a real
-WorthAbite server and walks through it: Home and stories, a story, messages, the map with its
-food logos, tapping a logo, the 3D place card, and Take me there (checked to open Google Maps
-directions). Its screenshots land in [`docs/device`](docs/device).
+| Card landing | Double-tap love | Love button | Tab dock |
+|---|---|---|---|
+| ![Card landing](docs/motion/card_landing.gif) | ![Double tap](docs/motion/double_tap.gif) | ![Recommend](docs/motion/recommend_tile.gif) | ![Dock](docs/motion/liquid_dock.gif) |
 
-## Motion
+---
 
-Recorded frame by frame from the real composables (`MotionTest`) and stitched into GIFs by the
-Screenshots workflow.
+## How the algorithm works
 
-| Card landing | Double-tap | Recommend |
-|---|---|---|
-| ![Card landing](docs/motion/card_landing.gif) | ![Double tap](docs/motion/double_tap.gif) | ![Recommend](docs/motion/recommend_tile.gif) |
+The full explanation, with every formula and setting, is in **[docs/PEOPLES_PICK.md](docs/PEOPLES_PICK.md)**.
+In short:
 
-| Liquid tab dock | Squiggle tabs |
+### 1. Votes
+
+**Loved it** means "go here for this". **Not for me** means "I tried it and wouldn't send you". Posting
+a photo asks *Worth a bite?* and counts the same way. Saves and shares only help the feed (Trending,
+tie-breaks), never the rating. Whoever added a place gets no say on its dishes.
+
+### 2. Standing: one real person, one vote
+
+```
+standing = min(1, account age / 7 days) / (1 + lockstep partners)
+```
+
+A new account grows to full weight over a week. Accounts that keep voting on the same dishes, the
+same way, within 2 hours of each other are **lockstep partners**: a ring of six counts as one person.
+
+### 3. Trust: whose taste has a track record
+
+Every vote is a *pick*. People who vote on the dish **after** you test it. You earn credit only for
+agreement beyond what always voting that way would get, so being **early and right** is what counts.
+Trust is kept per dish type (misal, biryani, chai…) and overall:
+
+```
+trust = 0.6 + 0.8 × credit / (picks + 2)
+```
+
+Everyone starts at 0.6. At least 3 picks of a type with trust ≥ 1.05 earns an **expert** badge.
+
+### 4. The rating
+
+Each vote is weighted by **trust × standing**, fading with a 180-day half-life, and **× 1.25 for a
+verified visit**:
+
+```
+rating     = (weighted loves + 3 × 0.75) / (weighted loves + weighted passes + 3)
+confidence = rating − sqrt(rating × (1 − rating) / (weighted votes + 3))
+```
+
+Dishes are ranked by **confidence**, a cautious estimate, so a dish needs both a high share of loves
+**and** enough votes: 5 loves and no passes beats 28 loves and 6 passes, but 1 love doesn't beat 30.
+People see the plain numbers ("82 % loved it · 34 votes") and the **champion**, the most trusted
+person who loved it.
+
+### 5. The feed
+
+| Tab | Order |
 |---|---|
-| ![Dock](docs/motion/liquid_dock.gif) | ![Tabs](docs/motion/tab_squiggle.gif) |
+| Top | People's Pick (at least 3 real people). No place gets more than 2 dishes in any 10 cards. |
+| Trending | This week's activity (loves, saves, shares). |
+| Hidden gems | Highly loved dishes few people have found yet. |
+| For You | Weighted loves from your taste matches and the people you follow (below). |
+| Following | Photos from people you follow, newest first. |
+| Nearby | Nearest first, People's Pick between equally near dishes. |
 
-The motion rules (all in `ui/theme/Motion.kt`):
+Every 5th card is a fresh dish, so new posts get seen.
 
-- **Choreography, not dumping.** When a card lands, the photo settles from a push-in first, then
-  the title rises out of a mask, the sticker slaps on with an overshoot and a swing, and the
-  details and action rail cascade in 60-90 ms apart. One progress value drives the whole sequence,
-  so it costs one animation and no recomposition.
-- **Deal like a deck.** Swiping, the outgoing card holds back, shrinks and dims while the next card
-  slides over it.
-- **Celebrate the good stuff.** Recommend, save and tried squash, fill with their colour and burst
-  with a ring and spice confetti; the double-tap heart appears under your finger.
-- **Liquid, not sliding.** The tab dock's blob leads with a stiff spring and trails with a soft one,
-  so it stretches and thins as it travels, then snaps back round. The feed tabs' squiggle rolls its
-  wave as it moves and redraws itself.
-- **Hero photos.** A dish photo morphs from wherever you tapped it (feed card, list row, polaroid,
-  tile) into the dish page, and back.
-- Everything that follows a finger is a spring, so it can be interrupted mid-flight; nothing loops
-  except the loading shimmer.
+### 6. People like you
 
-## Features in this MVP
+**Taste Match** (0–100 %) blends votes on the same dishes, the dish types you both like, and what you
+both said about your taste. **For You** scores dishes by what your closest matches and the people
+you follow loved (+1 love, +0.5 save, −1 not for me), each weighted by your match and fading over 90 days.
 
-- **Home asks "What are you craving?"** Type pav bhaji (or tap a chip) and get the best pav bhaji in your city ranked by **People's Pick**: votes from people who ate it, weighted by how often a taster's picks are later agreed with. Each result shows its rating, "loved by N", and whose top pick it is. The algorithm is explained in [`docs/PEOPLES_PICK.md`](docs/PEOPLES_PICK.md).
-- **Loved it / Not for me** votes on every dish, so a rating means something.
-- **Explore** keeps the dish deck (Top, Trending, Hidden gems); **Nearby** is now an in-app map (MapLibre with free OpenFreeMap tiles, recoloured to the app's theme) that shows only places in WorthAbite, with a swipeable card strip.
-- **Real places from OpenStreetMap:** `docker compose exec api node dist/cli.js import-places <city-slug> [km]` imports cafes and restaurants (name, cuisine, hours, location). Photos come from people who post there.
-- **Instagram-style social:** profiles with photo, bio and username; followers/following; follow from anywhere; people search; an Activity tab (follows, comments, replies, likes, mentions, recommends, agreements); comment controls (everyone, people you follow, off); blocked accounts; change password; theme (light/dark/system).
-- **Food-logo map:** each place on the map is a little badge with its food (🌶️ misal, ☕ cafe, 🍕 pizza…). Tap one and a card swings up in 3D with the photo, the best dish, the people's rating, hours, distance and **Take me there** (Google Maps directions).
-- **Direct messages, Instagram style:** send posts, dishes, places and photos from your gallery; reply to a message (long-press → Reply), react with a double-tap ❤️ or any emoji, seen receipts, unsend, copy, message requests, block and report. Every post has a **Send** (paper-plane) button that shares it to friends in WorthAbite or to other apps; place pages can be sent too.
-- **Notifications** for new messages, message requests, reactions and all Activity (follows, comments, replies, mentions, likes). No push service needed: the app checks the server every 30 seconds while open and every 15 minutes in the background. Tapping one opens the chat, dish or profile.
-- **Home's headline changes with the time of day** (breakfast, lunch, chai time, dinner, late-night munchies) and picks a new line each time you open Home.
-- **Stories:** 24-hour photo stories with a dish or place tag, a stories row on Home, a full-screen viewer (cube swipe between people, tap to step, hold to pause), likes and replies that arrive as messages, and who watched yours.
-- **Real photos of places:** openly licensed photos from Wikimedia Commons and Mapillary street views (with credits), and optional Google Maps photos on place pages. See [`docs/REAL_PHOTOS.md`](docs/REAL_PHOTOS.md).
-- **Lite mode** (automatic on low-RAM phones, or switch it in Settings) turns off blur, confetti and card choreography. Release builds are shrunk with R8 and ship only ARM and x86_64 code.
-- Guest browsing (no sign-up wall); sign-in is asked for only on the first recommend, save or post, and the action completes right after sign-in.
-- Works in every Indian city: location (precise or approximate, never stored) picks your city from ~900 cities with 50,000+ people, or search for one. New places are filed under the right city automatically.
-- Dish feed with **Top**, **Trending** (last 7 days), **Hidden gems** and **Nearby** tabs, plus category filters.
-- Ranking per the plan: recommend 1, save 1.5, tried 2, share 2.5; one person capped at 3 points per dish; 45-day half-life; new accounts count half for their first 24 hours; at least 3 people to enter Top; every 5th card is a new dish so fresh posts get seen. All weights live in the `ranking_config` table.
-- "Recommended by N people" counts people who recommended or tried the dish (saves are shown separately). Zero shows "New", never "Recommended by 0".
-- Dish page (photos, place, recommenders, Open in Maps, More at this place), place page ranked by recommendations, typo-tolerant search with local spellings ("wada pav" finds Vada Pav), saved list, profiles.
-- Post a dish in under 30 seconds: camera or gallery photo, resized on the phone with location data removed, dish-name suggestions, nearby places or a new place (held for review), price, veg, caption, a sponsored/free-food label.
-- Comments on posts, Instagram style: replies in threads, likes, @mentions, quick emoji; long-press to delete or report. Authors, the post's owner and admins can delete.
-- Safety: report posts/dishes/comments/people, block people, auto-hide after 3 reports from established accounts, an admin moderation screen, rate limits, account deletion in the app and on the web.
-- Share links with a web preview page (`/d/<dish>`), plus draft Privacy, Terms and Delete-account pages.
+### 7. Genuine photos
 
-## Run the server (Docker)
+- **A fingerprint per photo.** Your own photo posted again is refused; someone else's photo is held for an admin to compare.
+- **Verified visit.** A camera (or fresh) photo taken within 300 m of the place.
+- **Limits.** One photo per dish per person per day, and one vote per dish however many photos you post.
+- **Spelling merges.** "Did you mean…?", typo merging, and admin merges keep votes on one dish.
 
-Needs Docker with Compose v2.
+### Tuning and checking
+
+Every number lives in the `ranking_config` table and can be changed from the dashboard without shipping
+the app. The dashboard's **Algorithm health** and **prediction check** show whether the ranking predicts
+real votes better than chance, with and without trust. The backend tests include a **test village**:
+honest diners against a ring of fake accounts and the owner, and the honest ranking must win.
+
+---
+
+## Real places and the demo
+
+**Places come from [Overture Maps](https://overturemaps.org)**: open map data from Meta, Microsoft,
+Foursquare and OpenStreetMap, cleaned by the Overture Maps Foundation (CDLA-Permissive-2.0, free to
+keep). For Nashik the server ships **1,225 real food places** (restaurants, cafes, bakeries, sweet and
+ice-cream shops, bars and stalls), each with its neighbourhood, phone and website when known.
+
+- **Import:** admin dashboard → Places → *Import every place from Overture Maps*, or
+  `docker compose exec api node dist/cli.js import-overture nashik`.
+- **Another city:** `python3 backend/scripts/overture-places.py --city pune --lat 18.52 --lng 73.86 --km 30 --out backend/seed/places/pune.overture.json`
+  (needs `pip install pyarrow`), then commit the file and import it.
+- **Missing places** get added by people while posting, and reviewed in the dashboard.
+
+Full guide: [docs/REAL_PLACES.md](docs/REAL_PLACES.md).
+
+**The demo** is 40 clearly marked `demo_` users and 12 invented Nashik places with 30 dishes (real,
+credited Wikimedia photos), so a new server isn't empty. Places, cards and profiles from the demo
+are labelled **DEMO**.
+
+| | |
+|---|---|
+| Remove all of it | Dashboard → Places → **Remove everything demo**, or `docker compose exec api node dist/cli.js remove-demo --everything`. It stays removed after restarts and updates. |
+| Bring it back | `docker compose exec api node dist/cli.js seed-demo` |
+| New server without the demo | `DEMO_ACTIVITY=false` in `.env`: cities, dish types and spellings only. |
+
+---
+
+## How it's built
+
+```
+ Android app (Kotlin, Jetpack Compose)                       Server (Docker Compose)
+ ┌──────────────────────────────────┐   HTTPS + JSON   ┌──────────────────────────────────────┐
+ │ Home · Explore · Map · Post ·    │ ───────────────▶ │ Caddy (automatic HTTPS)              │
+ │ Activity · Profile · Messages    │                  │   └▶ API: Node 22 + Fastify          │
+ │ Google Maps SDK / MapLibre       │ ◀─────────────── │        ├▶ Postgres 16 + PostGIS      │
+ │ Coil · Retrofit · DataStore      │   photos, push   │        │   (ranking in SQL, pg_trgm) │
+ └──────────────────────────────────┘                  │        ├▶ media volume (photos)      │
+                                                       │        └▶ admin dashboard (/admin)   │
+                                                       │ Backup: nightly db + photos          │
+                                                       └──────────────────────────────────────┘
+ Optional: Firebase (instant push), SMTP (two-step sign-in codes), Google Places (live place photos),
+           Mapillary / Wikimedia (place photos), OSRM (driving routes)
+```
+
+| Part | What | Tech |
+|---|---|---|
+| [`backend/`](backend) | API, ranking, photo storage, admin dashboard | Node 22, Fastify 5, zod, Postgres 16 + PostGIS + pg_trgm, sharp, Vitest |
+| [`android/`](android) | The app (Android 8.0+) | Kotlin, Jetpack Compose, Material 3, Google Maps SDK + MapLibre, Coil, Retrofit, kotlinx.serialization, Firebase Messaging, Roborazzi |
+| [`docker-compose.yml`](docker-compose.yml) | Production | db, api, backup and https (Caddy) services |
+
+The ranking runs **inside Postgres** (the `migrations/` SQL). A vote re-rates its own dish at once;
+trust, standing and taste are rebuilt in the background on a timer.
+
+---
+
+## Run the server
+
+Needs a Linux server with Docker and Compose v2 (an Azure Standard B2s / D2as is plenty).
 
 ```bash
 git clone https://github.com/aniketpitre/Food-MVP.git && cd Food-MVP
 cp .env.example .env
-# Edit .env: set POSTGRES_PASSWORD and JWT_SECRET (openssl rand -hex 32), ADMIN_EMAILS, PUBLIC_URL
-docker compose up -d --build
+# Edit .env: POSTGRES_PASSWORD and JWT_SECRET (openssl rand -hex 32), ADMIN_EMAILS, PUBLIC_URL, DOMAIN
+docker compose --profile https --profile backup up -d --build
 scripts/smoke-test.sh            # checks the whole API end to end
 ```
 
-The API is on port `8080`. On first start it creates the schema, seeds the demo city (Nashik), 12
-categories, 30 demo dishes at 12 invented places, and (with `DEMO_ACTIVITY=true`) 40 clearly labelled
-`demo_` accounts so every tab has data.
+**Update to the latest version** (do this after every release):
 
-**Before inviting real people:** set `DEMO_ACTIVITY=false`, run
-`docker compose exec api node dist/cli.js remove-demo --all` (demo accounts plus the invented demo places and
-their illustrated photos; real imported places stay), and fill in the bracketed parts of the policy pages.
+```bash
+cd ~/Food-MVP && git pull && docker compose --profile https --profile backup up -d --build
+```
 
-| Task | Command |
+On start the server applies any new database migrations, adds new cities, dish types and
+spellings, and refreshes the rankings.
+
+### Settings (`.env`)
+
+| Setting | What it does |
+|---|---|
+| `POSTGRES_PASSWORD`, `JWT_SECRET` | Required secrets (`openssl rand -hex 32`). |
+| `PUBLIC_URL`, `DOMAIN` | The address phones use; `DOMAIN` turns on automatic HTTPS (ports 80 and 443 open). |
+| `ADMIN_EMAILS` | Accounts with these emails are admins (dashboard and moderation). |
+| `SEED_ON_START`, `DEMO_ACTIVITY` | Seed cities and dish types on first start; `DEMO_ACTIVITY=true` adds the demo. |
+| `RANK_REFRESH_SECONDS` | How often trust and taste are fully rebuilt (default 300). |
+| `GOOGLE_PLACES_API_KEY` | Optional: live Google photos on place pages (a server key, never stored, capped by `GOOGLE_PHOTOS_DAILY_LIMIT`). |
+| `MAPILLARY_TOKEN` | Optional: street photos of shopfronts (`fetch-place-photos`). |
+| `FCM_*` | Optional: instant push notifications through Firebase. |
+| `SMTP_*`, `MAIL_FROM` | Email for two-step sign-in codes and email changes. |
+| `ROUTING_URL` | Optional: an OSRM server for driving routes ("On the way", directions). |
+| `BACKUP_KEEP_DAYS` | How long nightly backups are kept (`./backups`). |
+
+### Commands
+
+All run as `docker compose exec api node dist/cli.js <command>`:
+
+| Command | Does |
+|---|---|
+| `import-overture <city> [file]` | Import every food place from Overture Maps (the bundled file or one you made). |
+| `fetch-place-photos <city> [max]` | Openly licensed photos of places (Wikimedia, Mapillary). |
+| `refresh` | Rebuild all rankings now. |
+| `remove-demo --everything` | Remove all demo users, places, dishes and photos (for good). |
+| `seed-demo` | Bring the demo back. |
+| `migrate` | Apply database migrations (also done on every start). |
+
+| Task | How |
 |---|---|
 | Logs | `docker compose logs -f api` |
-| Nightly backups of the database and photos into `./backups` | `docker compose --profile backup up -d` |
-| HTTPS with automatic certificates (set `DOMAIN` in `.env`, open ports 80/443) | `docker compose --profile https up -d` |
-| Recompute rankings now | `docker compose exec api node dist/cli.js refresh` |
-| Import real cafes and restaurants from OpenStreetMap | `docker compose exec api node dist/cli.js import-places nashik 12` |
-| Fetch real photos of those places (Wikimedia, Mapillary) | `docker compose exec api node dist/cli.js fetch-place-photos nashik` |
 | Restore a backup | `docker compose exec -T db pg_restore -U worthabite -d worthabite --clean < backups/db-<date>.dump` |
-| Become admin | put your email in `ADMIN_EMAILS`, restart the api, sign up or sign in |
+| Become admin | Put your email in `ADMIN_EMAILS`, restart, sign in |
 
-The database is not exposed outside Docker; only the API is. Photos are stored in the `media` volume.
+The database is never exposed outside Docker; only the API (behind Caddy) is. Photos live in the `media` volume.
 
-**A server set up before the rename to WorthAbite** keeps its data in Docker volumes named
-`foodfeed_…`. Move it once (it backs up first, checks the counts match, and leaves the old
-volumes in place until you remove them):
+---
+
+## The admin dashboard
+
+Open **`https://<your server>/admin`** and sign in with an admin account. It also works on a phone.
+
+| Tab | What you see and do |
+|---|---|
+| Overview | Users, posts, votes and places over time; demo vs real. |
+| Algorithm health | Votes per day, verified photos, lockstep accounts, copies held, the prediction check, and why any dish ranks where it does. |
+| Recommendations | What For You shows any user, and why. |
+| Ranking settings | Every `ranking_config` number, with safe limits; changes re-rank at once. |
+| Users | Search people and see their account, posts and votes. |
+| Places | Search by source and status, merge duplicates, import from Overture, retire old OpenStreetMap places, remove the demo, recent jobs. |
+| Moderation | Reports, held photos (side by side with the original), new places waiting for review. |
+| Activity | The latest posts, comments, sign-ups, reports and votes. |
+
+---
+
+## The Android app: install, release, sign
+
+**Install:** download the latest APK from [Releases](https://github.com/aniketpitre/Food-MVP/releases/latest),
+allow "Install unknown apps", and open it. The app checks for new releases itself and offers to update.
+
+**Publish a release:** GitHub → Actions → **Android** → *Run workflow* with a version (for example `0.28.0`)
+and release notes separated by `;`. The release appears on the Releases page with the APK.
+
+**Server address:** built in from `serverUrl` in `android/gradle.properties`
+(`https://foodfeed-aniket.eastus.cloudapp.azure.com`). Change it and release again if the server moves.
+An empty `serverUrl` asks for the address on first launch (handy for `http://10.0.2.2:8080` in the emulator).
+
+**Repository secrets** (GitHub → Settings → Secrets and variables → Actions):
+
+| Secret | Why |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Sign releases with the private key. CI refuses to publish without them, and checks every APK against `android/keystore/RELEASE_KEY_FINGERPRINT.txt`. Keep the key backed up: losing it means the app can't be updated. |
+| `MAPS_API_KEY` | Google Maps in the app: a key with only **Maps SDK for Android** enabled, restricted to Android apps with package `app.worthabite` and SHA-1 `42:54:9C:5B:41:29:98:1C:41:8A:0B:9B:2E:0B:D0:C1:BC:0C:EC:CA`. Never use the server's `GOOGLE_PLACES_API_KEY` (it's IP-locked, and anything in an APK is public). |
+
+The map colours are in `android/app/src/main/assets/map/` (`google_light.json` and `google_dark.json`
+for Google Maps; `light.json` and `dark.json` for MapLibre).
+
+---
+
+## Develop and test
 
 ```bash
-git pull
-scripts/rename-to-worthabite.sh
-```
-
-## Install the Android app
-
-Every push builds an APK in GitHub Actions (artifact **WorthAbite-apk**). To publish one on the
-[Releases page](https://github.com/aniketpitre/Food-MVP/releases), either run **Actions → Android → Run
-workflow** with a version such as `0.2.0`, or push a tag:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-On the phone: download the APK from Releases, allow "Install unknown apps", open WorthAbite and pick a city.
-The server address is built into the app from `serverUrl` in `android/gradle.properties`
-(currently `https://foodfeed-aniket.eastus.cloudapp.azure.com`). If the server moves, change that line and
-publish a new release. Builds with an empty `serverUrl` ask for the address on first launch instead, which
-is handy for testing against a local server (`http://10.0.2.2:8080` from the emulator).
-
-Release APKs are signed with the owner's private key (SHA-256 fingerprint in
-`android/keystore/RELEASE_KEY_FINGERPRINT.txt`), supplied to CI through the repository secrets
-`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`.
-CI refuses to publish a release without them and checks every release APK against that fingerprint.
-The key is independent of where the backend runs; keep it backed up, because losing it means the app
-can no longer be updated. Builds without the secrets (forks, local) fall back to the public test key in
-`android/keystore/`.
-
-The in-app maps use Google Maps when the release is built with the repository secret
-`MAPS_API_KEY`: a Google Cloud API key with only *Maps SDK for Android* enabled, restricted to
-Android apps with package `app.worthabite` and the release key's SHA-1
-`42:54:9C:5B:41:29:98:1C:41:8A:0B:9B:2E:0B:D0:C1:BC:0C:EC:CA`. Never use the server's
-`GOOGLE_PLACES_API_KEY` for this: anything in an APK can be read by anyone. Without the secret (or
-on phones without Google Play services) the maps fall back to the open MapLibre map. Places always
-come from WorthAbite's own database (Overture Maps and people's posts), never from Google.
-
-## Develop
-
-```bash
-# Backend (needs a Postgres+PostGIS for tests)
+# Backend: tests need a Postgres + PostGIS
 docker run -d --name ff-testdb -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgis/postgis:16-3.5
-cd backend && npm ci && npm test        # 25 integration tests
-npm run dev                             # needs DATABASE_URL and JWT_SECRET
+cd backend && npm ci
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/postgres npm test   # 152 integration tests
+npm run dev                                                                       # needs DATABASE_URL and JWT_SECRET
 
 # Android (Android Studio, or JDK 17 + Android SDK 35)
 cd android
-./gradlew testDebugUnitTest             # logic + screenshot tests
-./gradlew recordRoborazziDebug          # writes app/screenshots/*.png
-./gradlew assembleDebug                 # app-debug.apk, installs next to the release build
+./gradlew testDebugUnitTest        # logic and screenshot tests
+./gradlew recordRoborazziDebug     # writes app/screenshots/*.png
+./gradlew assembleDebug            # app-debug.apk (installs next to the release app)
+./gradlew assembleRelease -PmapsApiKey=...   # optional local release with Google Maps
 ```
 
-In the Android emulator the host machine is `http://10.0.2.2:8080`.
+**Continuous integration** (GitHub Actions, on every push):
 
-Regenerate the illustrated demo photos with `python3 scripts/make_demo_images.py` (needs Pillow).
+| Workflow | Checks |
+|---|---|
+| Backend | Typecheck and all backend tests on a real Postgres + PostGIS. |
+| Android | Unit and screenshot tests, then a signed release APK (on demand, published to Releases). |
+| Device smoke test | Builds the app and runs it on an Android emulator against a real server: a smoke test, plus a long journey through every screen (feed, search, map, posting, social, messages, stories, account security). Screenshots land in `docs/device/`. |
+| Screenshots | Re-renders `docs/screenshots/` and the motion GIFs. |
+
+---
 
 ## Repository map
 
 ```
-backend/            API (src/), SQL schema (migrations/), demo seed (src/seed-data.ts, seed/images/), tests
-android/            Android app: data/ (API, storage, location, image compression), ui/ (screens), tests
-docs/               The plan this MVP implements
-scripts/            smoke-test.sh, make_demo_images.py
-docker-compose.yml  db + api (+ backup and https profiles)
-DECISIONS.md        Choices made while building, and why
+backend/
+  src/                 API: routes/ (one file per area), ranking, overture.ts, seed, cli.ts, dashboard/
+  migrations/          The database, including the ranking and taste SQL (001 → 019)
+  seed/                Cities, demo photos, places/<city>.overture.json
+  scripts/             overture-places.py (make a city's places file)
+  test/                Integration tests (api, social, auth, ranking, admin dashboard)
+android/
+  app/src/main/java/app/worthabite/
+    data/              API client, models, storage, location, photo compression, push
+    ui/                home, feed, map, search, dish, restaurant, add, profile, messages,
+                       stories, activity, comments, taste, admin, theme (colours, motion)
+  app/src/main/assets/ map styles, fonts
+docs/                  PEOPLES_PICK.md (algorithm), REAL_PLACES.md, REAL_PHOTOS.md, the product plan,
+                       brand, screenshots, device screenshots, motion GIFs
+scripts/               smoke-test.sh, device tests, rename-to-worthabite.sh, demo images
+docker-compose.yml     db + api (+ backup and https profiles)
+DECISIONS.md           Choices made while building, and why
 ```
+
+---
+
+## Credits and licences
+
+- Places © [Overture Maps Foundation](https://overturemaps.org) contributors (Meta, Microsoft, Foursquare, OpenStreetMap and others), CDLA-Permissive-2.0.
+- Map tiles for the open map © [OpenMapTiles](https://openmaptiles.org) © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, via [OpenFreeMap](https://openfreemap.org). Google Maps under Google's terms.
+- Demo dish photos from [Wikimedia Commons](https://commons.wikimedia.org), credited on each photo; place photos from Wikimedia Commons and [Mapillary](https://www.mapillary.com) (CC BY-SA) with credits.
+- Indian cities from GeoNames (see `backend/seed/india-cities.NOTICE.md`).
+- Headline font Bricolage Grotesque (SIL Open Font License), bundled.
