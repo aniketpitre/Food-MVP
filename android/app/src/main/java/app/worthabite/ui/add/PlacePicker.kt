@@ -47,6 +47,8 @@ import app.worthabite.ui.components.AppIcons
 import app.worthabite.ui.components.LocalApp
 import app.worthabite.ui.components.PrimaryButton
 import app.worthabite.ui.map.MapLifecycle
+import app.worthabite.ui.map.googleMapsUsable
+import app.worthabite.ui.map.rememberGoogleMapView
 import app.worthabite.ui.map.styleJson
 import kotlinx.coroutines.delay
 import org.maplibre.android.MapLibre
@@ -88,49 +90,14 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
     val app = LocalApp.current
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
-    var map by remember { mutableStateOf<MapLibreMap?>(null) }
-    var styleReady by remember { mutableStateOf(false) }
     var center by remember { mutableStateOf(start) }
     var places by remember { mutableStateOf<List<PlaceOption>>(emptyList()) }
     var chosen by remember { mutableStateOf<PickedPlace?>(null) }
     val pick by rememberUpdatedState(onPicked)
 
-    val mapView = remember {
-        MapLibre.getInstance(context)
-        MapView(context, MapLibreMapOptions.createFromAttributes(context, null).textureMode(true)).apply {
-            onCreate(Bundle())
-            getMapAsync { m ->
-                m.uiSettings.isCompassEnabled = false
-                m.uiSettings.isLogoEnabled = false
-                m.uiSettings.isAttributionEnabled = false
-                m.uiSettings.isTiltGesturesEnabled = false
-                val at = start ?: Coords(19.9975, 73.7898)
-                m.cameraPosition = CameraPosition.Builder().target(LatLng(at.lat, at.lng)).zoom(17.0).build()
-                m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style ->
-                    runCatching { addPickerLayers(style) }.onFailure { android.util.Log.e("PlacePicker", "layers failed", it) }
-                    styleReady = true
-                }
-                m.addOnCameraIdleListener {
-                    val t = m.cameraPosition.target ?: return@addOnCameraIdleListener
-                    center = Coords(t.latitude, t.longitude)
-                }
-                m.addOnMapClickListener { at ->
-                    val p = m.projection.toScreenLocation(at)
-                    val ours = m.queryRenderedFeatures(p, OURS_DOT, OURS_LABEL).firstOrNull()
-                    when {
-                        ours != null -> {
-                            val id = ours.getStringProperty("id")
-                            places.firstOrNull { it.id == id }?.let { chosen = PickedPlace.Existing(it) }
-                        }
-                        else -> chosen = null
-                    }
-                    true
-                }
-                map = m
-            }
-        }
-    }
-    MapLifecycle(mapView)
+    // Google Maps when the app has a key (see GoogleMaps.kt), else the open MapLibre map.
+    val google = remember { googleMapsUsable(context) }
+    val onTap: (String?) -> Unit = { id -> chosen = id?.let { i -> places.firstOrNull { it.id == i } }?.let { PickedPlace.Existing(it) } }
 
     // The WorthAbite places around wherever the map is.
     LaunchedEffect(center) {
@@ -138,23 +105,12 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
         delay(250)
         places = runCatching { apiCall { app.api.nearbyRestaurants(c.lat, c.lng, null) } }.getOrDefault(places)
     }
-    LaunchedEffect(map, styleReady, places) {
-        val style = map?.style ?: return@LaunchedEffect
-        if (!styleReady) return@LaunchedEffect
-        style.getSourceAs<GeoJsonSource>(OURS)?.setGeoJson(
-            FeatureCollection.fromFeatures(
-                places.filter { it.lat != null && it.lng != null }.map { p ->
-                    Feature.fromGeometry(Point.fromLngLat(p.lng!!, p.lat!!)).apply {
-                        addStringProperty("id", p.id)
-                        addStringProperty("name", p.name)
-                    }
-                },
-            ),
-        )
-    }
-
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("place_picker")) {
-        AndroidView({ mapView }, Modifier.fillMaxSize())
+        if (google) {
+            GooglePickerMap(start, dark, places, { center = it }, onTap, Modifier.fillMaxSize())
+        } else {
+            MapLibrePickerMap(start, dark, places, { center = it }, onTap, Modifier.fillMaxSize())
+        }
 
         // The pin in the middle: where a new place goes when nothing is tapped.
         if (chosen == null) {
@@ -231,6 +187,148 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
             }
         }
     }
+}
+
+/** The open MapLibre map under [PlacePicker]: WorthAbite places as saffron dots with names. */
+@Composable
+private fun MapLibrePickerMap(
+    start: Coords?,
+    dark: Boolean,
+    places: List<PlaceOption>,
+    onCenter: (Coords) -> Unit,
+    onTap: (String?) -> Unit,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var styleReady by remember { mutableStateOf(false) }
+    val centerAt by rememberUpdatedState(onCenter)
+    val tap by rememberUpdatedState(onTap)
+    val mapView = remember {
+        MapLibre.getInstance(context)
+        MapView(context, MapLibreMapOptions.createFromAttributes(context, null).textureMode(true)).apply {
+            onCreate(Bundle())
+            getMapAsync { m ->
+                m.uiSettings.isCompassEnabled = false
+                m.uiSettings.isLogoEnabled = false
+                m.uiSettings.isAttributionEnabled = false
+                m.uiSettings.isTiltGesturesEnabled = false
+                val at = start ?: Coords(19.9975, 73.7898)
+                m.cameraPosition = CameraPosition.Builder().target(LatLng(at.lat, at.lng)).zoom(17.0).build()
+                m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style ->
+                    runCatching { addPickerLayers(style) }.onFailure { android.util.Log.e("PlacePicker", "layers failed", it) }
+                    styleReady = true
+                }
+                m.addOnCameraIdleListener {
+                    val t = m.cameraPosition.target ?: return@addOnCameraIdleListener
+                    centerAt(Coords(t.latitude, t.longitude))
+                }
+                m.addOnMapClickListener { at ->
+                    val p = m.projection.toScreenLocation(at)
+                    val ours = m.queryRenderedFeatures(p, OURS_DOT, OURS_LABEL).firstOrNull()
+                    tap(ours?.getStringProperty("id"))
+                    true
+                }
+                map = m
+            }
+        }
+    }
+    MapLifecycle(mapView)
+
+    LaunchedEffect(map, styleReady, places) {
+        val style = map?.style ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        style.getSourceAs<GeoJsonSource>(OURS)?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                places.filter { it.lat != null && it.lng != null }.map { p ->
+                    Feature.fromGeometry(Point.fromLngLat(p.lng!!, p.lat!!)).apply {
+                        addStringProperty("id", p.id)
+                        addStringProperty("name", p.name)
+                    }
+                },
+            ),
+        )
+    }
+
+    AndroidView({ mapView }, modifier)
+}
+
+/** Google Maps under [PlacePicker]: WorthAbite places as saffron dots with their names. */
+@Composable
+private fun GooglePickerMap(
+    start: Coords?,
+    dark: Boolean,
+    places: List<PlaceOption>,
+    onCenter: (Coords) -> Unit,
+    onTap: (String?) -> Unit,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    var map by remember { mutableStateOf<com.google.android.gms.maps.GoogleMap?>(null) }
+    val centerAt by rememberUpdatedState(onCenter)
+    val tap by rememberUpdatedState(onTap)
+    val markers = remember { HashMap<String, com.google.android.gms.maps.model.Marker>() }
+    val view = rememberGoogleMapView(dark) { m ->
+        val at = start ?: Coords(19.9975, 73.7898)
+        m.moveCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(com.google.android.gms.maps.model.LatLng(at.lat, at.lng), 17f))
+        m.setOnCameraIdleListener { m.cameraPosition.target.let { centerAt(Coords(it.latitude, it.longitude)) } }
+        m.setOnMarkerClickListener { mk -> tap(mk.tag as? String); true }
+        m.setOnMapClickListener { tap(null) }
+        map = m
+    }
+    LaunchedEffect(map, places) {
+        val m = map ?: return@LaunchedEffect
+        val ids = places.map { it.id }.toSet()
+        markers.keys.filter { it !in ids }.forEach { markers.remove(it)?.remove() }
+        for (p in places) {
+            if (p.id in markers || p.lat == null || p.lng == null) continue
+            m.addMarker(
+                com.google.android.gms.maps.model.MarkerOptions()
+                    .position(com.google.android.gms.maps.model.LatLng(p.lat!!, p.lng!!))
+                    .icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(pickerPin(context, p.name, dark)))
+                    // The dot sits on the spot; the name hangs under it.
+                    .anchor(0.5f, PIN_DOT_FRACTION),
+            )?.let { mk ->
+                mk.tag = p.id
+                markers[p.id] = mk
+            }
+        }
+    }
+    AndroidView({ view }, modifier)
+}
+
+private const val PIN_DOT_FRACTION = 0.22f
+
+/** A saffron dot with the place's name under it, as on the open map. */
+private fun pickerPin(context: android.content.Context, name: String, dark: Boolean): android.graphics.Bitmap {
+    val d = context.resources.displayMetrics.density
+    val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 12f * d
+        color = if (dark) 0xFFFFF1E6.toInt() else 0xFF2B1B12.toInt()
+        textAlign = android.graphics.Paint.Align.CENTER
+    }
+    val halo = android.graphics.Paint(text).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 3f * d
+        color = if (dark) 0xFF1D1612.toInt() else 0xFFFFFFFF.toInt()
+    }
+    val label = if (name.length > 28) name.take(27) + "…" else name
+    val w = maxOf(text.measureText(label) + 8 * d, 24 * d).toInt()
+    val dotR = 9f * d
+    val h = (dotR * 2 + 4 * d + text.textSize + 6 * d).toInt()
+    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp)
+    val cx = w / 2f
+    val cy = h * PIN_DOT_FRACTION
+    val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    fill.color = 0xFF2B1B12.toInt()
+    c.drawCircle(cx, cy, dotR, fill)
+    fill.color = 0xFFF5C518.toInt()
+    c.drawCircle(cx, cy, dotR - 2.5f * d, fill)
+    val baseline = cy + dotR + 4 * d + text.textSize
+    c.drawText(label, cx, baseline, halo)
+    c.drawText(label, cx, baseline, text)
+    return bmp
 }
 
 private fun addPickerLayers(style: Style) {

@@ -27,6 +27,11 @@ android {
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
         // Where the app looks for newer versions (GitHub's "latest release" API). Empty turns it off.
         buildConfigField("String", "UPDATES_URL", "\"${(findProperty("updatesUrl") as String?) ?: ""}\"")
+        // Google Maps key for the in-app maps (an Android-restricted key, from the MAPS_API_KEY
+        // secret or -PmapsApiKey). Without one the maps use the open MapLibre map instead.
+        val mapsKey = (System.getenv("MAPS_API_KEY") ?: (findProperty("mapsApiKey") as String?) ?: "").trim()
+        manifestPlaceholders["MAPS_API_KEY"] = mapsKey
+        buildConfigField("boolean", "GOOGLE_MAPS", (mapsKey.isNotEmpty()).toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The map's native code ships for real phones (64- and 32-bit ARM) and x86_64
         // (emulators, Chromebooks); dropping 32-bit x86 keeps the APK smaller.
@@ -113,6 +118,7 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 
     implementation(libs.maplibre.android)
+    implementation(libs.play.services.maps)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.retrofit)

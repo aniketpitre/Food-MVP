@@ -220,8 +220,6 @@ fun NavigateScreen(target: NavTarget, onBack: () -> Unit, onOpenPlace: (String) 
     var following by remember { mutableStateOf(true) }
     var heading by remember { mutableStateOf<Double?>(null) }
     var prev by remember { mutableStateOf<Coords?>(null) }
-    var map by remember { mutableStateOf<MapLibreMap?>(null) }
-    var styleReady by remember { mutableStateOf(false) }
     var hasPermission by remember { mutableStateOf(NavigateProbe.testLocation || DeviceLocation.hasPermission(context)) }
     var dismissedArrival by remember { mutableStateOf(false) }
 
@@ -292,65 +290,15 @@ fun NavigateScreen(target: NavTarget, onBack: () -> Unit, onOpenPlace: (String) 
         else if (progress?.arrived != true && off > OFF_ROUTE_M && now - lastFetch > 15_000) fetchRoute(h)
     }
 
-    val mapView = remember {
-        MapLibre.getInstance(context)
-        MapView(context, MapLibreMapOptions.createFromAttributes(context, null).textureMode(true)).apply {
-            onCreate(Bundle())
-            getMapAsync { m ->
-                m.uiSettings.isCompassEnabled = false
-                m.uiSettings.isLogoEnabled = false
-                m.uiSettings.isAttributionEnabled = false
-                m.uiSettings.isTiltGesturesEnabled = false
-                m.cameraPosition = CameraPosition.Builder().target(LatLng(target.lat, target.lng)).zoom(14.0).build()
-                m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style ->
-                    runCatching { addNavLayers(style) }.onFailure { android.util.Log.e("Navigate", "layers failed", it) }
-                    styleReady = true
-                }
-                map = m
-            }
-        }
-    }
-    MapLifecycle(mapView)
-    val stopFollowing by rememberUpdatedState { following = false }
-    LaunchedEffect(map) {
-        map?.addOnCameraMoveStartedListener { reason ->
-            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) stopFollowing()
-        }
-    }
-
-    // The road, the place and you.
-    LaunchedEffect(map, styleReady, route) {
-        val style = map?.style ?: return@LaunchedEffect
-        if (!styleReady) return@LaunchedEffect
-        val line = route?.coordinates.orEmpty().filter { it.size >= 2 }
-        style.getSourceAs<GeoJsonSource>(NAV_ROUTE)?.setGeoJson(
-            FeatureCollection.fromFeatures(
-                if (line.size < 2) emptyList() else listOf(Feature.fromGeometry(LineString.fromLngLats(line.map { Point.fromLngLat(it[0], it[1]) }))),
-            ),
-        )
-        style.getSourceAs<GeoJsonSource>(NAV_DEST)?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(target.lng, target.lat)))
-        if (!following && line.size >= 2) {
-            val b = LatLngBounds.Builder().apply { line.forEach { include(LatLng(it[1], it[0])) } }.build()
-            map?.animateCamera(CameraUpdateFactory.newLatLngBounds(b, 120, 320, 120, 420), 600)
-        }
-    }
-    LaunchedEffect(map, styleReady, here, following, heading) {
-        val m = map ?: return@LaunchedEffect
-        if (!styleReady) return@LaunchedEffect
-        val h = here ?: return@LaunchedEffect
-        m.style?.getSourceAs<GeoJsonSource>(NAV_ME)?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(h.lng, h.lat)))
-        if (following) {
-            m.animateCamera(
-                CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder().target(LatLng(h.lat, h.lng)).zoom(16.5).bearing(heading ?: 0.0).build(),
-                ),
-                700,
-            )
-        }
-    }
+    // Google Maps when the app has a key (see GoogleMaps.kt), else the open MapLibre map.
+    val google = remember { googleMapsUsable(context) }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("navigate")) {
-        AndroidView({ mapView }, Modifier.fillMaxSize())
+        if (google) {
+            GoogleNavMap(target, route, here, following, heading, dark, { following = false }, Modifier.fillMaxSize())
+        } else {
+            MapLibreNavMap(target, route, here, following, heading, dark, { following = false }, Modifier.fillMaxSize())
+        }
 
         // Top: the next turn.
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp)) {
@@ -520,6 +468,144 @@ fun NavigateScreen(target: NavTarget, onBack: () -> Unit, onOpenPlace: (String) 
             }
         }
     }
+}
+
+/** The open MapLibre map under [NavigateScreen]: the road, the place and you. */
+@Composable
+private fun MapLibreNavMap(
+    target: NavTarget,
+    route: Directions?,
+    here: Coords?,
+    following: Boolean,
+    heading: Double?,
+    dark: Boolean,
+    onUserMove: () -> Unit,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var styleReady by remember { mutableStateOf(false) }
+    val mapView = remember {
+        MapLibre.getInstance(context)
+        MapView(context, MapLibreMapOptions.createFromAttributes(context, null).textureMode(true)).apply {
+            onCreate(Bundle())
+            getMapAsync { m ->
+                m.uiSettings.isCompassEnabled = false
+                m.uiSettings.isLogoEnabled = false
+                m.uiSettings.isAttributionEnabled = false
+                m.uiSettings.isTiltGesturesEnabled = false
+                m.cameraPosition = CameraPosition.Builder().target(LatLng(target.lat, target.lng)).zoom(14.0).build()
+                m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style ->
+                    runCatching { addNavLayers(style) }.onFailure { android.util.Log.e("Navigate", "layers failed", it) }
+                    styleReady = true
+                }
+                map = m
+            }
+        }
+    }
+    MapLifecycle(mapView)
+    val stopFollowing by rememberUpdatedState(onUserMove)
+    LaunchedEffect(map) {
+        map?.addOnCameraMoveStartedListener { reason ->
+            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) stopFollowing()
+        }
+    }
+
+    // The road, the place and you.
+    LaunchedEffect(map, styleReady, route) {
+        val style = map?.style ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        val line = route?.coordinates.orEmpty().filter { it.size >= 2 }
+        style.getSourceAs<GeoJsonSource>(NAV_ROUTE)?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                if (line.size < 2) emptyList() else listOf(Feature.fromGeometry(LineString.fromLngLats(line.map { Point.fromLngLat(it[0], it[1]) }))),
+            ),
+        )
+        style.getSourceAs<GeoJsonSource>(NAV_DEST)?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(target.lng, target.lat)))
+        if (!following && line.size >= 2) {
+            val b = LatLngBounds.Builder().apply { line.forEach { include(LatLng(it[1], it[0])) } }.build()
+            map?.animateCamera(CameraUpdateFactory.newLatLngBounds(b, 120, 320, 120, 420), 600)
+        }
+    }
+    LaunchedEffect(map, styleReady, here, following, heading) {
+        val m = map ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        val h = here ?: return@LaunchedEffect
+        m.style?.getSourceAs<GeoJsonSource>(NAV_ME)?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(h.lng, h.lat)))
+        if (following) {
+            m.animateCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder().target(LatLng(h.lat, h.lng)).zoom(16.5).bearing(heading ?: 0.0).build(),
+                ),
+                700,
+            )
+        }
+    }
+
+    AndroidView({ mapView }, modifier)
+}
+
+/** Google Maps under [NavigateScreen]: the road as an ember line, the place, you. */
+@Composable
+private fun GoogleNavMap(
+    target: NavTarget,
+    route: Directions?,
+    here: Coords?,
+    following: Boolean,
+    heading: Double?,
+    dark: Boolean,
+    onUserMove: () -> Unit,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    var map by remember { mutableStateOf<com.google.android.gms.maps.GoogleMap?>(null) }
+    val stopFollowing by rememberUpdatedState(onUserMove)
+    val view = rememberGoogleMapView(dark) { m ->
+        m.moveCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(com.google.android.gms.maps.model.LatLng(target.lat, target.lng), 14f))
+        m.setOnCameraMoveStartedListener { reason ->
+            if (reason == com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) stopFollowing()
+        }
+        m.addMarker(
+            com.google.android.gms.maps.model.MarkerOptions()
+                .position(com.google.android.gms.maps.model.LatLng(target.lat, target.lng))
+                .title(target.name),
+        )
+        map = m
+    }
+    var line by remember { mutableStateOf<com.google.android.gms.maps.model.Polyline?>(null) }
+    LaunchedEffect(map, route) {
+        val m = map ?: return@LaunchedEffect
+        val pts = route?.coordinates.orEmpty().filter { it.size >= 2 }.map { com.google.android.gms.maps.model.LatLng(it[1], it[0]) }
+        line?.remove()
+        line = if (pts.size >= 2) {
+            m.addPolyline(com.google.android.gms.maps.model.PolylineOptions().addAll(pts).color(0xFFE2531E.toInt()).width(16f))
+        } else null
+        if (!following && pts.size >= 2) {
+            val b = com.google.android.gms.maps.model.LatLngBounds.Builder().apply { pts.forEach { include(it) } }.build()
+            runCatching { m.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(b, 160), 600, null) }
+        }
+    }
+    var me by remember { mutableStateOf<com.google.android.gms.maps.model.Marker?>(null) }
+    LaunchedEffect(map, here, following, heading) {
+        val m = map ?: return@LaunchedEffect
+        val h = here ?: return@LaunchedEffect
+        val at = com.google.android.gms.maps.model.LatLng(h.lat, h.lng)
+        val dot = me ?: m.addMarker(
+            com.google.android.gms.maps.model.MarkerOptions().position(at)
+                .icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(meDotBitmap(context)))
+                .anchor(0.5f, 0.5f).flat(true).zIndex(20f),
+        )?.also { me = it }
+        dot?.position = at
+        if (following) {
+            m.animateCamera(
+                com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(
+                    com.google.android.gms.maps.model.CameraPosition.Builder().target(at).zoom(16.5f).bearing((heading ?: 0.0).toFloat()).build(),
+                ),
+                700, null,
+            )
+        }
+    }
+    AndroidView({ view }, modifier)
 }
 
 private const val NAV_ROUTE = "nav-route"

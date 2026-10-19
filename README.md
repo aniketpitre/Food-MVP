@@ -162,6 +162,14 @@ The key is independent of where the backend runs; keep it backed up, because los
 can no longer be updated. Builds without the secrets (forks, local) fall back to the public test key in
 `android/keystore/`.
 
+The in-app maps use Google Maps when the release is built with the repository secret
+`MAPS_API_KEY`: a Google Cloud API key with only *Maps SDK for Android* enabled, restricted to
+Android apps with package `app.worthabite` and the release key's SHA-1
+`42:54:9C:5B:41:29:98:1C:41:8A:0B:9B:2E:0B:D0:C1:BC:0C:EC:CA`. Never use the server's
+`GOOGLE_PLACES_API_KEY` for this: anything in an APK can be read by anyone. Without the secret (or
+on phones without Google Play services) the maps fall back to the open MapLibre map. Places always
+come from WorthAbite's own database (Overture Maps and people's posts), never from Google.
+
 ## Develop
 
 ```bash

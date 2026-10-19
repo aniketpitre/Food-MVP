@@ -68,6 +68,8 @@
             </intent-filter>
         </service>
         <!-- Firebase starts with values from our server (see Push.kt), not from a build file. -->
+        <!-- Google Maps (empty in builds without a key; the maps then use MapLibre). -->
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="${MAPS_API_KEY}" />
         <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
         <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
     </application>

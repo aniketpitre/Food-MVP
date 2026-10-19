@@ -294,19 +294,222 @@ fun FoodMap(
     val places = route?.stops ?: state.places
     var selected by remember { mutableStateOf<String?>(null) }
     var planning by remember { mutableStateOf(false) }
-    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    // Google Maps when the app was built with a key and the phone has Google Play services;
+    // otherwise the open MapLibre map. Everything around the map is the same either way.
+    val google = remember { googleMapsUsable(context) }
+    val camera = remember { MapCamera() }
     // A long press on the map drops a pin there and plans a drive to it.
-    val onLongPress by rememberUpdatedState<(LatLng) -> Unit> { point ->
-        val from = location ?: map?.cameraPosition?.target?.let { Coords(it.latitude, it.longitude) }
+    val onLongPress: (Double, Double) -> Unit = { lat, lng ->
+        val from = location ?: camera.target()
         if (from != null) {
             selected = null
-            vm.routeTo(from, point.latitude, point.longitude, "the dropped pin")
+            vm.routeTo(from, lat, lng, "the dropped pin")
         }
     }
     val strip = rememberLazyListState()
-    var styleReady by remember { mutableStateOf(false) }
-    val onPinTap by rememberUpdatedState<(String?) -> Unit> { id -> selected = id }
+    val popupLift = with(density) { 300.dp.toPx() }
 
+    // While the map is on screen: a precise fix first, then follow the phone.
+    val scope = rememberCoroutineScope()
+    var askedPrecise by remember { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    fun startFollowing(): () -> Unit = DeviceLocation.follow(context) { c ->
+        val old = app.location.value
+        // Ignore a vaguer reading when we already have a sharper one from moments ago.
+        if (old?.accuracyM == null || c.accuracyM == null || c.accuracyM <= old.accuracyM * 2) app.location.value = c
+    }
+    DisposableEffect(lifecycle, askedPrecise) {
+        var stop: () -> Unit = {}
+        val observer = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_RESUME -> {
+                    stop()
+                    stop = startFollowing()
+                    scope.launch { DeviceLocation.current(context, precise = true)?.let { app.location.value = it } }
+                }
+                Lifecycle.Event.ON_PAUSE -> stop()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            stop()
+        }
+    }
+    val askPrecise = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+        askedPrecise = !askedPrecise
+        scope.launch {
+            val c = DeviceLocation.current(context, precise = true)
+            if (c != null) {
+                app.location.value = c
+                camera.animateTo(c.lat, c.lng, 16.0)
+            }
+        }
+    }
+    val locateMe: () -> Unit = {
+        if (!DeviceLocation.hasPrecise(context)) {
+            askPrecise.launch(DeviceLocation.PERMISSIONS)
+        } else {
+            location?.let { camera.animateTo(it.lat, it.lng, 16.0) }
+            scope.launch {
+                val c = DeviceLocation.current(context, precise = true)
+                if (c != null) {
+                    app.location.value = c
+                    camera.animateTo(c.lat, c.lng, 16.0)
+                }
+            }
+        }
+    }
+
+    val withDishes = places.filter { it.dishCount > 0 }
+    // A new set of places (a filter, a route) starts the strip from its first card.
+    LaunchedEffect(withDishes.firstOrNull()?.id) { if (withDishes.isNotEmpty()) strip.scrollToItem(0) }
+    // Swiping the strip selects the card that settles in front.
+    LaunchedEffect(strip, withDishes) {
+        snapshotFlow { strip.isScrollInProgress to strip.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { (scrolling, i) ->
+                if (!scrolling && strip.firstVisibleItemScrollOffset > 0) withDishes.getOrNull(i)?.let { selected = it.id }
+            }
+    }
+
+    val current = places.firstOrNull { it.id == selected }
+    val takeMeThere = rememberTakeMeThere()
+    Box(modifier.fillMaxSize()) {
+        val mapModifier = Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).testTag("food_map")
+        if (google) {
+            GoogleFoodMapView(places, location, route, selected, { selected = it }, onLongPress, camera, popupLift, dark, mapModifier)
+        } else {
+            MapLibreFoodMapView(places, location, route, selected, { selected = it }, onLongPress, camera, popupLift, dark, mapModifier)
+        }
+
+        if (route == null) {
+            Row(
+                Modifier.align(Alignment.TopStart).padding(top = 14.dp)
+                    .horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (state.filter == "all") {
+                    MapChip(if (state.showAll) "All food places" else "Places with dishes", AppIcons.Map) { vm.toggleAll() }
+                }
+                for ((key, label) in listOf("friends" to "Friends' picks", "taste" to "Taste match")) {
+                    MapChip(label, AppIcons.Heart, on = state.filter == key, tag = "map_filter_$key") {
+                        val next = if (state.filter == key) "all" else key
+                        if (!vm.setFilter(next)) onNeedSignIn() else selected = null
+                    }
+                }
+            }
+            MapChip(
+                "On the way", AppIcons.Directions, tag = "map_route",
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 122.dp, end = 14.dp),
+            ) { planning = true }
+        } else {
+            RouteBanner(route, state.routing, Modifier.align(Alignment.TopStart).padding(14.dp).padding(end = 60.dp)) {
+                selected = null
+                vm.clearRoute()
+            }
+        }
+        LocateButton(
+            onClick = locateMe,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 14.dp),
+        )
+        Text(
+            if (google) "Places © Overture Maps" else "© OpenMapTiles © OpenStreetMap · Places © Overture Maps",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.TopStart).padding(top = 64.dp, start = 18.dp),
+        )
+
+        AnimatedVisibility(
+            visible = withDishes.isNotEmpty() && current == null,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            LazyRow(
+                state = strip,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(strip),
+            ) {
+                itemsIndexed(withDishes, key = { _, p -> p.id }) { _, p ->
+                    PlaceCard(p, app.mediaUrl(p.topDish?.thumbUrl ?: p.photoUrl)) { selected = p.id }
+                }
+            }
+        }
+
+        MapPopupHost(
+            place = current,
+            distanceM = current?.let { p -> location?.let { metres(it.lat, it.lng, p.lat, p.lng) } },
+            photoUrl = current?.let { app.mediaUrl(it.topDish?.thumbUrl ?: it.photoUrl) },
+            onDismiss = { selected = null },
+            onTakeMeThere = { p ->
+                if (route != null) openDriveWithStop(context, route, p) else takeMeThere.go(p.id, p.lat, p.lng, p.name, p.demo)
+            },
+            onRoute = route != null,
+            onOpenDish = onOpenDish,
+            onOpenPlace = onOpenPlace,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+
+        if (planning) {
+            RoutePlanner(
+                onDismiss = { planning = false },
+                onPick = { city ->
+                    planning = false
+                    val from = location ?: camera.target()
+                    if (from != null) vm.routeTo(from, city.lat, city.lng, city.name)
+                },
+            )
+        }
+
+        if (!state.loading && places.isEmpty()) {
+            Text(
+                when {
+                    route != null -> "No dishes on WorthAbite along this drive yet"
+                    state.filter == "friends" -> "No picks from people you follow here yet"
+                    state.filter == "taste" -> "No picks from your taste matches here yet"
+                    else -> "No places on WorthAbite here yet"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.align(Alignment.Center)
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(50))
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
+
+/** What the screen around the map asks of it, whichever map draws it. */
+class MapCamera {
+    var target: () -> Coords? = { null }
+    var animateTo: (lat: Double, lng: Double, zoom: Double) -> Unit = { _, _, _ -> }
+}
+
+/**
+ * The open MapLibre map under [FoodMap]: our own cream-and-ember style, a food logo per
+ * place, the drive as an ember line, you as a blue dot.
+ */
+@Composable
+private fun MapLibreFoodMapView(
+    places: List<MapPlace>,
+    location: Coords?,
+    route: PlannedRoute?,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    onLongPress: (Double, Double) -> Unit,
+    camera: MapCamera,
+    popupLift: Float,
+    dark: Boolean,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var styleReady by remember { mutableStateOf(false) }
+    val longPress by rememberUpdatedState(onLongPress)
+    val onPinTap by rememberUpdatedState(onSelect)
     val mapView = remember {
         MapLibre.getInstance(context)
         // TextureView mode: the map draws inside the normal view tree, so it clips to our
@@ -333,7 +536,7 @@ fun FoodMap(
                 addOnDidFinishLoadingStyleListener { m.style?.let(ready) }
                 m.setStyle(Style.Builder().fromJson(styleJson(context, dark))) { style -> ready(style) }
                 m.addOnMapLongClickListener { point ->
-                    onLongPress(point)
+                    longPress(point.latitude, point.longitude)
                     true
                 }
                 m.addOnMapClickListener { point ->
@@ -344,6 +547,8 @@ fun FoodMap(
                 }
                 map = m
                 FoodMapProbe.map = m
+                camera.target = { m.cameraPosition.target?.let { Coords(it.latitude, it.longitude) } }
+                camera.animateTo = { lat, lng, zoom -> m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lng), zoom), 600) }
                 android.util.Log.d("FoodMap", "map object ready")
             }
         }
@@ -442,62 +647,6 @@ fun FoodMap(
         }
     }
 
-    // While the map is on screen: a precise fix first, then follow the phone.
-    val scope = rememberCoroutineScope()
-    var askedPrecise by remember { mutableStateOf(false) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    fun startFollowing(): () -> Unit = DeviceLocation.follow(context) { c ->
-        val old = app.location.value
-        // Ignore a vaguer reading when we already have a sharper one from moments ago.
-        if (old?.accuracyM == null || c.accuracyM == null || c.accuracyM <= old.accuracyM * 2) app.location.value = c
-    }
-    DisposableEffect(lifecycle, askedPrecise) {
-        var stop: () -> Unit = {}
-        val observer = LifecycleEventObserver { _, e ->
-            when (e) {
-                Lifecycle.Event.ON_RESUME -> {
-                    stop()
-                    stop = startFollowing()
-                    scope.launch { DeviceLocation.current(context, precise = true)?.let { app.location.value = it } }
-                }
-                Lifecycle.Event.ON_PAUSE -> stop()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            stop()
-        }
-    }
-    val askPrecise = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
-        askedPrecise = !askedPrecise
-        scope.launch {
-            val c = DeviceLocation.current(context, precise = true)
-            if (c != null) {
-                app.location.value = c
-                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(c.lat, c.lng), 16.0), 600)
-            }
-        }
-    }
-    val locateMe: () -> Unit = {
-        if (!DeviceLocation.hasPrecise(context)) {
-            askPrecise.launch(DeviceLocation.PERMISSIONS)
-        } else {
-            location?.let { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(it.lat, it.lng), 16.0), 600) }
-            scope.launch {
-                val c = DeviceLocation.current(context, precise = true)
-                if (c != null) {
-                    app.location.value = c
-                    map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(c.lat, c.lng), 16.0), 600)
-                }
-            }
-        }
-    }
-
-    // Selection: lift the logo, glide the camera so the pin sits above the card.
-    val withDishes = places.filter { it.dishCount > 0 }
-    val popupLift = with(density) { 300.dp.toPx() }.toDouble()
     LaunchedEffect(selected, styleReady) {
         val m = map ?: return@LaunchedEffect
         (m.style?.getLayer("ff-selected") as? SymbolLayer)?.setFilter(Expression.eq(Expression.get("id"), Expression.literal(selected ?: "")))
@@ -508,124 +657,14 @@ fun FoodMap(
                     CameraPosition.Builder()
                         .target(LatLng(p.lat, p.lng))
                         .zoom(maxOf(m.cameraPosition.zoom, 14.5))
-                        .padding(0.0, 0.0, 0.0, popupLift)
+                        .padding(0.0, 0.0, 0.0, popupLift.toDouble())
                         .build(),
                 ),
                 500,
             )
         }
     }
-    // A new set of places (a filter, a route) starts the strip from its first card.
-    LaunchedEffect(withDishes.firstOrNull()?.id) { if (withDishes.isNotEmpty()) strip.scrollToItem(0) }
-    // Swiping the strip selects the card that settles in front.
-    LaunchedEffect(strip, withDishes) {
-        snapshotFlow { strip.isScrollInProgress to strip.firstVisibleItemIndex }
-            .distinctUntilChanged()
-            .collect { (scrolling, i) ->
-                if (!scrolling && strip.firstVisibleItemScrollOffset > 0) withDishes.getOrNull(i)?.let { selected = it.id }
-            }
-    }
-
-    val current = places.firstOrNull { it.id == selected }
-    val takeMeThere = rememberTakeMeThere()
-    Box(modifier.fillMaxSize()) {
-        AndroidView({ mapView }, Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).testTag("food_map"))
-
-        if (route == null) {
-            Row(
-                Modifier.align(Alignment.TopStart).padding(top = 14.dp)
-                    .horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (state.filter == "all") {
-                    MapChip(if (state.showAll) "All food places" else "Places with dishes", AppIcons.Map) { vm.toggleAll() }
-                }
-                for ((key, label) in listOf("friends" to "Friends' picks", "taste" to "Taste match")) {
-                    MapChip(label, AppIcons.Heart, on = state.filter == key, tag = "map_filter_$key") {
-                        val next = if (state.filter == key) "all" else key
-                        if (!vm.setFilter(next)) onNeedSignIn() else selected = null
-                    }
-                }
-            }
-            MapChip(
-                "On the way", AppIcons.Directions, tag = "map_route",
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 122.dp, end = 14.dp),
-            ) { planning = true }
-        } else {
-            RouteBanner(route, state.routing, Modifier.align(Alignment.TopStart).padding(14.dp).padding(end = 60.dp)) {
-                selected = null
-                vm.clearRoute()
-            }
-        }
-        LocateButton(
-            onClick = locateMe,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 14.dp),
-        )
-        Text(
-            "© OpenMapTiles © OpenStreetMap · Places © Overture Maps",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.TopStart).padding(top = 64.dp, start = 18.dp),
-        )
-
-        AnimatedVisibility(
-            visible = withDishes.isNotEmpty() && current == null,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            LazyRow(
-                state = strip,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(strip),
-            ) {
-                itemsIndexed(withDishes, key = { _, p -> p.id }) { _, p ->
-                    PlaceCard(p, app.mediaUrl(p.topDish?.thumbUrl ?: p.photoUrl)) { selected = p.id }
-                }
-            }
-        }
-
-        MapPopupHost(
-            place = current,
-            distanceM = current?.let { p -> location?.let { metres(it.lat, it.lng, p.lat, p.lng) } },
-            photoUrl = current?.let { app.mediaUrl(it.topDish?.thumbUrl ?: it.photoUrl) },
-            onDismiss = { selected = null },
-            onTakeMeThere = { p ->
-                if (route != null) openDriveWithStop(context, route, p) else takeMeThere.go(p.id, p.lat, p.lng, p.name, p.demo)
-            },
-            onRoute = route != null,
-            onOpenDish = onOpenDish,
-            onOpenPlace = onOpenPlace,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
-
-        if (planning) {
-            RoutePlanner(
-                onDismiss = { planning = false },
-                onPick = { city ->
-                    planning = false
-                    val from = location ?: map?.cameraPosition?.target?.let { Coords(it.latitude, it.longitude) }
-                    if (from != null) vm.routeTo(from, city.lat, city.lng, city.name)
-                },
-            )
-        }
-
-        if (!state.loading && places.isEmpty()) {
-            Text(
-                when {
-                    route != null -> "No dishes on WorthAbite along this drive yet"
-                    state.filter == "friends" -> "No picks from people you follow here yet"
-                    state.filter == "taste" -> "No picks from your taste matches here yet"
-                    else -> "No places on WorthAbite here yet"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.align(Alignment.Center)
-                    .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(50))
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-            )
-        }
-    }
+    AndroidView({ mapView }, modifier)
 }
 
 /**

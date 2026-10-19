@@ -107,6 +107,8 @@ jobs:
         env:
           # Optional repository variable to override serverUrl from android/gradle.properties.
           WORTHABITE_SERVER_URL: ${{ vars.WORTHABITE_SERVER_URL || vars.FOODFEED_SERVER_URL }}
+          # Android-restricted Google Maps key (repository secret); without it the maps use MapLibre.
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: |
           ./gradlew --no-daemon assembleRelease \
             -PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ github.run_number }}
