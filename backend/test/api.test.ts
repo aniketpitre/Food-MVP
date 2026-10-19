@@ -1373,6 +1373,53 @@ describe('real places from OpenStreetMap', () => {
   });
 });
 
+describe('every place from Overture Maps', () => {
+  it('imports places once, links twins already here, and ships a real Nashik file', async () => {
+    const { importOverturePlaces, readOvertureFile, overtureFileFor } = await import('../src/overture.js');
+    // One already here from OpenStreetMap, right next door with the same name.
+    await db.query(
+      `insert into restaurants (city_id, name, name_norm, geo, status, source, osm_id)
+       values ($1, 'Shree Krishna Vadapav', norm_name('Shree Krishna Vadapav'), st_setsrid(st_makepoint(73.7801, 20.0101), 4326)::geography, 'active', 'osm', 'n99')`,
+      [cityId],
+    );
+    const places = [
+      { id: 'ov-1', name: 'Shree Krishna Vada Pav', lat: 20.0102, lng: 73.7802, kind: 'fast_food_restaurant', cuisine: 'fast food', area: 'College Road', address: 'College Rd', phone: '+91 99999 00000', website: null, confidence: 0.9 },
+      { id: 'ov-2', name: 'Overture Only Cafe', lat: 20.02, lng: 73.79, kind: 'cafe', cuisine: 'cafe', area: 'Gangapur', address: null, phone: null, website: 'https://example.com', confidence: 0.7 },
+    ];
+    expect(await importOverturePlaces(db, cityId, places)).toEqual({ added: 1, linked: 1, skipped: 0 });
+    expect(await importOverturePlaces(db, cityId, places)).toEqual({ added: 0, linked: 0, skipped: 2 });
+    const { rows } = await db.query(
+      `select name, source, status, locality, overture_id, osm_id, osm_tags->>'phone' as phone from restaurants
+       where overture_id in ('ov-1', 'ov-2') order by name`,
+    );
+    expect(rows).toEqual([
+      { name: 'Overture Only Cafe', source: 'overture', status: 'active', locality: 'Gangapur', overture_id: 'ov-2', osm_id: null, phone: null },
+      { name: 'Shree Krishna Vadapav', source: 'osm', status: 'active', locality: 'College Road', overture_id: 'ov-1', osm_id: 'n99', phone: '+91 99999 00000' },
+    ]);
+    // A cafe from Overture is a cafe for cuisine search.
+    const cafes = (await app.inject(`/search?city=${cityId}&q=Cafe&cuisine=cafe`)).json();
+    expect(cafes.restaurants.map((p: { name: string }) => p.name)).toContain('Overture Only Cafe');
+
+    const nashik = await readOvertureFile(overtureFileFor('nashik'));
+    expect(nashik.places.length).toBeGreaterThan(1000);
+    for (const p of nashik.places) {
+      expect(p.name.length).toBeGreaterThan(1);
+      expect(Math.abs(p.lat - 20.0059)).toBeLessThan(0.3);
+      expect(Math.abs(p.lng - 73.7898)).toBeLessThan(0.3);
+    }
+    expect(new Set(nashik.places.map((p) => p.id)).size).toBe(nashik.places.length);
+  });
+
+  it('runs from the admin dashboard', async () => {
+    const admin = { auth: await adminAuth() };
+    const slug = (await db.query('select slug from cities where id = $1', [cityId])).rows[0].slug;
+    const res = await app.inject({ method: 'POST', url: `/admin/cities/${slug}/import-overture`, headers: admin.auth, payload: {} });
+    // The test city has no bundled file unless it's Nashik.
+    expect([202, 404]).toContain(res.statusCode);
+    if (res.statusCode === 404) expect(res.json().error).toBe('no_file');
+  });
+});
+
 describe('search suggestions and cuisines', () => {
   it('suggests dishes, cuisines, places and people as you type, and searches a cuisine', async () => {
     const r = await db.query(

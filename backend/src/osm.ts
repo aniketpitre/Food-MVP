@@ -140,7 +140,7 @@ export async function importOsmPlaces(db: Db, cityId: number, places: OsmPlace[]
   let skipped = 0;
   for (const p of places) {
     const { rowCount: known } = await db.query(
-      `update restaurants set osm_tags = $2, address = coalesce(address, $3), locality = coalesce(locality, $4),
+      `update restaurants set osm_tags = coalesce(osm_tags, '{}'::jsonb) || $2::jsonb, address = coalesce(address, $3), locality = coalesce(locality, $4),
                               cuisine = coalesce(cuisine, $5), opening_hours = coalesce(opening_hours, $6)
        where osm_id = $1`,
       [p.osmId, JSON.stringify(p.tags), p.address, p.locality, p.cuisine, p.openingHours],
@@ -159,7 +159,7 @@ export async function importOsmPlaces(db: Db, cityId: number, places: OsmPlace[]
     if (twin[0]) {
       await db.query(
         `update restaurants set osm_id = $2, cuisine = coalesce(cuisine, $3), opening_hours = coalesce(opening_hours, $4),
-                                osm_tags = $5, address = coalesce(address, $6) where id = $1`,
+                                osm_tags = coalesce(osm_tags, '{}'::jsonb) || $5::jsonb, address = coalesce(address, $6) where id = $1`,
         [twin[0].id, p.osmId, p.cuisine, p.openingHours, JSON.stringify(p.tags), p.address],
       );
       linked++;

@@ -1,5 +1,6 @@
 // Admin commands, run inside the api container, e.g.
 //   docker compose exec api node dist/cli.js seed
+import { importOverturePlaces, overtureFileFor, readOvertureFile } from './overture.js';
 import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { removeDemoActivity, removeDemoCatalog, restoreDemoPlaces, seedCatalog, seedDemoActivity } from './seed.js';
@@ -76,6 +77,19 @@ try {
       log(`${city.name}: ${places.length} found, ${r.added} added, ${r.linked} matched to existing places, ${r.skipped} already imported`);
       break;
     }
+    case 'import-overture': {
+      // Every food place from Overture Maps, from the bundled file (seed/places/<city>.overture.json)
+      // or one made with scripts/overture-places.py, e.g. import-overture nashik
+      const slug = args[0];
+      if (!slug) throw new Error('usage: import-overture <city-slug> [file.json]');
+      const { rows } = await db.query<{ id: number; name: string }>('select id, name from cities where slug = $1', [slug]);
+      const city = rows[0];
+      if (!city) throw new Error(`no city with slug "${slug}"`);
+      const file = await readOvertureFile(args[1] ?? overtureFileFor(slug));
+      const r = await importOverturePlaces(db, city.id, file.places);
+      log(`${city.name}: ${file.places.length} Overture places (release ${file.release}), ${r.added} added, ${r.linked} matched to existing places, ${r.skipped} already imported`);
+      break;
+    }
     case 'fetch-place-photos': {
       // Openly licensed photos of a city's places: Wikimedia Commons, plus Mapillary street
       // photos of the shopfront when MAPILLARY_TOKEN is set. e.g. fetch-place-photos nashik 200
@@ -95,7 +109,7 @@ try {
       break;
     }
     default:
-      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-places <city> [km]|fetch-place-photos <city> [max]>');
+      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-places <city> [km]|import-overture <city> [file]|fetch-place-photos <city> [max]>');
       process.exitCode = 1;
   }
 } finally {

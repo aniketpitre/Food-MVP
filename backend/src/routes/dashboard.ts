@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
 import { fetchOsmPlaces, importOsmPlaces } from '../osm.js';
+import { importOverturePlaces, overtureFileFor, readOvertureFile } from '../overture.js';
 import { removeDemoActivity, removeDemoCatalog } from '../seed.js';
 import { requireAdmin } from './admin.js';
 import { DASHBOARD_HTML } from '../dashboard/page.js';
@@ -432,7 +433,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         q: z.string().trim().max(80).optional(),
         city: z.coerce.number().int().positive().optional(),
         status: z.enum(['active', 'pending', 'hidden']).optional(),
-        source: z.enum(['user', 'osm', 'seed']).optional(),
+        source: z.enum(['user', 'osm', 'overture', 'seed']).optional(),
         limit: z.coerce.number().int().min(1).max(200).default(50),
       }),
       req.query,
@@ -505,6 +506,41 @@ export async function dashboardRoutes(app: FastifyInstance) {
         const r = await importOsmPlaces(db, city.id, places);
         log(`Added ${r.added}, linked ${r.linked} to places already here, skipped ${r.skipped} imported before.`);
         finishJob(job, 'done', { fetched: places.length, ...r });
+      } catch (err) {
+        log(`Failed: ${(err as Error).message}`);
+        finishJob(job, 'failed', { error: (err as Error).message });
+      }
+    })();
+    return reply.code(202).send({ started: true, jobId: job.id });
+  });
+
+  // Every food place from Overture Maps, from the file bundled for the city (seed/places/).
+  app.post('/admin/cities/:slug/import-overture', { preHandler: requireAdmin }, async (req, reply) => {
+    const p = parse(z.object({ slug: z.string().regex(/^[a-z0-9-]{1,60}$/) }), req.params, reply);
+    if (!p) return;
+    const { rows } = await db.query<{ id: number; name: string }>('select id, name from cities where slug = $1', [p.slug]);
+    const city = rows[0];
+    if (!city) return reply.code(404).send({ error: 'not_found', message: 'No such city.' });
+    let file;
+    try {
+      file = await readOvertureFile(overtureFileFor(p.slug));
+    } catch {
+      return reply.code(404).send({
+        error: 'no_file',
+        message: `No Overture places file for ${city.name} yet. Make one with scripts/overture-places.py.`,
+      });
+    }
+    if (jobs.some((j) => j.kind === 'import-overture' && j.status === 'running')) {
+      return reply.code(409).send({ error: 'busy', message: 'An Overture import is already running.' });
+    }
+    const job = startJob('import-overture', `${city.name} (${file.places.length} places, release ${file.release})`);
+    const log = say(job);
+    void (async () => {
+      try {
+        log(`Adding ${file.places.length} Overture Maps places to ${city.name}...`);
+        const r = await importOverturePlaces(db, city.id, file.places);
+        log(`Added ${r.added}, linked ${r.linked} to places already here, skipped ${r.skipped} imported before.`);
+        finishJob(job, 'done', { fetched: file.places.length, ...r });
       } catch (err) {
         log(`Failed: ${(err as Error).message}`);
         finishJob(job, 'failed', { error: (err as Error).message });

@@ -562,7 +562,7 @@ fun FoodMap(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 14.dp),
         )
         Text(
-            "© OpenMapTiles © OpenStreetMap",
+            "© OpenMapTiles © OpenStreetMap · Places © Overture Maps",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.TopStart).padding(top = 64.dp, start = 18.dp),

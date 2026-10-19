@@ -350,9 +350,9 @@ input[type=number] { width: 110px; }
     var t = ov.totals;
     var bySource = {};
     ov.places.forEach(function (p) { bySource[p.source] = bySource[p.source] || {}; bySource[p.source][p.status] = p.n; });
-    var placeRows = ['user', 'osm', 'seed'].map(function (s) {
+    var placeRows = ['user', 'osm', 'overture', 'seed'].map(function (s) {
       var r = bySource[s] || {};
-      var label = { user: 'Added by people', osm: 'OpenStreetMap', seed: 'Demo (seed)' }[s];
+      var label = { user: 'Added by people', osm: 'OpenStreetMap', overture: 'Overture Maps', seed: 'Demo (seed)' }[s];
       return tr([td(esc(label)), tdn(num(r.active || 0)), tdn(num(r.pending || 0)), tdn(num(r.hidden || 0))]);
     });
     $('main').innerHTML =
@@ -672,12 +672,14 @@ input[type=number] { width: 110px; }
         '<div class="card"><form class="row" id="pForm"><input id="pQ" placeholder="Place name" value="' + esc(placesF.q) + '" style="flex:1;min-width:160px">' +
         citySelect('pCity', placesF.city, true) +
         '<select id="pStatus"><option value="">Any status</option>' + ['active', 'pending', 'hidden'].map(function (s) { return '<option' + (s === placesF.status ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>' +
-        '<select id="pSource"><option value="">Any source</option>' + [['user', 'Added by people'], ['osm', 'OpenStreetMap'], ['seed', 'Demo']].map(function (s) { return '<option value="' + s[0] + '"' + (s[0] === placesF.source ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select>' +
+        '<select id="pSource"><option value="">Any source</option>' + [['user', 'Added by people'], ['osm', 'OpenStreetMap'], ['overture', 'Overture Maps'], ['seed', 'Demo']].map(function (s) { return '<option value="' + s[0] + '"' + (s[0] === placesF.source ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select>' +
         '<button>Search</button></form><div id="pOut"></div></div>' +
         '<div class="card"><h3>Possible duplicates</h3><p class="note">Places in the chosen city (else the busiest) within 150 m of each other with similar names. Merging moves dishes (same-name dishes are merged, votes and photos follow), place photos and links, then hides the old place.</p><div id="pDup"><p class="note">Loading...</p></div></div>' +
         '<div class="two">' +
         '<div class="card"><h3>Import real places from OpenStreetMap</h3><p class="note">Adds every named restaurant, cafe, fast-food stall, bakery, sweet shop, ice-cream parlour, bar and tea or coffee shop around the city centre, with its neighbourhood (&copy; OpenStreetMap contributors). Places already here are linked, not copied; running it again picks up new ones. Runs in the background; it can take a few minutes.</p>' +
         '<div class="row">' + citySelect('oCity', placesF.city || (cities[0] && cities[0].id)) + '<label>Radius km <input id="oRadius" type="number" min="0.5" max="60" step="0.5" placeholder="city size"></label><button id="oGo">Import</button></div></div>' +
+        '<div class="card"><h3>Import every place from Overture Maps</h3><p class="note">The fullest list: restaurants, cafes, bakeries, sweet and ice-cream shops, bars and stalls from Meta, Microsoft, Foursquare and OpenStreetMap, cleaned by the Overture Maps Foundation (open data, CDLA-Permissive-2.0), with their neighbourhood. For Nashik about 1,200 places, bundled with the server. Places already here are linked, not copied.</p>' +
+        '<div class="row">' + citySelect('ovCity', placesF.city || (cities[0] && cities[0].id)) + '<button id="ovGo">Import</button></div></div>' +
         '<div class="card"><h3>Remove demo content</h3><p class="note">The 40 demo_ accounts made the first rankings look alive. Remove them (and their votes) once real people vote; optionally remove the invented demo places and their illustrated photos too. Real and imported places are not touched.</p>' +
         '<div class="row"><button class="warn" id="dmAct">Remove demo accounts</button><button class="warn" id="dmAll">Remove demo accounts and demo places</button></div></div>' +
         '</div>' +
@@ -687,6 +689,10 @@ input[type=number] { width: 110px; }
         var o = $('oCity').selectedOptions[0];
         var r = $('oRadius').value;
         act('/admin/cities/' + o.getAttribute('data-slug') + '/import-osm', r ? { radiusKm: Number(r) } : {}, 'Import started for ' + o.textContent.split(' (')[0] + '.').then(loadJobs);
+      });
+      $('ovGo').addEventListener('click', function () {
+        var o = $('ovCity').selectedOptions[0];
+        act('/admin/cities/' + o.getAttribute('data-slug') + '/import-overture', {}, 'Overture import started for ' + o.textContent.split(' (')[0] + '.').then(loadJobs);
       });
       $('dmAct').addEventListener('click', function () { if (confirm('Remove all demo_ accounts and their votes? This cannot be undone.')) act('/admin/demo/remove', { all: false }, 'Demo accounts removed.').then(loadJobs); });
       $('dmAll').addEventListener('click', function () { if (confirm('Remove demo accounts AND the invented demo places with their dishes and photos? This cannot be undone.')) act('/admin/demo/remove', { all: true }, 'Demo content removed.').then(function () { loadJobs(); loadPlaces(); }); });
@@ -723,7 +729,7 @@ input[type=number] { width: 110px; }
     api('/admin/jobs').then(function (jobs) {
       if (!$('jobs')) return;
       $('jobs').innerHTML = jobs.length ? jobs.map(function (j) {
-        return '<div style="margin-bottom:10px"><b>' + esc(j.kind === 'import-osm' ? 'OpenStreetMap import: ' : 'Remove demo: ') + esc(j.label) + '</b> ' +
+        return '<div style="margin-bottom:10px"><b>' + esc(j.kind === 'import-osm' ? 'OpenStreetMap import: ' : j.kind === 'import-overture' ? 'Overture Maps import: ' : 'Remove demo: ') + esc(j.label) + '</b> ' +
           badge(j.status, j.status === 'done' ? 'ok' : j.status === 'failed' ? 'bad' : 'warn') + ' <span class="note">' + when(j.startedAt) + '</span>' +
           (j.log.length ? '<div class="log">' + esc(j.log.join('|NL|')).split('|NL|').join('<br>') + '</div>' : '') + '</div>';
       }).join('') : '<p class="note">Nothing run since the server started.</p>';
