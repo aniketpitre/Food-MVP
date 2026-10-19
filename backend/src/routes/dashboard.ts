@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
-import { fetchOsmPlaces, importOsmPlaces } from '../osm.js';
 import { importOverturePlaces, overtureFileFor, readOvertureFile } from '../overture.js';
 import { removeDemoActivity, removeDemoCatalog } from '../seed.js';
 import { requireAdmin } from './admin.js';
@@ -11,7 +10,6 @@ import { DASHBOARD_HTML } from '../dashboard/page.js';
  * Where OpenStreetMap places come from. Tests swap in a fake so they never reach the real
  * Overpass servers (slow, rate-limited, and not there in CI).
  */
-export const osmSource = { fetch: fetchOsmPlaces };
 
 /** A slow admin task (an import, a clean-up) and what it said while it ran. */
 export interface AdminJob {
@@ -482,38 +480,6 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
   // Real places from OpenStreetMap, fetched in the background: the Overpass servers can
   // take a minute or more, far longer than a request should wait.
-  app.post('/admin/cities/:slug/import-osm', { preHandler: requireAdmin }, async (req, reply) => {
-    const p = parse(z.object({ slug: z.string().max(60) }), req.params, reply);
-    const b = parse(z.object({ radiusKm: z.number().min(0.5).max(60).optional() }).default({}), req.body ?? {}, reply);
-    if (!p || !b) return;
-    const { rows } = await db.query<{ id: number; name: string; lat: number; lng: number; radius_km: number }>(
-      'select id, name, st_y(center::geometry) as lat, st_x(center::geometry) as lng, radius_km from cities where slug = $1',
-      [p.slug],
-    );
-    const city = rows[0];
-    if (!city) return reply.code(404).send({ error: 'not_found', message: 'No such city.' });
-    if (jobs.some((j) => j.kind === 'import-osm' && j.status === 'running' && j.label.startsWith(`${city.name} `))) {
-      return reply.code(409).send({ error: 'busy', message: `An import for ${city.name} is already running.` });
-    }
-    const radiusKm = b.radiusKm ?? Math.min(city.radius_km, 25);
-    const job = startJob('import-osm', `${city.name} (${radiusKm} km)`);
-    const log = say(job);
-    void (async () => {
-      try {
-        log(`Asking OpenStreetMap for food places within ${radiusKm} km of ${city.name}...`);
-        const places = await osmSource.fetch(city.lat, city.lng, radiusKm, log);
-        log(`Got ${places.length} places; adding them.`);
-        const r = await importOsmPlaces(db, city.id, places);
-        log(`Added ${r.added}, linked ${r.linked} to places already here, skipped ${r.skipped} imported before.`);
-        finishJob(job, 'done', { fetched: places.length, ...r });
-      } catch (err) {
-        log(`Failed: ${(err as Error).message}`);
-        finishJob(job, 'failed', { error: (err as Error).message });
-      }
-    })();
-    return reply.code(202).send({ started: true, jobId: job.id });
-  });
-
   // Every food place from Overture Maps, from the file bundled for the city (seed/places/).
   app.post('/admin/cities/:slug/import-overture', { preHandler: requireAdmin }, async (req, reply) => {
     const p = parse(z.object({ slug: z.string().regex(/^[a-z0-9-]{1,60}$/) }), req.params, reply);
@@ -547,6 +513,22 @@ export async function dashboardRoutes(app: FastifyInstance) {
       }
     })();
     return reply.code(202).send({ started: true, jobId: job.id });
+  });
+
+  // Places now come from Overture Maps only. Places imported from OpenStreetMap that Overture
+  // doesn't know and nobody posted a dish at are hidden (not deleted: a merge or an admin can
+  // bring one back); ones Overture matched become Overture places.
+  app.post('/admin/places/retire-osm', { preHandler: requireAdmin }, async () => {
+    const { rowCount: moved } = await db.query(
+      "update restaurants set source = 'overture' where source = 'osm' and overture_id is not null",
+    );
+    const { rowCount: hidden } = await db.query(
+      `update restaurants r set status = 'hidden'
+       where r.source = 'osm' and r.overture_id is null and r.status <> 'hidden'
+         and not exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live')`,
+    );
+    const { rows } = await db.query<{ n: number }>("select count(*)::int as n from restaurants where source = 'osm' and status <> 'hidden'");
+    return { ok: true, matched: moved ?? 0, hidden: hidden ?? 0, keptWithDishes: rows[0]!.n };
   });
 
   app.get('/admin/jobs', { preHandler: requireAdmin }, async () => jobs);

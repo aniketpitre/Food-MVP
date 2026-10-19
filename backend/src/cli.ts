@@ -5,7 +5,6 @@ import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
 import { removeDemoActivity, removeDemoCatalog, restoreDemoPlaces, seedCatalog, seedDemoActivity } from './seed.js';
 import { refreshDemoDishPhotos } from './demo-photos.js';
-import { fetchOsmPlaces, importOsmPlaces } from './osm.js';
 import { fetchPlacePhotos } from './photos.js';
 
 const [command, ...args] = process.argv.slice(2);
@@ -60,23 +59,6 @@ try {
       await db.query('select refresh_people_pick()');
       log('ranking refreshed');
       break;
-    case 'import-places': {
-      // Real restaurants, cafes and bakeries from OpenStreetMap, e.g. import-places nashik 12
-      const slug = args[0];
-      if (!slug) throw new Error('usage: import-places <city-slug> [radius-km]');
-      const { rows } = await db.query<{ id: number; name: string; lat: number; lng: number; radius_km: number }>(
-        'select id, name, st_y(center::geometry) as lat, st_x(center::geometry) as lng, radius_km from cities where slug = $1',
-        [slug],
-      );
-      const city = rows[0];
-      if (!city) throw new Error(`no city with slug "${slug}" (see GET /cities?q=...)`);
-      const radius = Number(args[1] ?? city.radius_km);
-      log(`asking OpenStreetMap for food places within ${radius} km of ${city.name}...`);
-      const places = await fetchOsmPlaces(city.lat, city.lng, radius, log);
-      const r = await importOsmPlaces(db, city.id, places);
-      log(`${city.name}: ${places.length} found, ${r.added} added, ${r.linked} matched to existing places, ${r.skipped} already imported`);
-      break;
-    }
     case 'import-overture': {
       // Every food place from Overture Maps, from the bundled file (seed/places/<city>.overture.json)
       // or one made with scripts/overture-places.py, e.g. import-overture nashik
@@ -109,7 +91,7 @@ try {
       break;
     }
     default:
-      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-places <city> [km]|import-overture <city> [file]|fetch-place-photos <city> [max]>');
+      console.error('usage: node dist/cli.js <migrate|seed|demo-activity|remove-demo|refresh|import-overture <city> [file]|fetch-place-photos <city> [max]>');
       process.exitCode = 1;
   }
 } finally {

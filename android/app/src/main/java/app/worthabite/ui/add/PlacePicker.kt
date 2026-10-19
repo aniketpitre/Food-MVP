@@ -75,17 +75,12 @@ sealed interface PickedPlace {
 private const val OURS = "picker-ours"
 private const val OURS_DOT = "picker-ours-dot"
 private const val OURS_LABEL = "picker-ours-label"
-private const val MAP_FOOD_DOT = "picker-food-dot"
-private const val MAP_FOOD_LABEL = "picker-food-label"
-
-/** Kinds of places the map itself knows (OpenStreetMap) that someone might have eaten at. */
-private val FOOD_CLASSES = listOf("restaurant", "cafe", "fast_food", "bar", "beer", "ice_cream", "bakery", "food_court", "pub")
 
 /**
- * "Where did you eat it?" on a map. It opens where you are and shows the places already on
- * WorthAbite (saffron) and the cafés and restaurants the map knows (dark dots, with their
- * names). Tap one to pick it; or move the map so the pin sits on the spot and add a new place
- * there. A café the map knows but WorthAbite doesn't becomes a new place with its name filled in.
+ * "Where did you eat it?" on a map. It opens where you are and shows the places on WorthAbite
+ * (saffron dots with names: every restaurant, cafe and stall from Overture Maps, plus the ones
+ * people added). Tap one to pick it; or move the map so the pin sits on the spot and add a
+ * new place there.
  */
 @Composable
 fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> Unit) {
@@ -122,16 +117,10 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
                 m.addOnMapClickListener { at ->
                     val p = m.projection.toScreenLocation(at)
                     val ours = m.queryRenderedFeatures(p, OURS_DOT, OURS_LABEL).firstOrNull()
-                    val food = m.queryRenderedFeatures(p, MAP_FOOD_DOT, MAP_FOOD_LABEL).firstOrNull()
                     when {
                         ours != null -> {
                             val id = ours.getStringProperty("id")
                             places.firstOrNull { it.id == id }?.let { chosen = PickedPlace.Existing(it) }
-                        }
-                        food != null -> {
-                            val pt = food.geometry() as? Point
-                            val name = runCatching { food.getStringProperty("name") }.getOrNull().orEmpty()
-                            chosen = PickedPlace.New(name, pt?.latitude() ?: at.latitude, pt?.longitude() ?: at.longitude)
                         }
                         else -> chosen = null
                     }
@@ -245,29 +234,6 @@ fun PlacePicker(start: Coords?, onPicked: (PickedPlace) -> Unit, onClose: () -> 
 }
 
 private fun addPickerLayers(style: Style) {
-    // Cafés and restaurants the map knows (OpenStreetMap), from the base map's own tiles.
-    val food = Expression.any(*FOOD_CLASSES.map { Expression.eq(Expression.get("class"), Expression.literal(it)) }.toTypedArray())
-    style.addLayer(
-        CircleLayer(MAP_FOOD_DOT, "openmaptiles").withSourceLayer("poi").withFilter(food).withProperties(
-            PropertyFactory.circleRadius(6f),
-            PropertyFactory.circleColor("#2B1B12"),
-            PropertyFactory.circleStrokeColor("#FFFFFF"),
-            PropertyFactory.circleStrokeWidth(2f),
-        ).apply { minZoom = 14f },
-    )
-    style.addLayer(
-        SymbolLayer(MAP_FOOD_LABEL, "openmaptiles").withSourceLayer("poi").withFilter(food).withProperties(
-            PropertyFactory.textField(Expression.get("name")),
-            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-            PropertyFactory.textSize(12f),
-            PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
-            PropertyFactory.textAnchor("top"),
-            PropertyFactory.textColor("#2B1B12"),
-            PropertyFactory.textHaloColor("#FFFFFF"),
-            PropertyFactory.textHaloWidth(1.5f),
-            PropertyFactory.textOptional(true),
-        ).apply { minZoom = 15f },
-    )
     // Places already on WorthAbite: bigger saffron dots, on top.
     style.addSource(GeoJsonSource(OURS))
     style.addLayer(

@@ -1334,45 +1334,6 @@ describe('people-based recommendation', () => {
   });
 });
 
-describe('real places from OpenStreetMap', () => {
-  it('parses Overpass results and imports them once, linking places we already have', async () => {
-    const { parseOverpass, importOsmPlaces, overpassQuery } = await import('../src/osm.js');
-    expect(overpassQuery(20, 73.8, 5)).toContain('around:5000,20,73.8');
-    const places = parseOverpass({
-      elements: [
-        { type: 'node', id: 1, lat: 20.001, lon: 73.79, tags: { amenity: 'cafe', name: 'Sadhana Cafe', cuisine: 'indian;coffee_shop', 'addr:suburb': 'Gangapur Road' } },
-        { type: 'way', id: 2, center: { lat: 20.0042, lon: 73.7731 }, tags: { amenity: 'restaurant', name: 'Pav Bhaji Point' } },
-        { type: 'node', id: 3, lat: 20.01, lon: 73.8, tags: { amenity: 'restaurant' } },
-        { type: 'node', id: 4, lat: 20.02, lon: 73.8, tags: { amenity: 'restaurant', name: 'Old Place', 'disused:amenity': 'restaurant' } },
-      ],
-    });
-    expect(places.map((p) => p.name)).toEqual(['Sadhana Cafe', 'Pav Bhaji Point']);
-    expect(places[0]).toMatchObject({ osmId: 'n1', cuisine: 'indian, coffee shop', locality: 'Gangapur Road' });
-    expect(await importOsmPlaces(db, cityId, places)).toEqual({ added: 1, linked: 1, skipped: 0 });
-    expect(await importOsmPlaces(db, cityId, places)).toEqual({ added: 0, linked: 0, skipped: 2 });
-    const { rows } = await db.query("select source, status from restaurants where osm_id = 'n1'");
-    expect(rows[0]).toEqual({ source: 'osm', status: 'active' });
-    // Imported places with no dishes only appear on the map when asked for.
-    const all = (await app.inject(`/map?city=${cityId}&all=true`)).json().places.map((p: { name: string }) => p.name);
-    const withDishes = (await app.inject(`/map?city=${cityId}`)).json().places.map((p: { name: string }) => p.name);
-    expect(all).toContain('Sadhana Cafe');
-    expect(withDishes).not.toContain('Sadhana Cafe');
-  });
-
-  it('names the area of a place with no address after the nearest neighbourhood', async () => {
-    const { parseOverpass } = await import('../src/osm.js');
-    const places = parseOverpass({
-      elements: [
-        { type: 'node', id: 10, lat: 20.0, lon: 73.76, tags: { place: 'suburb', name: 'Gangapur' } },
-        { type: 'node', id: 11, lat: 20.1, lon: 73.9, tags: { place: 'suburb', name: 'Far Away' } },
-        { type: 'node', id: 12, lat: 20.002, lon: 73.762, tags: { amenity: 'cafe', name: 'Area Cafe', 'addr:street': 'Some Lane' } },
-        { type: 'node', id: 13, lat: 20.5, lon: 74.5, tags: { amenity: 'bar', name: 'Lonely Bar', 'addr:street': 'Highway' } },
-      ],
-    });
-    expect(places.map((p) => [p.name, p.locality])).toEqual([['Area Cafe', 'Gangapur'], ['Lonely Bar', 'Highway']]);
-  });
-});
-
 describe('every place from Overture Maps', () => {
   it('imports places once, links twins already here, and ships a real Nashik file', async () => {
     const { importOverturePlaces, readOvertureFile, overtureFileFor } = await import('../src/overture.js');
@@ -1396,6 +1357,11 @@ describe('every place from Overture Maps', () => {
       { name: 'Overture Only Cafe', source: 'overture', status: 'active', locality: 'Gangapur', overture_id: 'ov-2', osm_id: null, phone: null },
       { name: 'Shree Krishna Vadapav', source: 'osm', status: 'active', locality: 'College Road', overture_id: 'ov-1', osm_id: 'n99', phone: '+91 99999 00000' },
     ]);
+    // Imported places with no dishes only appear on the map when asked for.
+    const all = (await app.inject(`/map?city=${cityId}&all=true`)).json().places.map((p: { name: string }) => p.name);
+    const withDishes = (await app.inject(`/map?city=${cityId}`)).json().places.map((p: { name: string }) => p.name);
+    expect(all).toContain('Overture Only Cafe');
+    expect(withDishes).not.toContain('Overture Only Cafe');
     // A cafe from Overture is a cafe for cuisine search.
     const cafes = (await app.inject(`/search?city=${cityId}&q=Cafe&cuisine=cafe`)).json();
     expect(cafes.restaurants.map((p: { name: string }) => p.name)).toContain('Overture Only Cafe');

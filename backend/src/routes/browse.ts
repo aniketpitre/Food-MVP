@@ -426,7 +426,7 @@ export async function browseRoutes(app: FastifyInstance) {
          and st_dwithin(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography, $3)
          and ($4::text is null or word_similarity(norm_name($4), name_norm) >= 0.5 or name_norm like '%' || norm_name($4) || '%')
        order by geo <-> st_setsrid(st_makepoint($2, $1), 4326)::geography
-       limit 30`,
+       limit 80`,
       [q.lat, q.lng, q.radius, q.q || null],
     );
     return rows;

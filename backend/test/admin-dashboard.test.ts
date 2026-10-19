@@ -10,8 +10,6 @@ import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { createPool, migrate, type Db } from '../src/db.js';
 import { ensureCities } from '../src/geo.js';
-import type { OsmPlace } from '../src/osm.js';
-import { osmSource } from '../src/routes/dashboard.js';
 import { seedCatalog, seedDemoActivity, syncVocabulary } from '../src/seed.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5433/postgres';
@@ -177,7 +175,8 @@ describe('admin only', () => {
     }
     const posts: [string, unknown][] = [
       [`/admin/restaurants/${anyPlace}/merge`, { into: anyPlace }],
-      ['/admin/cities/nashik/import-osm', {}],
+      ['/admin/cities/nashik/import-overture', {}],
+      ['/admin/places/retire-osm', {}],
       ['/admin/demo/remove', { all: false }],
     ];
     for (const [url, payload] of posts) {
@@ -333,55 +332,42 @@ describe('places', () => {
     expect((await db.query('select loves from dish_rating where dish_id = $1', [misalInto])).rows[0].loves).toBe(2);
   });
 
-  it('imports OpenStreetMap places in the background and records the job', async () => {
+  it('imports the bundled Overture Maps places in the background and records the job', async () => {
     const admin = await adminAuth();
-    const real = osmSource.fetch;
-    const fake: OsmPlace[] = [
-      { osmId: 'n9001', name: 'Test OSM Cafe', lat: 20.0, lng: 73.8, kind: 'cafe', cuisine: 'coffee', locality: 'Gangapur', openingHours: null, address: null, tags: {} },
-      { osmId: 'n9002', name: 'Test OSM Bakery', lat: 20.01, lng: 73.81, kind: 'bakery', cuisine: null, locality: null, openingHours: null, address: null, tags: {} },
-    ];
-    let asked: number[] = [];
-    osmSource.fetch = async (lat, lng, radiusKm, log = () => {}) => {
-      asked = [lat, lng, radiusKm];
-      log('fake overpass answered');
-      return fake;
-    };
-    try {
-      const res = await app.inject({ method: 'POST', url: '/admin/cities/nashik/import-osm', headers: admin, payload: { radiusKm: 3 } });
-      expect(res.statusCode).toBe(202);
-      expect(res.json()).toMatchObject({ started: true });
-      let job: { status: string; result: { added: number }; log: string[] } | undefined;
-      for (let i = 0; i < 50; i++) {
-        const jobs = (await app.inject({ url: '/admin/jobs', headers: admin })).json();
-        job = jobs.find((j: { id: number }) => j.id === res.json().jobId);
-        if (job && job.status !== 'running') break;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      expect(job).toMatchObject({ status: 'done', result: { fetched: 2, added: 2 } });
-      expect(job!.log.join('\n')).toContain('fake overpass answered');
-      expect(asked[2]).toBe(3);
-      expect((await db.query("select count(*)::int as n from restaurants where osm_id in ('n9001', 'n9002') and source = 'osm'")).rows[0].n).toBe(2);
-      expect((await app.inject({ method: 'POST', url: '/admin/cities/nowhere/import-osm', headers: admin, payload: {} })).statusCode).toBe(404);
-    } finally {
-      osmSource.fetch = real;
+    const res = await app.inject({ method: 'POST', url: '/admin/cities/nashik/import-overture', headers: admin, payload: {} });
+    expect(res.statusCode).toBe(202);
+    let job: { status: string; result: { fetched: number; added: number; linked: number }; log: string[] } | undefined;
+    for (let i = 0; i < 300; i++) {
+      const jobs = (await app.inject({ url: '/admin/jobs', headers: admin })).json();
+      job = jobs.find((j: { id: number }) => j.id === res.json().jobId);
+      if (job && job.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 100));
     }
+    expect(job).toMatchObject({ status: 'done' });
+    expect(job!.result.fetched).toBeGreaterThan(1000);
+    expect(job!.result.added + job!.result.linked).toBeGreaterThan(1000);
+    expect((await db.query("select count(*)::int as n from restaurants where source = 'overture' and status = 'active'")).rows[0].n).toBeGreaterThan(900);
+    expect((await app.inject({ method: 'POST', url: '/admin/cities/nowhere/import-overture', headers: admin, payload: {} })).statusCode).toBe(404);
   });
 
-  it('records a failed import', async () => {
+  it('retires OpenStreetMap places: matched ones become Overture, unknown empty ones are hidden', async () => {
     const admin = await adminAuth();
-    const real = osmSource.fetch;
-    osmSource.fetch = async () => {
-      throw new Error('servers are busy');
-    };
-    try {
-      const res = await app.inject({ method: 'POST', url: '/admin/cities/nashik/import-osm', headers: admin, payload: {} });
-      expect(res.statusCode).toBe(202);
-      await new Promise((r) => setTimeout(r, 100));
-      const jobs = (await app.inject({ url: '/admin/jobs', headers: admin })).json();
-      expect(jobs[0]).toMatchObject({ status: 'failed', result: { error: 'servers are busy' } });
-    } finally {
-      osmSource.fetch = real;
-    }
+    const city = (await db.query("select id from cities where slug = 'nashik'")).rows[0].id;
+    const add = async (name: string, osm: string, overture: string | null) => (await db.query(
+      `insert into restaurants (city_id, name, name_norm, geo, status, source, osm_id, overture_id)
+       values ($1, $2, norm_name($2), st_setsrid(st_makepoint(73.7, 20.1), 4326)::geography, 'active', 'osm', $3, $4) returning id`,
+      [city, name, osm, overture],
+    )).rows[0].id as string;
+    const matched = await add('Old Matched Cafe', 'n7001', 'ov-matched');
+    const empty = await add('Old Empty Cafe', 'n7002', null);
+    const withDish = await add('Old Loved Cafe', 'n7003', null);
+    await db.query(`insert into dishes (restaurant_id, city_id, name, name_norm) values ($1, $2, 'Old Dish', norm_name('Old Dish'))`, [withDish, city]);
+    const r = (await app.inject({ method: 'POST', url: '/admin/places/retire-osm', headers: admin, payload: {} })).json();
+    expect(r).toMatchObject({ ok: true, matched: 1, hidden: 1, keptWithDishes: 1 });
+    const state = async (id: string) => (await db.query('select source, status from restaurants where id = $1', [id])).rows[0];
+    expect(await state(matched)).toEqual({ source: 'overture', status: 'active' });
+    expect(await state(empty)).toEqual({ source: 'osm', status: 'hidden' });
+    expect(await state(withDish)).toEqual({ source: 'osm', status: 'active' });
   });
 });
 
@@ -397,7 +383,7 @@ describe('removing demo content', () => {
     expect(all.places).toBeGreaterThan(0);
     expect((await db.query("select count(*)::int as n from restaurants where source = 'seed'")).rows[0].n).toBe(0);
     // Imported and people's places are untouched.
-    expect((await db.query("select count(*)::int as n from restaurants where osm_id = 'n9001'")).rows[0].n).toBe(1);
+    expect((await db.query("select count(*)::int as n from restaurants where source = 'overture' and status = 'active'")).rows[0].n).toBeGreaterThan(900);
     const jobs = (await app.inject({ url: '/admin/jobs', headers: admin })).json();
     expect(jobs.filter((j: { kind: string }) => j.kind === 'remove-demo')).toHaveLength(2);
   });
