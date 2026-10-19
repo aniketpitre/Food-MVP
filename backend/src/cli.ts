@@ -3,7 +3,7 @@
 import { importOverturePlaces, overtureFileFor, readOvertureFile } from './overture.js';
 import { loadConfig } from './config.js';
 import { createPool, migrate } from './db.js';
-import { removeDemoActivity, removeDemoCatalog, restoreDemoPlaces, seedCatalog, seedDemoActivity } from './seed.js';
+import { removeDemoActivity, removeDemoCatalog, restoreDemoPlaces, seedCatalog, seedDemoActivity, setDemoRetired } from './seed.js';
 import { refreshDemoDishPhotos } from './demo-photos.js';
 import { fetchPlacePhotos } from './photos.js';
 
@@ -22,6 +22,7 @@ try {
       if (!(await seedCatalog(db, config.mediaDir, log))) log('catalog already present, nothing to do');
       break;
     case 'demo-activity':
+      await setDemoRetired(db, false);
       if (!(await seedDemoActivity(db, log))) log('demo activity already present');
       break;
     case 'remove-demo': {
@@ -31,6 +32,7 @@ try {
       if (args.includes('--all')) {
         const r = await removeDemoCatalog(db, config.mediaDir);
         log(`removed ${r.places} demo places with their dishes and ${r.photos} demo photos`);
+        if (r.kept.length) log(`kept ${r.kept.length} demo places where real people posted: ${r.kept.join(', ')}`);
       }
       break;
     }
@@ -38,6 +40,8 @@ try {
       // The demo again: the invented Nashik places and dishes (if removed), the demo_
       // accounts' activity, and the real, credited photos (bundled) for every demo dish.
       await migrate(db, log);
+      // Asked for on purpose: un-retire the demo so it seeds (and keeps its stories going).
+      await setDemoRetired(db, false);
       if (!(await seedCatalog(db, config.mediaDir, log)) && !(await restoreDemoPlaces(db, config.mediaDir, log))) {
         log('demo places already present');
       }

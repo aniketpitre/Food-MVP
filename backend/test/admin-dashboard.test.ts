@@ -378,10 +378,21 @@ describe('removing demo content', () => {
     expect(first.statusCode).toBe(200);
     expect(first.json()).toMatchObject({ ok: true, accounts: 40, places: 0 });
     expect((await db.query("select count(*)::int as n from restaurants where source = 'seed'")).rows[0].n).toBeGreaterThan(0);
+    // A real person's post at a demo place keeps that place (and the post).
+    const real = await signUp({ email: 'real-at-demo@example.com' });
+    const demoPlace = (await db.query("select id, name from restaurants where source = 'seed' order by name limit 1")).rows[0];
+    const demoDish = (await db.query('select id from dishes where restaurant_id = $1 limit 1', [demoPlace.id])).rows[0].id;
+    await db.query(`insert into posts (dish_id, author_id, image_path, thumb_path) values ($1, $2, '/media/t.webp', '/media/t.webp')`, [demoDish, real.id]);
     const all = (await app.inject({ method: 'POST', url: '/admin/demo/remove', headers: admin, payload: { all: true } })).json();
     expect(all.accounts).toBe(0);
     expect(all.places).toBeGreaterThan(0);
-    expect((await db.query("select count(*)::int as n from restaurants where source = 'seed'")).rows[0].n).toBe(0);
+    expect(all.kept).toEqual([demoPlace.name]);
+    expect((await db.query("select id from restaurants where source = 'seed'")).rows.map((r: { id: string }) => r.id)).toEqual([demoPlace.id]);
+    expect((await db.query('select count(*)::int as n from posts where author_id = $1', [real.id])).rows[0].n).toBe(1);
+    // Retired for good: start-up seeding (DEMO_ACTIVITY on) doesn't bring the accounts back.
+    const { seedDemoActivity } = await import('../src/seed.js');
+    expect(await seedDemoActivity(db)).toBe(false);
+    expect((await db.query('select count(*)::int as n from profiles where is_demo')).rows[0].n).toBe(0);
     // Imported and people's places are untouched.
     expect((await db.query("select count(*)::int as n from restaurants where source = 'overture' and status = 'active'")).rows[0].n).toBeGreaterThan(900);
     const jobs = (await app.inject({ url: '/admin/jobs', headers: admin })).json();

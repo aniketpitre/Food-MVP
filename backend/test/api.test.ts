@@ -2128,17 +2128,27 @@ describe('removing demo content', () => {
     );
     await removeDemoActivity(db);
     expect((await db.query('select 1 from profiles where is_demo')).rowCount).toBe(0);
+    // Demo places where real people (the testers above) posted are kept, with their posts.
+    const { rows: withReal } = await db.query<{ name: string }>(
+      `select distinct r.name from restaurants r join dishes d on d.restaurant_id = r.id join posts p on p.dish_id = d.id
+       join profiles a on a.id = p.author_id where r.source = 'seed' and not a.is_demo order by r.name`,
+    );
     const r = await removeDemoCatalog(db, mediaDir);
     expect(r.places).toBeGreaterThan(0);
-    expect((await db.query("select 1 from restaurants where source = 'seed'")).rowCount).toBe(0);
+    expect(r.kept).toEqual(withReal.map((x) => x.name));
+    expect((await db.query("select 1 from restaurants where source = 'seed'")).rowCount).toBe(withReal.length);
     expect((await db.query<{ n: number }>("select count(*)::int as n from restaurants where source <> 'seed'")).rows[0]!.n).toBe(real.rows[0]!.n);
-    await expect(fs.stat(path.join(mediaDir, 'posts', anyPost[0]!.id))).rejects.toThrow();
+    const { rows: gone } = await db.query("select 1 from posts where id = $1", [anyPost[0]!.id]);
+    if (!gone.length) await expect(fs.stat(path.join(mediaDir, 'posts', anyPost[0]!.id))).rejects.toThrow();
     expect((await app.inject(`/feed?city=${cityId}&tab=top&limit=5&offset=0&seed=x`)).statusCode).toBe(200);
   });
 
   it('brings the demo back with real, credited dish photos and marks demo places', async () => {
-    const { restoreDemoPlaces, seedDemoActivity: again } = await import('../src/seed.js');
+    const { restoreDemoPlaces, seedDemoActivity: again, setDemoRetired } = await import('../src/seed.js');
     const { refreshDemoDishPhotos } = await import('../src/demo-photos.js');
+    // Removed means retired: start-up seeding won't bring it back, only asking for it does.
+    expect(await again(db)).toBe(false);
+    await setDemoRetired(db, false);
     expect(await restoreDemoPlaces(db, mediaDir)).toBe(true);
     expect(await restoreDemoPlaces(db, mediaDir)).toBe(false);
     expect(await again(db)).toBe(true);

@@ -680,7 +680,7 @@ input[type=number] { width: 110px; }
         '<div class="row">' + citySelect('ovCity', placesF.city || (cities[0] && cities[0].id)) + '<button id="ovGo">Import</button></div></div>' +
         '<div class="card"><h3>Retire OpenStreetMap places</h3><p class="note">Places come from Overture Maps now. This hides the places an earlier OpenStreetMap import added that Overture does not know and that have no dishes (hidden, not deleted). Places with dishes stay.</p>' +
         '<div class="row"><button class="warn" id="osmRetire">Retire OpenStreetMap places</button></div></div>' +
-        '<div class="card"><h3>Remove demo content</h3><p class="note">The 40 demo_ accounts made the first rankings look alive. Remove them (and their votes) once real people vote; optionally remove the invented demo places and their illustrated photos too. Real and imported places are not touched.</p>' +
+        '<div class="card"><h3>Remove demo content</h3><p class="note">The 40 demo_ accounts made the first rankings look alive. Remove them (and their votes) once real people vote; optionally remove the invented demo places and their photos too. Real and imported places are not touched, and a demo place where a real person posted is kept so no one loses a post. Once removed, the demo stays off after restarts and updates.</p>' +
         '<div class="row"><button class="warn" id="dmAct">Remove demo accounts</button><button class="warn" id="dmAll">Remove demo accounts and demo places</button></div></div>' +
         '</div>' +
         '<div class="card"><h3>Recent jobs</h3><div id="jobs"><p class="note">Loading...</p></div></div>';

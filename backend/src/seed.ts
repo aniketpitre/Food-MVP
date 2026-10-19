@@ -114,9 +114,17 @@ export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => 
 }
 
 /** The invented demo places in Nashik, with their dishes and the illustrated demo photos. */
-async function insertDemoPlaces(db: Db, mediaDir: string, nashik: number, catIds: Map<string, number>, log: (m: string) => void) {
+async function insertDemoPlaces(
+  db: Db,
+  mediaDir: string,
+  nashik: number,
+  catIds: Map<string, number>,
+  log: (m: string) => void,
+  skip: Set<string> = new Set(),
+) {
   const credits = await demoCredits();
   for (const r of data.restaurants) {
+    if (skip.has(r.name)) continue;
     const rr = await db.query<{ id: string }>(
       `insert into restaurants (city_id, name, name_norm, locality, geo, price_band, status, source)
        values ($1, $2, norm_name($2), $3, st_setsrid(st_makepoint($5, $4), 4326)::geography, $6, 'active', 'seed') returning id`,
@@ -154,12 +162,14 @@ async function insertDemoPlaces(db: Db, mediaDir: string, nashik: number, catIds
  * there. Returns false when they already exist.
  */
 export async function restoreDemoPlaces(db: Db, mediaDir: string, log: (m: string) => void = () => {}): Promise<boolean> {
-  const { rows } = await db.query<{ n: number }>("select count(*)::int as n from restaurants where source = 'seed'");
-  if (rows[0]!.n > 0) return false;
+  // Demo places still here (kept because real people posted there) aren't added twice.
+  const { rows } = await db.query<{ name: string }>("select name from restaurants where source = 'seed'");
+  const present = new Set(rows.map((r) => r.name));
+  if (data.restaurants.every((r) => present.has(r.name))) return false;
   const { rows: city } = await db.query<{ id: number }>("select id from cities where slug = 'nashik'");
   if (!city[0]) return false;
   const { rows: cats } = await db.query<{ id: number; slug: string }>('select id, slug from dish_categories');
-  await insertDemoPlaces(db, mediaDir, city[0].id, new Map(cats.map((c) => [c.slug, c.id])), log);
+  await insertDemoPlaces(db, mediaDir, city[0].id, new Map(cats.map((c) => [c.slug, c.id])), log, present);
   log(`seed: demo places restored (${data.restaurants.length} places)`);
   return true;
 }
@@ -183,6 +193,7 @@ function rng(seed: number) {
  * the fake endorsement the plan forbids. Remove with removeDemoActivity().
  */
 export async function seedDemoActivity(db: Db, log: (m: string) => void = () => {}): Promise<boolean> {
+  if (await demoRetired(db)) return false;
   const { rows } = await db.query<{ n: number }>('select count(*)::int as n from profiles where is_demo');
   if (rows[0]!.n > 0) return false;
 
@@ -249,7 +260,26 @@ export async function seedDemoActivity(db: Db, log: (m: string) => void = () => 
   return true;
 }
 
+/** Whether the demo was retired from the dashboard: then it is never seeded again on start-up. */
+export async function demoRetired(db: Pick<Db, 'query'>): Promise<boolean> {
+  const { rowCount } = await db.query("select 1 from app_flags where key = 'demo_retired'");
+  return !!rowCount;
+}
+
+export async function setDemoRetired(db: Pick<Db, 'query'>, retired: boolean): Promise<void> {
+  if (retired) {
+    await db.query(
+      `insert into app_flags (key, value) values ('demo_retired', 'true')
+       on conflict (key) do update set value = 'true', updated_at = now()`,
+    );
+  } else {
+    await db.query("delete from app_flags where key = 'demo_retired'");
+  }
+}
+
 export async function removeDemoActivity(db: Db): Promise<number> {
+  // Retired for good: a restart (with DEMO_ACTIVITY on) won't make the demo accounts again.
+  await setDemoRetired(db, true);
   const { rowCount } = await db.query('delete from profiles where is_demo');
   await db.query('select refresh_dish_stats()');
   await db.query('select refresh_people_pick()');
@@ -258,17 +288,21 @@ export async function removeDemoActivity(db: Db): Promise<number> {
 
 /**
  * Removes the invented demo places with their dishes and illustrated "DEMO IMAGE" photos
- * (everything seeded with source = 'seed'). Cities, dish types and spellings stay.
- * Real places imported from OpenStreetMap and places people added are untouched.
+ * (everything seeded with source = 'seed'). Cities, dish types and spellings stay. Real
+ * places (Overture, people's) are untouched, and so is a demo place where a real person
+ * posted a photo: it is kept, and named in [kept], so no one's post is lost.
  */
-export async function removeDemoCatalog(db: Db, mediaDir: string): Promise<{ places: number; photos: number }> {
+export async function removeDemoCatalog(db: Db, mediaDir: string): Promise<{ places: number; photos: number; kept: string[] }> {
+  const realPost = `exists (select 1 from posts p join dishes d on d.id = p.dish_id join profiles a on a.id = p.author_id
+                            where d.restaurant_id = r.id and not a.is_demo)`;
+  const { rows: kept } = await db.query<{ name: string }>(`select r.name from restaurants r where r.source = 'seed' and ${realPost} order by r.name`);
   const { rows: posts } = await db.query<{ id: string }>(
     `select p.id from posts p join dishes d on d.id = p.dish_id join restaurants r on r.id = d.restaurant_id
-     where r.source = 'seed'`,
+     where r.source = 'seed' and not ${realPost}`,
   );
-  const { rowCount } = await db.query("delete from restaurants where source = 'seed'");
+  const { rowCount } = await db.query(`delete from restaurants r where r.source = 'seed' and not ${realPost}`);
   for (const p of posts) await deletePostImages(mediaDir, p.id);
   await db.query('select refresh_dish_stats()');
   await db.query('select refresh_people_pick()');
-  return { places: rowCount ?? 0, photos: posts.length };
+  return { places: rowCount ?? 0, photos: posts.length, kept: kept.map((k) => k.name) };
 }

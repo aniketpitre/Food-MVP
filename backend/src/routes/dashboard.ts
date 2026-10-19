@@ -542,11 +542,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
     try {
       const accounts = await removeDemoActivity(db);
       log(`Removed ${accounts} demo accounts and their votes.`);
-      let catalog = { places: 0, photos: 0 };
+      let catalog: { places: number; photos: number; kept: string[] } = { places: 0, photos: 0, kept: [] };
       if (b.all) {
         catalog = await removeDemoCatalog(db, app.config.mediaDir);
         log(`Removed ${catalog.places} demo places and ${catalog.photos} demo photos.`);
+        if (catalog.kept.length) {
+          log(`Kept ${catalog.kept.length} demo places because real people posted there: ${catalog.kept.join(', ')}. Review them in Places.`);
+        }
       }
+      log('The demo stays off after restarts and updates.');
       const result = { accounts, ...catalog };
       finishJob(job, 'done', result);
       return { ok: true, ...result };
