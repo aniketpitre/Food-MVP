@@ -61,28 +61,13 @@ object GoogleMapsHealth {
 /** How long Google's map gets to draw its first tiles before we switch to MapLibre. */
 private const val GOOGLE_LOAD_TIMEOUT_MS = 10_000L
 
-/** Google's map, with businesses' own icons off (our food logos are the places) and a dark look at night. */
-internal fun googleMapStyle(dark: Boolean): MapStyleOptions = MapStyleOptions(if (dark) DARK_STYLE else LIGHT_STYLE)
-
-private const val HIDE_BUSINESSES = """
-  {"featureType":"poi.business","stylers":[{"visibility":"off"}]},
-  {"featureType":"poi.attraction","elementType":"labels.icon","stylers":[{"visibility":"off"}]}"""
-
-private const val LIGHT_STYLE = "[$HIDE_BUSINESSES]"
-
-private const val DARK_STYLE = """[
-  {"elementType":"geometry","stylers":[{"color":"#1d1612"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#c9b8ab"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#1d1612"}]},
-  {"featureType":"poi","elementType":"geometry","stylers":[{"color":"#251c17"}]},
-  {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#1f2a1d"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#3a2d25"}]},
-  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#2a201b"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#5a4232"}]},
-  {"featureType":"transit","elementType":"geometry","stylers":[{"color":"#2a201b"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#10202b"}]},
-  $HIDE_BUSINESSES
-]"""
+/**
+ * Our own cream-and-espresso look on Google's map (espresso and ember at night), matching
+ * the open map: no business icons (WorthAbite's food logos are the places), landmarks named
+ * without icons. The styles live in assets/map/google_*.json.
+ */
+internal fun googleMapStyle(context: Context, dark: Boolean): MapStyleOptions =
+    MapStyleOptions(context.assets.open(if (dark) "map/google_dark.json" else "map/google_light.json").bufferedReader().use { it.readText() })
 
 /** A Google [MapView] for Compose: created once, given the screen's lifecycle. */
 @Composable
@@ -99,7 +84,7 @@ internal fun rememberGoogleMapView(dark: Boolean, onFailed: () -> Unit, onReady:
                 m.uiSettings.isMapToolbarEnabled = false
                 m.uiSettings.isIndoorLevelPickerEnabled = false
                 m.isBuildingsEnabled = true
-                runCatching { m.setMapStyle(googleMapStyle(dark)) }
+                runCatching { m.setMapStyle(googleMapStyle(context, dark)) }.onFailure { android.util.Log.w("GoogleMaps", "map style not applied", it) }
                 m.setOnMapLoadedCallback { loaded = true }
                 ready(m)
             }
