@@ -124,7 +124,7 @@ describe('browsing as a guest', () => {
     expect((await app.inject('/health')).json()).toEqual({ ok: true });
     const cities = (await app.inject('/cities')).json();
     expect(cities[0]).toMatchObject({ slug: 'nashik', isActive: true });
-    expect((await app.inject('/categories')).json()).toHaveLength(23);
+    expect((await app.inject('/categories')).json()).toHaveLength(33);
   });
 
   it('finds the nearest active city and says when you are out of range', async () => {
@@ -1357,6 +1357,62 @@ describe('real places from OpenStreetMap', () => {
     const withDishes = (await app.inject(`/map?city=${cityId}`)).json().places.map((p: { name: string }) => p.name);
     expect(all).toContain('Sadhana Cafe');
     expect(withDishes).not.toContain('Sadhana Cafe');
+  });
+
+  it('names the area of a place with no address after the nearest neighbourhood', async () => {
+    const { parseOverpass } = await import('../src/osm.js');
+    const places = parseOverpass({
+      elements: [
+        { type: 'node', id: 10, lat: 20.0, lon: 73.76, tags: { place: 'suburb', name: 'Gangapur' } },
+        { type: 'node', id: 11, lat: 20.1, lon: 73.9, tags: { place: 'suburb', name: 'Far Away' } },
+        { type: 'node', id: 12, lat: 20.002, lon: 73.762, tags: { amenity: 'cafe', name: 'Area Cafe', 'addr:street': 'Some Lane' } },
+        { type: 'node', id: 13, lat: 20.5, lon: 74.5, tags: { amenity: 'bar', name: 'Lonely Bar', 'addr:street': 'Highway' } },
+      ],
+    });
+    expect(places.map((p) => [p.name, p.locality])).toEqual([['Area Cafe', 'Gangapur'], ['Lonely Bar', 'Highway']]);
+  });
+});
+
+describe('search suggestions and cuisines', () => {
+  it('suggests dishes, cuisines, places and people as you type, and searches a cuisine', async () => {
+    const r = await db.query(
+      `insert into restaurants (city_id, name, name_norm, locality, cuisine, geo, status)
+       values ($1, 'Trattoria Nashik', norm_name('Trattoria Nashik'), 'Indira Nagar', 'italian;pizza', st_setsrid(st_makepoint(73.78, 20.0), 4326)::geography, 'active') returning id`,
+      [cityId],
+    );
+    const pasta = await db.query(
+      `insert into dishes (restaurant_id, city_id, name, name_norm, category_id) values ($1, $2, 'Arrabbiata Penne', norm_name('Arrabbiata Penne'),
+         (select id from dish_categories where slug = 'pizza-pasta')) returning id`,
+      [r.rows[0].id, cityId],
+    );
+    await db.query(`insert into posts (dish_id, image_path, thumb_path) values ($1, '/media/t.webp', '/media/t.webp')`, [pasta.rows[0].id]);
+
+    const suggest = async (q: string) => (await app.inject(`/search/suggest?city=${cityId}&q=${encodeURIComponent(q)}`)).json().items as
+      { type: string; text: string; id: string | null }[];
+    const ital = await suggest('ital');
+    expect(ital[0]).toMatchObject({ type: 'cuisine', text: 'Italian', id: 'italian' });
+    expect((await suggest('arra')).map((s) => [s.type, s.text])).toContainEqual(['dish', 'Arrabbiata Penne']);
+    expect((await suggest('tratt')).map((s) => [s.type, s.text])).toContainEqual(['place', 'Trattoria Nashik']);
+    expect((await suggest('indira')).map((s) => s.type)).toContain('area');
+    expect((await app.inject(`/search/suggest?city=${cityId}&q=`)).json().items.length).toBeGreaterThan(0);
+
+    // A cuisine finds its dishes by type and its places by their cuisine, by slug or by name.
+    for (const url of [`/search?city=${cityId}&q=Italian&cuisine=italian`, `/search?city=${cityId}&q=italian%20food`]) {
+      const res = (await app.inject(url)).json();
+      expect(res.cuisine).toMatchObject({ slug: 'italian' });
+      expect(res.dishes.map((d: { name: string }) => d.name)).toContain('Arrabbiata Penne');
+      expect(res.restaurants.map((p: { name: string }) => p.name)).toContain('Trattoria Nashik');
+    }
+    // A dish type, tapped from the list: its dishes.
+    const catId = (await db.query("select id from dish_categories where slug = 'pizza-pasta'")).rows[0].id;
+    const byType = (await app.inject(`/search?city=${cityId}&q=Pizza%20%26%20Pasta&category=${catId}`)).json();
+    expect(byType.category).toMatchObject({ kind: 'category', slug: 'pizza-pasta' });
+    expect(byType.dishes.map((d: { name: string }) => d.name)).toContain('Arrabbiata Penne');
+    // A dish search stays a dish search.
+    expect((await app.inject(`/search?city=${cityId}&q=pizza`)).json().cuisine).toBeUndefined();
+    const list = (await app.inject(`/cuisines?city=${cityId}`)).json() as { slug: string; dishes: number; places: number }[];
+    expect(list.find((c) => c.slug === 'italian')).toMatchObject({ dishes: expect.any(Number), places: expect.any(Number) });
+    expect(list.find((c) => c.slug === 'italian')!.places).toBeGreaterThanOrEqual(1);
   });
 });
 

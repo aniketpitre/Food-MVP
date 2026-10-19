@@ -48,7 +48,13 @@ interface WorthAbiteApi {
         @Query("city") city: Int,
         @Query("lat") lat: Double?,
         @Query("lng") lng: Double?,
+        @Query("cuisine") cuisine: String? = null,
+        @Query("category") category: Int? = null,
     ): SearchResult
+
+    @GET("search/suggest") suspend fun suggest(@Query("q") q: String, @Query("city") city: Int): SuggestionList
+
+    @GET("cuisines") suspend fun cuisines(@Query("city") city: Int): List<CuisineInfo>
 
     @GET("suggest/dishes")
     suspend fun suggestDishes(@Query("q") q: String, @Query("city") city: Int?): List<DishSuggestion>

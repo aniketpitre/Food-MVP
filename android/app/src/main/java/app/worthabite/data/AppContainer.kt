@@ -116,6 +116,29 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
     /** The stories tray as Home last loaded it; the story viewer pages through the same list. */
     val storyTray = MutableStateFlow<List<StoryReel>>(emptyList())
 
+    /** Your recent searches, newest first, as the search screen offers them. */
+    val recentSearches = MutableStateFlow<List<String>>(emptyList())
+    private var recentLoaded = false
+
+    suspend fun loadRecentSearches() {
+        if (recentLoaded) return
+        recentLoaded = true
+        recentSearches.value = prefs.recentSearches()
+    }
+
+    fun rememberSearch(text: String) {
+        val t = text.trim().take(60)
+        if (t.length < 2) return
+        val next = (listOf(t) + recentSearches.value.filterNot { it.equals(t, ignoreCase = true) }).take(8)
+        recentSearches.value = next
+        scope.launch { prefs.saveRecentSearches(next) }
+    }
+
+    fun forgetSearches() {
+        recentSearches.value = emptyList()
+        scope.launch { prefs.saveRecentSearches(emptyList()) }
+    }
+
     /**
      * Stories watched on this phone, by id. Every ring (Home tray, profiles) reads this too,
      * so it greys the moment you watch, and a reload that raced the view can't bring the

@@ -26,8 +26,10 @@ interface OverpassElement {
   tags?: Record<string, string>;
 }
 
-const FOOD_AMENITIES = ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream'];
-const FOOD_SHOPS = ['bakery', 'confectionery', 'pastry'];
+const FOOD_AMENITIES = ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream', 'bar', 'pub', 'biergarten'];
+const FOOD_SHOPS = ['bakery', 'confectionery', 'pastry', 'coffee', 'tea', 'deli', 'chocolate'];
+// Named neighbourhoods, so a place with no address still gets its area ("College Road").
+const AREA_PLACES = ['suburb', 'neighbourhood', 'quarter', 'village', 'hamlet'];
 
 /** The Overpass query for every named food place within [radiusKm] of a point. */
 export function overpassQuery(lat: number, lng: number, radiusKm: number): string {
@@ -36,6 +38,7 @@ export function overpassQuery(lat: number, lng: number, radiusKm: number): strin
 (
   nwr["amenity"~"^(${FOOD_AMENITIES.join('|')})$"]["name"](around:${r},${lat},${lng});
   nwr["shop"~"^(${FOOD_SHOPS.join('|')})$"]["name"](around:${r},${lat},${lng});
+  node["place"~"^(${AREA_PLACES.join('|')})$"]["name"](around:${r},${lat},${lng});
 );
 out center tags;`;
 }
@@ -43,14 +46,23 @@ out center tags;`;
 /** Turns an Overpass response into places, dropping unnamed, closed or duplicate entries. */
 export function parseOverpass(json: { elements?: OverpassElement[] }): OsmPlace[] {
   const out = new Map<string, OsmPlace>();
+  const areas: { name: string; lat: number; lng: number }[] = [];
+  const fallback = new Map<string, string>();
   for (const e of json.elements ?? []) {
     const t = e.tags ?? {};
+    if (t.place && AREA_PLACES.includes(t.place) && !t.amenity && !t.shop) {
+      const name = (t['name:en'] || t.name || '').trim();
+      if (name && e.lat !== undefined && e.lon !== undefined) areas.push({ name: name.slice(0, 60), lat: e.lat, lng: e.lon });
+      continue;
+    }
     const name = (t['name:en'] || t.name || '').trim();
     const lat = e.lat ?? e.center?.lat;
     const lng = e.lon ?? e.center?.lon;
     if (!name || lat === undefined || lng === undefined) continue;
     if (t['disused:amenity'] || t.disused === 'yes' || t['abandoned:amenity']) continue;
     const osmId = `${e.type[0]}${e.id}`;
+    const street = (t['addr:street'] || t['addr:city'] || '').slice(0, 60);
+    if (street) fallback.set(osmId, street);
     out.set(osmId, {
       osmId,
       name: name.slice(0, 80),
@@ -58,13 +70,31 @@ export function parseOverpass(json: { elements?: OverpassElement[] }): OsmPlace[
       lng,
       kind: t.amenity ?? t.shop ?? 'restaurant',
       cuisine: t.cuisine ? t.cuisine.split(';').map((c) => c.trim().replace(/_/g, ' ')).join(', ').slice(0, 80) : null,
-      locality: (t['addr:suburb'] || t['addr:neighbourhood'] || t['addr:street'] || t['addr:city'] || '').slice(0, 60) || null,
+      locality: (t['addr:suburb'] || t['addr:neighbourhood'] || '').slice(0, 60) || null,
       openingHours: t.opening_hours?.slice(0, 120) ?? null,
       address: [t['addr:housenumber'], t['addr:street'], t['addr:suburb']].filter(Boolean).join(', ').slice(0, 160) || null,
       tags: Object.fromEntries(KEPT_TAGS.filter((k) => t[k]).map((k) => [k, t[k]!.slice(0, 300)])),
     });
   }
-  return [...out.values()];
+  // No area in the address: the nearest named neighbourhood within 2.5 km, else the street.
+  const places = [...out.values()];
+  for (const p of places) {
+    if (p.locality) continue;
+    let best: { name: string; d: number } | null = null;
+    for (const a of areas) {
+      const d = distanceKm(p.lat, p.lng, a.lat, a.lng);
+      if (d <= 2.5 && (!best || d < best.d)) best = { name: a.name, d };
+    }
+    p.locality = best?.name ?? fallback.get(p.osmId) ?? null;
+  }
+  return places;
+}
+
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = Math.PI / 180;
+  const x = (lng2 - lng1) * rad * Math.cos(((lat1 + lat2) / 2) * rad);
+  const y = (lat2 - lat1) * rad;
+  return Math.sqrt(x * x + y * y) * 6371;
 }
 
 // The main Overpass server is often busy (502/504/429), so try the public mirrors too.
@@ -110,8 +140,10 @@ export async function importOsmPlaces(db: Db, cityId: number, places: OsmPlace[]
   let skipped = 0;
   for (const p of places) {
     const { rowCount: known } = await db.query(
-      'update restaurants set osm_tags = $2, address = coalesce(address, $3) where osm_id = $1',
-      [p.osmId, JSON.stringify(p.tags), p.address],
+      `update restaurants set osm_tags = $2, address = coalesce(address, $3), locality = coalesce(locality, $4),
+                              cuisine = coalesce(cuisine, $5), opening_hours = coalesce(opening_hours, $6)
+       where osm_id = $1`,
+      [p.osmId, JSON.stringify(p.tags), p.address, p.locality, p.cuisine, p.openingHours],
     );
     if (known) {
       skipped++;

@@ -37,6 +37,7 @@ class Prefs(private val context: Context) {
         val updatesSince = stringPreferencesKey("updates_since")
         val nearbyDay = stringPreferencesKey("nearby_day")
         val nearbyCount = intPreferencesKey("nearby_count")
+        val recentSearches = stringPreferencesKey("recent_searches")
     }
 
     suspend fun resetNearbyAllowance() = context.dataStore.edit { it.remove(Keys.nearbyDay); it.remove(Keys.nearbyCount) }
@@ -92,6 +93,12 @@ class Prefs(private val context: Context) {
     }
 
     suspend fun saveThemeMode(mode: String) = context.dataStore.edit { it[Keys.themeMode] = mode }
+
+    /** What you searched for lately, newest first (kept on this phone only). */
+    suspend fun recentSearches(): List<String> =
+        context.dataStore.data.first()[Keys.recentSearches]?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+
+    suspend fun saveRecentSearches(list: List<String>) = context.dataStore.edit { it[Keys.recentSearches] = list.joinToString("\n") }
 
     suspend fun saveLiteMode(mode: String) = context.dataStore.edit { it[Keys.liteMode] = mode }
 

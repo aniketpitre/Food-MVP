@@ -243,7 +243,26 @@ data class PlaceOption(
 )
 
 @Serializable
-data class SearchResult(val dishes: List<DishCard> = emptyList(), val restaurants: List<PlaceOption> = emptyList())
+data class SearchResult(
+    val dishes: List<DishCard> = emptyList(),
+    val restaurants: List<PlaceOption> = emptyList(),
+    /** Set when the search was a cuisine ("Italian") or a dish type: the results' header. */
+    val cuisine: SearchFacet? = null,
+    val category: SearchFacet? = null,
+)
+
+@Serializable
+data class SearchFacet(val kind: String = "cuisine", val slug: String, val name: String, val emoji: String? = null)
+
+/** One autocomplete line: a dish, cuisine, dish type, place, area or person. */
+@Serializable
+data class Suggestion(val type: String, val text: String, val sub: String? = null, val id: String? = null, val emoji: String? = null)
+
+@Serializable
+data class SuggestionList(val items: List<Suggestion> = emptyList())
+
+@Serializable
+data class CuisineInfo(val slug: String, val name: String, val emoji: String? = null, val dishes: Int = 0, val places: Int = 0)
 
 @Serializable
 data class DishSuggestion(val name: String, val categoryId: Int? = null)

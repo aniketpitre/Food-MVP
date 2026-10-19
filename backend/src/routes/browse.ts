@@ -6,6 +6,7 @@ import { loadDishCards } from '../cards.js';
 import { forYouCards } from './taste.js';
 import { inCity, nearestCity } from '../geo.js';
 import { googlePlaceId, googlePlacePhotos } from '../photos.js';
+import { cuisineBySlug, cuisineForQuery, dishInCuisineSql } from './search.js';
 
 const coords = {
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -248,15 +249,61 @@ export async function browseRoutes(app: FastifyInstance) {
     }
   });
 
-  // Dish and place search with typo tolerance (trigram similarity) and the alias table.
+  // Dish and place search with typo tolerance (trigram similarity) and the alias table. A
+  // cuisine (?cuisine=italian, or a search that names one) also brings its dishes and places.
   app.get('/search', { preHandler: optionalAuth }, async (req, reply) => {
     const q = parse(
-      z.object({ q: z.string().trim().min(2).max(60), city: z.coerce.number().int().positive(), ...coords }),
+      z.object({
+        q: z.string().trim().min(2).max(60),
+        city: z.coerce.number().int().positive(),
+        cuisine: z.string().max(40).optional(),
+        category: z.coerce.number().int().positive().optional(),
+        ...coords,
+      }),
       req.query,
       reply,
     );
     if (!q) return;
     const viewer = userId(req);
+    let cuisine = (q.cuisine ? cuisineBySlug(q.cuisine) : undefined) ?? (q.category ? undefined : cuisineForQuery(q.q));
+    let facet: { kind: 'cuisine' | 'category'; slug: string; name: string; emoji: string | null } | null =
+      cuisine ? { kind: 'cuisine', slug: cuisine.slug, name: cuisine.name, emoji: cuisine.emoji } : null;
+    if (!cuisine && q.category) {
+      // A dish type tapped from the list: every dish of that type, best first.
+      const { rows: c } = await db.query<{ slug: string; name: string; emoji: string | null }>(
+        'select slug, name, emoji from dish_categories where id = $1', [q.category]);
+      if (c[0]) {
+        cuisine = { slug: c[0].slug, name: c[0].name, emoji: c[0].emoji ?? '', categories: [c[0].slug], terms: [] };
+        facet = { kind: 'category', ...c[0] };
+      }
+    }
+    if (cuisine) {
+      const { rows: ids } = await db.query<{ id: string }>(
+        `select d.id from dishes d
+         join restaurants r on r.id = d.restaurant_id and r.status = 'active'
+         left join dish_stats s on s.dish_id = d.id
+         where d.city_id = $1 and d.status = 'live'
+           and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
+           and ${dishInCuisineSql(2, 3)}
+         order by coalesce(s.score, 0) desc limit 40`,
+        [q.city, cuisine.categories, cuisine.terms],
+      );
+      const { rows: places } = await db.query(
+        `select r.id, r.name, r.locality from restaurants r
+         where r.city_id = $1 and r.status = 'active'
+           and (exists (select 1 from unnest($3::text[]) t where coalesce(r.cuisine, '') ilike '%' || t || '%')
+                or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live' and ${dishInCuisineSql(2, 3)}))
+         order by (select count(*) from dishes d where d.restaurant_id = r.id and d.status = 'live') desc, r.name
+         limit 30`,
+        [q.city, cuisine.categories, cuisine.terms],
+      );
+      return {
+        dishes: await loadDishCards(db, ids.map((d) => d.id), viewer, q.lat, q.lng),
+        restaurants: places,
+        // What the results are: a cuisine or a dish type (the app shows it as a header).
+        ...(facet!.kind === 'cuisine' ? { cuisine: facet } : { category: facet }),
+      };
+    }
     const { rows: dishIds } = await db.query<{ id: string }>(
       `with term as (select norm_name($1) as t),
        alias_hits as (

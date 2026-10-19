@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -308,6 +309,13 @@ class FullAppTest {
         }
     }
 
+    /** Scrolls the search page (before typing) to the cuisines, once they've loaded. */
+    private fun showCuisines() {
+        compose.waitUntil(20_000) {
+            runCatching { compose.onNodeWithTag("search_ideas").performScrollToNode(hasTestTag("search_cuisines")) }.isSuccess
+        }
+    }
+
     @Test
     fun cravingSearch_typosChipsAndNothingFound() {
         val someone = friend("q")
@@ -315,7 +323,14 @@ class FullAppTest {
             waitFor(hasTestTag("craving_input"), 30_000)
             compose.onNodeWithTag("craving_input").performClick()
             waitFor(hasTestTag("search_input"), 10_000)
+            // Before typing: recent searches, popular dishes, cuisines and dish types to browse.
+            showCuisines()
+            shot("29_search_browse")
             compose.onNodeWithTag("search_input").performTextInput("wada pav")
+            // Autocomplete while typing; the search key shows the results.
+            waitFor(hasTestTag("search_suggestions"), 20_000)
+            shot("29b_search_autocomplete")
+            compose.onNodeWithTag("search_input").performImeAction()
             waitFor(hasTestTag("search_craving"), 20_000)
             waitText("Vada Pav", substring = true)
             shot("30_search_wada_pav")
@@ -328,12 +343,14 @@ class FullAppTest {
         step("people, places and dishes tabs") {
             compose.onNodeWithTag("search_input").performTextClearance()
             compose.onNodeWithTag("search_input").performTextInput(someone.user.handle)
+            compose.onNodeWithTag("search_input").performImeAction()
             waitFor(hasTestTag("search_tab_people"), 15_000)
             compose.onNodeWithTag("search_tab_people").performClick()
             waitFor(hasTestTag("search_person_${someone.user.handle}"), 15_000)
             shot("32_search_people")
             compose.onNodeWithTag("search_input").performTextClearance()
             compose.onNodeWithTag("search_input").performTextInput("godavari")
+            compose.onNodeWithTag("search_input").performImeAction()
             waitFor(hasTestTag("search_tab_places"), 15_000)
             compose.onNodeWithTag("search_tab_places").performClick()
             waitText("Godavari Misal House", timeoutMs = 15_000)
@@ -342,8 +359,17 @@ class FullAppTest {
         step("nothing found") {
             compose.onNodeWithTag("search_input").performTextClearance()
             compose.onNodeWithTag("search_input").performTextInput("qqzzxx")
+            compose.onNodeWithTag("search_input").performImeAction()
             waitText("Nothing found", timeoutMs = 20_000)
             shot("33_search_nothing_found")
+        }
+        step("browse a cuisine") {
+            compose.onNodeWithTag("search_input").performTextClearance()
+            showCuisines()
+            compose.onAllNodes(SemanticsMatcher("a cuisine") { it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("cuisine_") == true })
+                .onFirst().performClick()
+            waitFor(hasTestTag("search_facet"), 20_000)
+            shot("33b_search_cuisine")
             backTo(hasTestTag("craving_input"))
         }
         step("a craving chip") {
