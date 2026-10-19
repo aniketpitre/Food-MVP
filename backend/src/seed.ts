@@ -76,7 +76,12 @@ export async function categoriseDishes(db: Db): Promise<number> {
 }
 
 /** Inserts cities, categories, aliases and the demo restaurants/dishes/photos once. */
-export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => void = () => {}): Promise<boolean> {
+export async function seedCatalog(
+  db: Db,
+  mediaDir: string,
+  log: (m: string) => void = () => {},
+  opts: { demoPlaces?: boolean } = {},
+): Promise<boolean> {
   const { rows } = await db.query<{ n: number }>('select count(*)::int as n from cities');
   if (rows[0]!.n > 0) return false;
 
@@ -108,8 +113,14 @@ export async function seedCatalog(db: Db, mediaDir: string, log: (m: string) => 
     }
   }
 
-  await insertDemoPlaces(db, mediaDir, cityIds.get('nashik')!, catIds, log);
-  log(`seed: catalog inserted (${data.restaurants.length} places)`);
+  // A real server starts with real places only (imported from Overture); the invented demo
+  // places come only with DEMO_ACTIVITY on.
+  if (opts.demoPlaces ?? true) {
+    await insertDemoPlaces(db, mediaDir, cityIds.get('nashik')!, catIds, log);
+    log(`seed: catalog inserted (${data.restaurants.length} demo places)`);
+  } else {
+    log('seed: cities, dish types and spellings inserted (no demo places)');
+  }
   return true;
 }
 
@@ -292,9 +303,16 @@ export async function removeDemoActivity(db: Db): Promise<number> {
  * places (Overture, people's) are untouched, and so is a demo place where a real person
  * posted a photo: it is kept, and named in [kept], so no one's post is lost.
  */
-export async function removeDemoCatalog(db: Db, mediaDir: string): Promise<{ places: number; photos: number; kept: string[] }> {
-  const realPost = `exists (select 1 from posts p join dishes d on d.id = p.dish_id join profiles a on a.id = p.author_id
-                            where d.restaurant_id = r.id and not a.is_demo)`;
+export async function removeDemoCatalog(
+  db: Db,
+  mediaDir: string,
+  opts: { everything?: boolean } = {},
+): Promise<{ places: number; photos: number; kept: string[] }> {
+  // everything: no exceptions, test posts people made at demo places go too.
+  const realPost = opts.everything
+    ? 'false'
+    : `exists (select 1 from posts p join dishes d on d.id = p.dish_id join profiles a on a.id = p.author_id
+               where d.restaurant_id = r.id and not a.is_demo)`;
   const { rows: kept } = await db.query<{ name: string }>(`select r.name from restaurants r where r.source = 'seed' and ${realPost} order by r.name`);
   const { rows: posts } = await db.query<{ id: string }>(
     `select p.id from posts p join dishes d on d.id = p.dish_id join restaurants r on r.id = d.restaurant_id

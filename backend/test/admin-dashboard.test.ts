@@ -389,6 +389,11 @@ describe('removing demo content', () => {
     expect(all.kept).toEqual([demoPlace.name]);
     expect((await db.query("select id from restaurants where source = 'seed'")).rows.map((r: { id: string }) => r.id)).toEqual([demoPlace.id]);
     expect((await db.query('select count(*)::int as n from posts where author_id = $1', [real.id])).rows[0].n).toBe(1);
+    // Everything: no exceptions, the test post at the demo place goes too.
+    const everything = (await app.inject({ method: 'POST', url: '/admin/demo/remove', headers: admin, payload: { everything: true } })).json();
+    expect(everything).toMatchObject({ ok: true, places: 1, kept: [] });
+    expect((await db.query("select count(*)::int as n from restaurants where source = 'seed'")).rows[0].n).toBe(0);
+    expect((await db.query('select count(*)::int as n from posts where author_id = $1', [real.id])).rows[0].n).toBe(0);
     // Retired for good: start-up seeding (DEMO_ACTIVITY on) doesn't bring the accounts back.
     const { seedDemoActivity } = await import('../src/seed.js');
     expect(await seedDemoActivity(db)).toBe(false);
@@ -396,6 +401,6 @@ describe('removing demo content', () => {
     // Imported and people's places are untouched.
     expect((await db.query("select count(*)::int as n from restaurants where source = 'overture' and status = 'active'")).rows[0].n).toBeGreaterThan(900);
     const jobs = (await app.inject({ url: '/admin/jobs', headers: admin })).json();
-    expect(jobs.filter((j: { kind: string }) => j.kind === 'remove-demo')).toHaveLength(2);
+    expect(jobs.filter((j: { kind: string }) => j.kind === 'remove-demo')).toHaveLength(3);
   });
 });

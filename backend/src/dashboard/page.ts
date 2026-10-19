@@ -680,8 +680,8 @@ input[type=number] { width: 110px; }
         '<div class="row">' + citySelect('ovCity', placesF.city || (cities[0] && cities[0].id)) + '<button id="ovGo">Import</button></div></div>' +
         '<div class="card"><h3>Retire OpenStreetMap places</h3><p class="note">Places come from Overture Maps now. This hides the places an earlier OpenStreetMap import added that Overture does not know and that have no dishes (hidden, not deleted). Places with dishes stay.</p>' +
         '<div class="row"><button class="warn" id="osmRetire">Retire OpenStreetMap places</button></div></div>' +
-        '<div class="card"><h3>Remove demo content</h3><p class="note">The 40 demo_ accounts made the first rankings look alive. Remove them (and their votes) once real people vote; optionally remove the invented demo places and their photos too. Real and imported places are not touched, and a demo place where a real person posted is kept so no one loses a post. Once removed, the demo stays off after restarts and updates.</p>' +
-        '<div class="row"><button class="warn" id="dmAct">Remove demo accounts</button><button class="warn" id="dmAll">Remove demo accounts and demo places</button></div></div>' +
+        '<div class="card"><h3>Remove all demo content</h3><p class="note">Go fully real: the 40 demo_ users with their votes, comments, follows, stories and messages, and the invented demo places with all their dishes and photos. Rankings are rebuilt from real people only. Real people, real places (Overture and people\u2019s) and their posts are not touched; test posts made at a demo place go with it. Once removed, the demo stays off after restarts and updates.</p>' +
+        '<div class="row"><button class="warn" id="dmEverything">Remove everything demo</button><button id="dmAct">Only the demo users</button></div></div>' +
         '</div>' +
         '<div class="card"><h3>Recent jobs</h3><div id="jobs"><p class="note">Loading...</p></div></div>';
       $('pForm').addEventListener('submit', function (e) { e.preventDefault(); readPlaceFilters(); loadPlaces(); });
@@ -697,7 +697,7 @@ input[type=number] { width: 110px; }
         act('/admin/cities/' + o.getAttribute('data-slug') + '/import-overture', {}, 'Overture import started for ' + o.textContent.split(' (')[0] + '.').then(loadJobs);
       });
       $('dmAct').addEventListener('click', function () { if (confirm('Remove all demo_ accounts and their votes? This cannot be undone.')) act('/admin/demo/remove', { all: false }, 'Demo accounts removed.').then(loadJobs); });
-      $('dmAll').addEventListener('click', function () { if (confirm('Remove demo accounts AND the invented demo places with their dishes and photos? This cannot be undone.')) act('/admin/demo/remove', { all: true }, 'Demo content removed.').then(function () { loadJobs(); loadPlaces(); }); });
+      $('dmEverything').addEventListener('click', function () { if (confirm('Remove EVERYTHING demo: demo users, demo places, demo dishes and demo photos (and any test posts at demo places)? This cannot be undone.')) act('/admin/demo/remove', { everything: true }, 'All demo content removed.').then(function () { loadJobs(); loadPlaces(); }); });
       jobTimer = setInterval(loadJobs, 4000);
       loadJobs();
       return loadPlaces();

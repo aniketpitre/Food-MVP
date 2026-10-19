@@ -28,9 +28,10 @@ try {
     case 'remove-demo': {
       // remove-demo        : the demo_ accounts and their votes, follows, stories
       // remove-demo --all  : also the invented demo places, dishes and DEMO IMAGE photos
+      // remove-demo --everything : the same, including demo places people posted test photos at
       log(`removed ${await removeDemoActivity(db)} demo accounts and their actions`);
-      if (args.includes('--all')) {
-        const r = await removeDemoCatalog(db, config.mediaDir);
+      if (args.includes('--all') || args.includes('--everything')) {
+        const r = await removeDemoCatalog(db, config.mediaDir, { everything: args.includes('--everything') });
         log(`removed ${r.places} demo places with their dishes and ${r.photos} demo photos`);
         if (r.kept.length) log(`kept ${r.kept.length} demo places where real people posted: ${r.kept.join(', ')}`);
       }

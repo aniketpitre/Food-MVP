@@ -535,16 +535,17 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
   // Takes the demo accounts' votes away, and with all=true the invented demo places too.
   app.post('/admin/demo/remove', { preHandler: requireAdmin }, async (req, reply) => {
-    const b = parse(z.object({ all: z.boolean().default(false) }), req.body ?? {}, reply);
+    const b = parse(z.object({ all: z.boolean().default(false), everything: z.boolean().default(false) }), req.body ?? {}, reply);
     if (!b) return;
-    const job = startJob('remove-demo', b.all ? 'Demo accounts and demo places' : 'Demo accounts');
+    if (b.everything) b.all = true;
+    const job = startJob('remove-demo', b.everything ? 'Everything demo' : b.all ? 'Demo accounts and demo places' : 'Demo accounts');
     const log = say(job);
     try {
       const accounts = await removeDemoActivity(db);
       log(`Removed ${accounts} demo accounts and their votes.`);
       let catalog: { places: number; photos: number; kept: string[] } = { places: 0, photos: 0, kept: [] };
       if (b.all) {
-        catalog = await removeDemoCatalog(db, app.config.mediaDir);
+        catalog = await removeDemoCatalog(db, app.config.mediaDir, { everything: b.everything });
         log(`Removed ${catalog.places} demo places and ${catalog.photos} demo photos.`);
         if (catalog.kept.length) {
           log(`Kept ${catalog.kept.length} demo places because real people posted there: ${catalog.kept.join(', ')}. Review them in Places.`);

@@ -12,7 +12,7 @@ const app = await buildApp(config, db);
 
 await migrate(db, (m) => app.log.info(m));
 if (config.seedOnStart) {
-  await seedCatalog(db, config.mediaDir, (m) => app.log.info(m));
+  await seedCatalog(db, config.mediaDir, (m) => app.log.info(m), { demoPlaces: config.demoActivity });
   if (config.demoActivity) await seedDemoActivity(db, (m) => app.log.info(m));
 }
 await ensureCities(db, (m) => app.log.info(m));
