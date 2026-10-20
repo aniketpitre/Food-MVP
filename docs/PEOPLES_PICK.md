@@ -15,14 +15,24 @@ some people more than others because of their track record.
 | Save, share | Feed points only (Trending, tie-breaks); never part of the rating. |
 | **Posting a photo** | Asks "Worth a bite?": Loved it / Not for me, counted like the buttons. |
 
-Loved it and Not for me exclude each other. Whoever added a place doesn't vote for its
-dishes (their votes are kept, but count for nothing), so an owner can't push their menu.
-Their votes there don't build their trust either (see below), and they aren't listed
-among the people who loved those dishes.
+Loved it and Not for me exclude each other: one verdict per person and dish, enforced by
+the database, so two taps racing each other can't leave both. Whoever added a place
+doesn't vote for its dishes (their votes are kept, but count for nothing), so an owner
+can't push their menu; that holds after an admin merges two listings of the place too
+(`place_claimants`). Their votes there don't build their trust either (see below), and
+they aren't listed among the people who loved those dishes. Only votes at **approved**
+places count, for ratings and for trust: a place waiting for approval can't be used to
+farm either.
+
+Taking a vote back, or flipping it, doesn't erase it from your record: the original call
+stays in your **pick history** and is still judged (so trust can't be polished by undoing
+the calls that went wrong). Re-voting within 30 days (`revote_keep_days`) keeps the
+vote's first date.
 
 A vote from someone who posted a photo of the dish with a **verified visit** counts
-`visit_weight` (1.25) times: see "Genuine photos" below. That only adds weight to the
-vote: being a champion or an expert still takes the standing on its own.
+`visit_weight` (1.25) times when the account has full standing: see "Genuine photos"
+below. That only adds weight to the vote: being a champion or an expert still takes the
+standing on its own, strictly above `expert_min_standing`.
 
 ## Standing: one real person, one vote
 
@@ -37,12 +47,18 @@ standing = min(1, account age / 7 days) / (1 + lockstep partners)
   about 1/168. This is applied after the per-person cap, so a burst of fresh accounts
   can't fill a dish's score.
 * Two accounts are **lockstep partners** when most of their votes are on the same dishes,
-  the same way, within 2 hours of each other (at least 2 such votes, covering 80 % of the
+  the same way, within 24 hours of each other (at least 2 such votes, covering 80 % of the
   smaller account's votes). A ring of six accounts voting together counts as one person,
-  can't build each other's trust, and can't produce a champion or an expert.
+  can't build each other's trust, and can't produce a champion or an expert. The penalty
+  falls on whoever has most of their votes in lockstep: a copycat who follows an expert's
+  picks loses standing, the expert (whose other votes are their own) doesn't.
 * Lane minimums (Top: 3 people, Trending: 2, Hidden gems: 5) count people by standing.
   For Top they are people who loved the dish or said "not for me" (`w_voters`, the owner
-  left out): saves and shares alone never put a dish in Top.
+  left out, fading like the rating): saves and shares alone never put a dish in Top.
+* A **young city** (fewer than `young_city_votes`, 200, loves and "not for me" from real
+  people; the demo doesn't count) relaxes those minimums to half a full-standing person,
+  so Top, Trending and Hidden gems aren't empty on launch day, while a few accounts made a
+  minute ago still can't get a dish in. Explore then lists every place, photos or not.
 
 ## Trust: whose vote counts more
 
@@ -57,7 +73,8 @@ with earns credit too. Per dish type (misal, biryani, chai, ...) and overall:
 trust = 0.6 + 0.8 × credit / (picks + 2)
 ```
 
-* `picks` counts each pick by how much independent backing it got (up to 1). The `+2`
+* `picks` counts each pick by how much independent backing it got: it counts fully once
+  `pick_full_backers` (3) people, by standing, voted after it. The `+2`
   means a record starts as two picks nobody backed: a newcomer starts at the floor
   (**0.6**), the same as someone whose picks earned nothing. Nobody outranks a proven
   record just by being new.
@@ -97,7 +114,10 @@ Type "paav bhaji", "pavbhaji" or "pav bhaji": spellings resolve to the same dish
 that fits several dishes equally ("chicken") brings all of them; a word in dish names
 ("pav") finds every dish with it (Pav Bhaji, Misal Pav, Vada Pav); dish types
 ("biryani") return every dish of that type. Results are ordered by confidence, and the
-people with the highest trust for those dishes are listed as **people to trust**.
+people with the highest trust for those dishes are listed as **people to trust**. Below
+them come **places that may serve it** (by name or cuisine), so "pizza" finds the
+pizzerias even before anyone posted a pizza there. Cuisines match whole words: "thai"
+never brings up a thali place.
 
 ## The feed
 
@@ -113,6 +133,9 @@ people with the highest trust for those dishes are listed as **people to trust**
   photos from diners count: the place's own account re-posting doesn't keep its dishes
   at the top, and deleting a post doesn't give back the day's posting slots.
 * "Not for me" never adds feed points; undoing it also takes back the "tried" it added.
+* Scrolling keeps its order: the first page ranks the lane once for that scroll session
+  (the app's seed) and later pages read from it, so a vote landing mid-scroll can't show
+  a dish twice or skip one.
 
 ## Tuning
 
@@ -120,8 +143,8 @@ Every number above lives in the `ranking_config` table (`pp_*`, `trust_*`, `expe
 `standing_*`, `twin_*`) and can be changed without shipping the app. The admin API
 rejects values that would break the maths (and every value is clamped where it's used);
 a change re-ranks everything at once. The SQL is in
-`backend/migrations/007_fair_ranking.sql`, `013_fair_feed_and_genuine_photos.sql` and
-`015_ranking_fixes.sql`: a vote re-rates its dish at once (under a lock for that dish
+`backend/migrations/007_fair_ranking.sql`, `013_fair_feed_and_genuine_photos.sql`,
+`015_ranking_fixes.sql` and `020_gap_fixes.sql`: a vote re-rates its dish at once (under a lock for that dish
 only, so it never waits for a full rebuild), and trust, standing and lockstep partners
 are rebuilt a few seconds after a burst of votes and on the ranking timer (a rebuild that
 finds another one running leaves it to finish).
@@ -143,12 +166,16 @@ something to go on:
 | Dish types you both like | cosine of the two taste vectors | 1.5 × min(1, the smaller voting record / 8) |
 | What you both told us | ½ type overlap + 0.3 diet + 0.2 spice closeness | 1 |
 
-Someone with less than one unit of weight gets no score yet. **People with your taste**
-(Home) lists people at 50 %+ with full standing that you don't follow yet, surest first
+Someone with less than one unit of weight gets no score yet. Without a single dish you
+both voted on, a match says at most 75 %: people who voted like you always outrank a
+stranger who ticked the same boxes. The stated-taste comparison only looks at people
+sharing a dish type or a diet with you. **People with your taste** (Home) lists people at
+50 %+ with full standing that you don't follow yet (never demo accounts), surest first
 (a close match on lots of evidence beats a perfect match on a little).
 
 **For You** (Home and an Explore tab) ranks the dishes that your closest taste matches
-(50 at most, 55 %+) and the people you follow loved:
+(50 at most, 55 %+ with at least one shared vote or 1.5 units of evidence, surest first)
+and the people you follow loved:
 
 ```
 score = Σ (their weight × their standing × fade over 90 days × (+1 love, +0.5 save, −1 not for me))
@@ -156,9 +183,14 @@ their weight = taste match (+0.25 if you also follow them), or 0.7 for someone y
 ```
 
 Dishes you've already loved, passed or tried are left out, a dish they mostly passed on is
-left out, and vegetarians never see non-veg dishes. Each card says why ("Loved by @diya ·
-92 % taste match"). With nobody to go on yet, the best-rated dishes of the types you like
-fill in ("Because you like Thali").
+left out, and blocks work both ways. **Diet**: a dish marked veg is veg; otherwise its
+name and type decide (`dish_fits_diet`): meat words (chicken, mutton, kheema, ...) are
+never shown to vegetarians or egg-eaters, egg dishes only to egg-eaters, and dishes that
+could be either (biryani, momos, rolls, kebab) only when the name says veg (paneer, veg,
+aloo, ...). Each card says why ("Loved by @diya · 92 % taste match"), naming only someone
+who loved it. With nobody to go on yet, the best-rated dishes of the types you like fill
+in ("Because you like Thali"), then the city's best, so For You is never empty. A dish
+type picked above the feed filters For You too.
 
 **The map** can show only the places your friends (people you follow) or your taste matches
 loved, with who loved each one. **Food on the way**: choose a city (or long-press the map)
@@ -166,7 +198,8 @@ and the server finds a driving route (an OSRM server, `ROUTING_URL`; a straight 
 can't reach one), then the best dish at every place within 3 km of the road, in the order
 you reach them. "Stop on the way" opens your maps app with that place as a stop.
 
-The SQL is in `backend/migrations/008_taste.sql` (`taste_matches()`, `for_you()`).
+The SQL is in `backend/migrations/008_taste.sql` and `020_gap_fixes.sql` (`taste_matches()`,
+`for_you()`, `dish_fits_diet()`).
 
 ## Genuine photos
 
@@ -198,10 +231,22 @@ A photo can't be proven real, but these make faking one costly and copying one u
   joins the existing dish and the reply carries its real name; "Paneer Tikka Masala" is
   still its own dish next to "Paneer Tikka". A name an admin merged away posts to the
   dish it became, and a dish an admin hid can't be brought back by posting it
-  (`dish_unavailable`); adding a place with a similar name within 150 m offers the existing
-  place. Admins see look-alike dish names at one place and can **merge** them: photos
-  and votes move over, each person's latest love or "not for me" is their one vote, and
-  old links open the merged dish.
+  (`dish_unavailable`); adding a place with a similar name within 150 m (either name
+  inside the other: "Sai" and "Hotel Sai Palace") offers the existing place. Admins see
+  look-alike dish names at one place and can **merge** them: photos and votes move over,
+  each person's latest love or "not for me" is their one vote, and old links open the
+  merged dish. Merging two listings of a place never brings back a dish that was taken
+  down there.
+* **New places.** A place someone adds waits for approval, but takes posts meanwhile and
+  shows in the place pickers (so the next diner posts there instead of adding it again).
+  It goes live by itself when someone established posts from it with a verified visit,
+  when `place_auto_approve_posters` (2) half-established people have posted there, or
+  after `place_auto_approve_days` (3) with a photo; never while a live place with a
+  similar name is within 150 m (a person decides then). Overture confirming a pending
+  place also makes it live.
+* **Reports** add up by the reporters' standing (accounts under a day old only go to the
+  review queue): `report_hide_threshold` (3) full-standing people hide a post, comment or
+  story. Reports on a whole dish only go to the review queue.
 * **Cover.** A dish's cover is its best recent photo (last `cover_days`, 90): a verified
   visit first, then the most trusted photographer, then the newest. Cards say how many
   people photographed it.

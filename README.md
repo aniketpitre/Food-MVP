@@ -145,7 +145,8 @@ standing = min(1, account age / 7 days) / (1 + lockstep partners)
 ```
 
 A new account grows to full weight over a week. Accounts that keep voting on the same dishes, the
-same way, within 2 hours of each other are **lockstep partners**: a ring of six counts as one person.
+same way, within 24 hours of each other are **lockstep partners**: a ring of six counts as one person.
+The penalty falls on the copycat, not on the expert whose picks they copy.
 
 ### 3. Trust: whose taste has a track record
 
@@ -158,11 +159,13 @@ trust = 0.6 + 0.8 × credit / (picks + 2)
 ```
 
 Everyone starts at 0.6. At least 3 picks of a type with trust ≥ 1.05 earns an **expert** badge.
+Taking a vote back or flipping it doesn't erase it: the original call stays in your record. Only
+votes at approved places count, and whoever added a place never rates it (even after a merge).
 
 ### 4. The rating
 
 Each vote is weighted by **trust × standing**, fading with a 180-day half-life, and **× 1.25 for a
-verified visit**:
+verified visit** from a full-standing account:
 
 ```
 rating     = (weighted loves + 3 × 0.75) / (weighted loves + weighted passes + 3)
@@ -185,13 +188,18 @@ person who loved it.
 | Following | Photos from people you follow, newest first. |
 | Nearby | Nearest first, People's Pick between equally near dishes. |
 
-Every 5th card is a fresh dish, so new posts get seen.
+Every 5th card is a fresh dish, so new posts get seen. While a city is **young** (under 200 votes
+from real people), Top, Trending and Hidden gems need only half a full-standing person, so they
+aren't empty on launch day. Scrolling never repeats or skips a dish, even as votes come in.
 
 ### 6. People like you
 
 **Taste Match** (0–100 %) blends votes on the same dishes, the dish types you both like, and what you
 both said about your taste. **For You** scores dishes by what your closest matches and the people
 you follow loved (+1 love, +0.5 save, −1 not for me), each weighted by your match and fading over 90 days.
+Without a dish you both voted on, a match says at most 75 %. Vegetarians and egg-eaters never see meat
+(a dish's name and type decide when it isn't marked), and when there's nobody to go on yet, For You
+shows the dish types you like, then the city's best.
 
 ### 7. Genuine photos
 
@@ -199,6 +207,11 @@ you follow loved (+1 love, +0.5 save, −1 not for me), each weighted by your ma
 - **Verified visit.** A camera (or fresh) photo taken within 300 m of the place.
 - **Limits.** One photo per dish per person per day, and one vote per dish however many photos you post.
 - **Spelling merges.** "Did you mean…?", typo merging, and admin merges keep votes on one dish.
+- **New places** wait for approval but take posts and show in the place pickers; they go live with a
+  verified visit from someone established, two half-established posters, or three days with a photo,
+  never while a similar place is live within 150 m.
+- **Reports** add up by the reporters' standing; a whole dish is never hidden by reports alone.
+- **Craving search** also lists places that may serve the dish (by name or cuisine), photos or not.
 
 ### Tuning and checking
 

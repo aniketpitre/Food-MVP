@@ -1,7 +1,7 @@
 -- The algorithm audit's gaps, fixed (docs/PEOPLES_PICK.md describes the result):
 --
 --  Launch with few votes
---   * A young city (fewer than young_city_votes loves and "not for me" in all) shows in Top
+--   * A young city (fewer than young_city_votes real people's loves and "not for me" in all) shows in Top
 --     every dish loved by at least half a full-standing person's worth of accounts, best
 --     first, instead of an empty Top until 3 full-standing people agree; Trending and Hidden
 --     gems relax the same way. w_voters fades like the
@@ -437,7 +437,9 @@ end $$;
 -- ============ Young cities ============
 create or replace function city_is_young(p_city int) returns boolean
 language sql stable as $$
+  -- Real people's votes only: the demo's invented activity doesn't make a city busy.
   select (select count(*) from engagements e join dishes d on d.id = e.dish_id
+          join profiles p on p.id = e.user_id and not p.is_demo
           where d.city_id = p_city and e.kind in ('recommend', 'pass')) < cfg('young_city_votes')
 $$;
 
@@ -529,7 +531,10 @@ language sql stable as $$
              (order by b.featured_rank nulls last, greatest(b.dish_created, b.newest_post) desc, b.id) as m
     from base b
     where p_tab = 'top'
-      and not exists (select 1 from top_lane t where t.id = b.id and t.k <= 40)
+      -- While the city is young nearly every dish is in Top: new ones still get every fifth
+      -- card unless they're already in Top's first screens (each dish shows once).
+      and not exists (select 1 from top_lane t where t.id = b.id
+                      and t.k <= case when (select y from young) then 8 else 40 end)
       and greatest(b.dish_created, b.newest_post) > now() - make_interval(days => greatest(cfg('fresh_days'), 0)::int)
   ),
   slotted as (
