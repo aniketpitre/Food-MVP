@@ -424,7 +424,7 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val q = entry.arguments?.getString("q").orEmpty()
                         val vm = appViewModel(key = "craving-$q") { CravingViewModel(it, q) }
-                        CravingScreen(vm, { nav.back() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) })
+                        CravingScreen(vm, { nav.back() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) }, onOpenPlace = openRestaurant)
                     }
                 }
                 composable(Routes.ACTIVITY) {

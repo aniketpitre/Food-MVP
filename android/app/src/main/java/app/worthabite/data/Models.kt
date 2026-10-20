@@ -766,6 +766,18 @@ data class CravingResult(
     val label: String = "",
     val results: List<DishCard> = emptyList(),
     val tasters: List<Taster> = emptyList(),
+    /** Places that may serve it (by name or cuisine), photos or not. */
+    val places: List<CravingPlace> = emptyList(),
+)
+
+@Serializable
+data class CravingPlace(
+    val id: String,
+    val name: String,
+    val locality: String? = null,
+    val cuisine: String? = null,
+    val distanceM: Int? = null,
+    val dishCount: Int = 0,
 )
 
 @Serializable

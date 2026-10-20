@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.worthabite.data.ApiException
 import app.worthabite.data.AppContainer
+import app.worthabite.data.CravingPlace
 import app.worthabite.data.CravingResult
 import app.worthabite.data.DishCard
 import app.worthabite.data.apiCall
@@ -108,10 +109,11 @@ fun CravingScreen(
     onOpenDish: (String) -> Unit,
     onOpenUser: (String) -> Unit,
     onAddDish: () -> Unit,
+    onOpenPlace: (String) -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
-    CravingContent(state, { app.mediaUrl(it) }, onBack, onOpenDish, onOpenUser, onAddDish, vm::load)
+    CravingContent(state, { app.mediaUrl(it) }, onBack, onOpenDish, onOpenUser, onAddDish, vm::load, onOpenPlace)
 }
 
 /**
@@ -129,9 +131,12 @@ fun CravingContent(
     onOpenUser: (String) -> Unit,
     onAddDish: () -> Unit,
     onRetry: () -> Unit,
+    onOpenPlace: (String) -> Unit = {},
 ) {
     var explain by remember { mutableStateOf(false) }
     val r = state.result
+    // Places that may serve it and aren't already ranked above.
+    val morePlaces = r?.places.orEmpty().filter { p -> r?.results.orEmpty().none { it.restaurant.id == p.id } }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -141,6 +146,20 @@ fun CravingContent(
         when {
             state.loading -> LoadingBox()
             r == null -> CenteredMessage("Couldn't search", state.error, Icons.Filled.Refresh, "Try again", onRetry)
+            r.results.isEmpty() && morePlaces.isNotEmpty() -> LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+                item(key = "title") {
+                    Column(Modifier.padding(horizontal = 20.dp)) {
+                        KickerText(state.city)
+                        Text(r.label, style = MaterialTheme.typography.displaySmall)
+                        Text(
+                            "No photos of it here yet, but these places may serve it. Tried it at one? Post it, and it'll be the first people find.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(morePlaces, key = { "place-${it.id}" }) { p -> PlaceRow(p, onOpenPlace) }
+            }
             r.results.isEmpty() -> CenteredMessage(
                 "No ${r.label} in ${state.city} yet",
                 "Had a great one? Post it, and it'll be the first people find.",
@@ -165,6 +184,10 @@ fun CravingContent(
                 }
                 itemsIndexed(r.results.drop(1), key = { _, c -> c.id }) { i, c ->
                     Reveal(100 + 50 * i.coerceAtMost(8)) { RankedRow(i + 2, c, imageUrl, onOpenDish, onOpenUser) }
+                }
+                if (morePlaces.isNotEmpty()) {
+                    item(key = "places-title") { SectionHeader("More places that may serve it", "No photos of it there yet") }
+                    items(morePlaces, key = { "place-${it.id}" }) { p -> PlaceRow(p, onOpenPlace) }
                 }
                 if (r.tasters.isNotEmpty()) {
                     item(key = "tasters-title") { SectionHeader("People to trust for ${r.label.lowercase()}", "Their picks were backed by the people who came after") }
@@ -212,6 +235,30 @@ private fun WinnerCard(card: DishCard, imageUrl: (String?) -> String?, onOpenDis
                 )
             }
             card.champion?.let { ChampionLine(it, onOpenUser, onPhoto = true) }
+        }
+    }
+}
+
+@Composable
+private fun PlaceRow(place: CravingPlace, onOpenPlace: (String) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .clickable(role = Role.Button) { onOpenPlace(place.id) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Text(place.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val sub = listOfNotNull(
+            place.locality,
+            place.cuisine?.replaceFirstChar { it.uppercase() },
+            Format.distance(place.distanceM),
+            if (place.dishCount > 0) "${place.dishCount} dishes" else null,
+        ).joinToString(" · ")
+        if (sub.isNotEmpty()) {
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -268,7 +315,7 @@ fun HowItWorksSheet(onDismiss: () -> Unit) {
             Point("2", "Track records matter", "When you love a dish and the people who try it after you love it too, your future votes count a little more (up to 1.4×). Get it wrong and they count a little less (down to 0.6×).")
             Point("3", "Many votes beat a lucky few", "A dish needs both a high share of loves and enough votes to reach the top. One love doesn't beat thirty.")
             Point("4", "Nobody can buy it", "New accounts grow to full weight over their first week, accounts voting in lockstep count as one, whoever added a place can't vote for its dishes, and one person is one vote per dish.")
-            Point("5", "Being there counts", "A vote from someone who posted a photo at the place, with their phone there (a verified visit), counts a little more (1.25×).")
+            Point("5", "Being there counts", "A vote from someone past their first week who posted a photo at the place, with their phone there (a verified visit), counts a little more (1.25×).")
         }
     }
 }
