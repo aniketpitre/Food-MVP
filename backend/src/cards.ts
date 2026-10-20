@@ -115,8 +115,8 @@ export async function loadDishCards(
                select pr.handle, pr.display_name, pr.avatar_path
                from engagements e join profiles pr on pr.id = e.user_id
                where e.dish_id = d.id and e.kind = 'recommend'
-                 and e.user_id is distinct from r.created_by
-                 and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = e.user_id))
+                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)
+                 and ($2::uuid is null or not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = e.user_id) or (b.blocker_id = e.user_id and b.blocked_id = $2)))
                order by e.created_at desc, pr.handle limit 3) x) as recent,
             case when $3::float8 is not null and $4::float8 is not null
                  then st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography) end as distance_m,
@@ -129,7 +129,7 @@ export async function loadDishCards(
      left join dish_stats s on s.dish_id = d.id
      left join dish_rating dr on dr.dish_id = d.id
      left join profiles ch on ch.id = dr.champion_id
-       and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = ch.id))
+       and ($2::uuid is null or not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = ch.id) or (b.blocker_id = ch.id and b.blocked_id = $2)))
      left join taster_stats ct on ct.user_id = dr.champion_id and ct.category_id = coalesce(d.category_id, -1)
      left join lateral (
        select p.* from posts p

@@ -40,22 +40,34 @@ export async function actionRoutes(app: FastifyInstance) {
     if (!p) return;
     if (!(await dishIsLive(p.id))) return reply.code(404).send({ error: 'not_found', message: 'Dish not found.' });
     const me = userId(req)!;
-    const added = await inTransaction(db, async (tx) => {
+    // A love and a "not for me" can't both stand (a unique index says so), so the other one
+    // goes first. Two taps racing each other: the loser simply tries again.
+    const toggle = () => inTransaction(db, async (tx) => {
+      if (p.kind === 'pass') await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, p.id]);
+      // Changing your mind to a love: you did try it, so "tried" stays.
+      if (p.kind === 'recommend') await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, p.id]);
       const { rowCount } = await tx.query(
         'insert into engagements (user_id, dish_id, kind) values ($1, $2, $3) on conflict do nothing',
         [me, p.id, p.kind],
       );
       if (p.kind === 'pass') {
-        await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, p.id]);
-        // Same transaction, so the same timestamp as the pass: that's how undo knows it.
-        await tx.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'tried') on conflict do nothing", [me, p.id]);
-      }
-      if (p.kind === 'recommend') {
-        // Changing your mind to a love: you did try it, so "tried" stays.
-        await tx.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'", [me, p.id]);
+        // The same timestamp as the pass (a re-vote keeps its first date): that's how undo knows it.
+        await tx.query(
+          `insert into engagements (user_id, dish_id, kind, created_at)
+           select user_id, dish_id, 'tried', created_at from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'
+           on conflict do nothing`,
+          [me, p.id],
+        );
       }
       return (rowCount ?? 0) > 0;
     });
+    let added: boolean;
+    try {
+      added = await toggle();
+    } catch (err) {
+      if ((err as { code?: string }).code !== '23505') throw err;
+      added = await toggle();
+    }
     if (p.kind === 'recommend' && added) await tellPeople(p.id, me);
     return counts(p.id, me);
   });
@@ -141,9 +153,11 @@ export async function actionRoutes(app: FastifyInstance) {
     return { items: await loadDishCards(db, rows.map((r) => r.dish_id), me, q.lat, q.lng) };
   });
 
-  // Reports. A post or dish is hidden automatically once enough distinct, established
-  // accounts report it; reports from brand-new accounts only go to the review queue so
-  // a rival cannot hide a dish with three throwaway accounts.
+  // Reports. A post, comment or story is hidden automatically once enough reports from
+  // established accounts add up, each counted by its standing (account age, lockstep
+  // partners), so a rival cannot hide a dish with three throwaway accounts. Reports from
+  // brand-new accounts, and every report on a whole dish (many people's photos and votes),
+  // only go to the review queue.
   app.post('/reports', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
     const body = parse(
       z.object({
@@ -175,15 +189,17 @@ export async function actionRoutes(app: FastifyInstance) {
 
     let hidden = false;
     // Messages go to the review queue only; the reporter can already block the sender.
-    if (body.targetType !== 'user' && body.targetType !== 'message') {
+    if (body.targetType !== 'user' && body.targetType !== 'message' && body.targetType !== 'dish') {
       const { rows } = await db.query<{ n: number }>(
-        `select count(*)::int as n from reports rp join profiles pr on pr.id = rp.reporter_id
+        `select coalesce(sum(standing(pr.created_at, vi.twins)), 0)::float8 as n
+         from reports rp join profiles pr on pr.id = rp.reporter_id
+         left join voter_independence vi on vi.user_id = rp.reporter_id
          where rp.target_type = $1 and rp.target_id = $2 and rp.status = 'open'
            and pr.created_at < now() - make_interval(hours => cfg('report_min_account_hours')::int)`,
         [body.targetType, targetId],
       );
       const { rows: t } = await db.query<{ v: string }>("select cfg('report_hide_threshold') as v");
-      if (rows[0]!.n >= Number(t[0]!.v)) {
+      if (rows[0]!.n >= Number(t[0]!.v) - 1e-9) {
         if (body.targetType === 'story') await db.query('update stories set expires_at = now() where id = $1', [targetId]);
         else await db.query(`update ${table} set status = 'hidden' where id = $1 and status = 'live'`, [targetId]);
         hidden = true;

@@ -33,6 +33,8 @@ export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
  * afterwards, outside the transaction, so a big merge doesn't hold the ranking locks.
  */
 export async function mergeDishesTx(tx: pg.PoolClient, from: string, into: string, by: string | null): Promise<void> {
+  // Moving votes isn't taking them back: no pick history for these deletes.
+  await tx.query("select set_config('worthabite.moving_votes', 'on', true)");
   // Votes: the latest love / "not for me" per person wins; saves and the rest just join.
   await tx.query(
     `with v as (
@@ -63,6 +65,17 @@ export async function mergeDishesTx(tx: pg.PoolClient, from: string, into: strin
     }
   }
   await tx.query("update dishes set status = 'hidden', cover_post_id = null where id = $1", [from]);
+  // A vote taken back earlier on either dish stays in the history once, on the dish that's left.
+  await tx.query(
+    `insert into pick_history (user_id, dish_id, kind, created_at, removed_at)
+     select user_id, $2, kind, created_at, removed_at from pick_history h
+     where h.dish_id = $1
+       and not exists (select 1 from engagements e where e.user_id = h.user_id and e.dish_id = $2 and e.kind in ('recommend', 'pass'))
+     on conflict (user_id, dish_id, kind) do nothing`,
+    [from, into],
+  );
+  await tx.query('delete from pick_history where dish_id = $1', [from]);
+  await tx.query("select set_config('worthabite.moving_votes', 'off', true)");
   await tx.query(
     `insert into dish_merges (from_id, into_id, merged_by) values ($1, $2, $3)
      on conflict (from_id) do update set into_id = excluded.into_id, merged_at = now()`,
@@ -109,11 +122,21 @@ export async function mergePlaces(db: Db, from: string, into: string, by: string
         moved++;
         touched.add(d.id);
       } else if (d.status !== 'hidden') {
-        // A same-name dish hidden at the target comes back: it is the live one now.
-        if (d.twin_status === 'hidden') await tx.query("update dishes set status = 'live' where id = $1", [d.twin]);
-        await mergeDishesTx(tx, d.id, d.twin, by);
-        merged++;
-        touched.add(d.id).add(d.twin);
+        const { rows: tomb } = await tx.query('select 1 from dish_merges where from_id = $1', [d.twin]);
+        if (d.twin_status === 'hidden' && tomb[0]) {
+          // The same-name dish at the target was itself merged away: it's only a pointer, so
+          // it gives up the name and this dish moves in.
+          await tx.query("update dishes set name_norm = name_norm || ' ~' || left(id::text, 8) where id = $1", [d.twin]);
+          await tx.query('update dishes set restaurant_id = $2, city_id = $3 where id = $1', [d.id, into, target.city_id]);
+          moved++;
+          touched.add(d.id);
+        } else {
+          // Otherwise this dish joins it. One that was taken down (by an admin or by reports)
+          // stays down, now with these votes and photos too; an admin can bring it back.
+          await mergeDishesTx(tx, d.id, d.twin, by);
+          merged++;
+          touched.add(d.id).add(d.twin);
+        }
       }
       // A hidden dish (merged away earlier) whose name is taken at the target stays behind
       // with the hidden place; its dish_merges row already points at the live dish.
@@ -127,6 +150,11 @@ export async function mergePlaces(db: Db, from: string, into: string, by: string
     const { rowCount: photos } = await tx.query('update restaurant_photos set restaurant_id = $2 where restaurant_id = $1', [from, into]);
     await tx.query('update stories set restaurant_id = $2 where restaurant_id = $1', [from, into]);
     await tx.query('update messages set restaurant_id = $2 where restaurant_id = $1', [from, into]);
+    // Whoever added either listing still can't rate the merged place.
+    await tx.query(
+      'insert into place_claimants (restaurant_id, user_id) select $2, user_id from place_claimants where restaurant_id = $1 on conflict do nothing',
+      [from, into],
+    );
     await tx.query("update restaurants set status = 'hidden' where id = $1", [from]);
     return { moved, merged, photos: photos ?? 0, touched: [...touched] };
   });
@@ -389,7 +417,7 @@ export async function adminRoutes(app: FastifyInstance) {
                   * decay(e.created_at, greatest(cfg('pp_half_life_days'), 0.01)) as w0
          from engagements e
          join dishes d on d.id = e.dish_id and d.status = 'live'
-         join restaurants r on r.id = d.restaurant_id and e.user_id is distinct from r.created_by
+         join restaurants r on r.id = d.restaurant_id and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)
          join profiles p on p.id = e.user_id
          left join voter_independence vi on vi.user_id = e.user_id
          left join taster_stats ts on ts.user_id = e.user_id and ts.category_id = coalesce(d.category_id, -1)
@@ -451,8 +479,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const { rowCount } = await db.query('update ranking_config set value = $2 where key = $1', [p.key, b.value]);
     if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Unknown setting.' });
     // Everything that reads the settings is rebuilt now, not on the next timer.
-    await db.query('select refresh_dish_stats()');
-    await db.query('select refresh_people_pick()');
+    await db.query('select refresh_rankings_now()');
     return { ok: true };
   });
 }
@@ -482,4 +509,9 @@ const SETTING_RANGES: Record<string, [number, number]> = {
   posts_per_dish_day: [1, 20],
   copy_distance: [0, 20],
   cover_days: [1, 3650],
+  young_city_votes: [0, 100000],
+  pick_full_backers: [1, 50],
+  revote_keep_days: [0, 365],
+  place_auto_approve_posters: [1, 50],
+  place_auto_approve_days: [1, 365],
 };

@@ -265,8 +265,7 @@ export async function seedDemoActivity(db: Db, log: (m: string) => void = () => 
       }
     }
   }
-  await db.query('select refresh_dish_stats()');
-  await db.query('select refresh_people_pick()');
+  await db.query('select refresh_rankings_now()');
   log('seed: demo activity inserted (40 demo_ accounts)');
   return true;
 }
@@ -292,8 +291,8 @@ export async function removeDemoActivity(db: Db): Promise<number> {
   // Retired for good: a restart (with DEMO_ACTIVITY on) won't make the demo accounts again.
   await setDemoRetired(db, true);
   const { rowCount } = await db.query('delete from profiles where is_demo');
-  await db.query('select refresh_dish_stats()');
-  await db.query('select refresh_people_pick()');
+  await db.query('select refresh_rankings_now()');
+  await db.query('select clean_orphans()');
   return rowCount ?? 0;
 }
 
@@ -320,7 +319,7 @@ export async function removeDemoCatalog(
   );
   const { rowCount } = await db.query(`delete from restaurants r where r.source = 'seed' and not ${realPost}`);
   for (const p of posts) await deletePostImages(mediaDir, p.id);
-  await db.query('select refresh_dish_stats()');
-  await db.query('select refresh_people_pick()');
+  await db.query('select refresh_rankings_now()');
+  await db.query('select clean_orphans()');
   return { places: rowCount ?? 0, photos: posts.length, kept: kept.map((k) => k.name) };
 }

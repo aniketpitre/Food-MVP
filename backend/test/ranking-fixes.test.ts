@@ -339,10 +339,14 @@ describe('fair ranking', () => {
     expect(await stats(owner.id)).toEqual([]);
     expect(await stats(early.id)).toEqual([]);
     // The owner's vote doesn't rate the dish either (as before).
-    expect((await db.query('select loves, w_voters from dish_rating where dish_id = $1', [dish])).rows[0]).toMatchObject({ loves: 4, w_voters: 4 });
+    const dr = (await db.query('select loves, w_voters from dish_rating where dish_id = $1', [dish])).rows[0];
+    expect(dr.loves).toBe(4);
+    // Four full-standing diners, their five-day-old votes fading a little.
+    expect(dr.w_voters).toBeGreaterThan(3.5);
+    expect(dr.w_voters).toBeLessThanOrEqual(4);
   });
 
-  it('lets a verified visit add weight to a vote, but not make a low-standing account a champion', async () => {
+  it('lets a verified visit add weight to a full-standing vote only, and not make a low-standing account a champion', async () => {
     const place = await testPlace('Visit Champ Corner');
     // Three days old: standing 3/7 (0.43), under the 0.5 a champion needs; x1.25 would be 0.54.
     const u = await signUp({ days: 3 });
@@ -351,8 +355,14 @@ describe('fair ranking', () => {
     const r = (await db.query('select loves, w_loves, w_voters, champion_id from dish_rating where dish_id = $1', [res.json().dishId])).rows[0];
     expect(r.loves).toBe(1);
     expect(r.champion_id).toBeNull();
-    // The vote itself still counts the visit: trust (0.6) x standing x 1.25.
-    expect(r.w_loves).toBeCloseTo(0.6 * r.w_voters * 1.25, 2);
+    // Below full standing the visit adds nothing: trust (0.6) x standing.
+    expect(r.w_loves).toBeCloseTo(0.6 * r.w_voters, 2);
+    // A full-standing diner's verified visit counts x1.25.
+    const v = await signUp({ days: 30 });
+    const res2 = await post(v.auth, { dishName: 'Visit Jalebi', restaurantId: place, lat: '20.0001', lng: '73.7901', capture: 'camera', verdict: 'loved' });
+    expect(res2.json().visit).toBe('verified');
+    const r2 = (await db.query('select w_loves, w_voters from dish_rating where dish_id = $1', [res2.json().dishId])).rows[0];
+    expect(r2.w_loves).toBeCloseTo(0.6 * r2.w_voters * 1.25, 2);
   });
 
   it('sorts places by how much their dishes are loved, not by how many accounts clicked', async () => {

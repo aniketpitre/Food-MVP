@@ -24,7 +24,8 @@ export async function exploreRoutes(app: FastifyInstance) {
         category: z.coerce.number().int().positive().optional(),
         veg: z.enum(['true', 'false']).default('false'),
         maxKm: z.coerce.number().min(0.5).max(50).optional(),
-        all: z.enum(['true', 'false']).default('false'),
+        // Places nobody has posted from yet: shown while the city is young unless asked.
+        all: z.enum(['true', 'false']).optional(),
         limit: z.coerce.number().int().min(1).max(50).default(20),
         offset: z.coerce.number().int().min(0).max(5000).default(0),
       }),
@@ -36,6 +37,11 @@ export async function exploreRoutes(app: FastifyInstance) {
     if ((q.sort === 'nearest' || q.maxKm) && !here) {
       return reply.code(400).send({ error: 'location', message: 'Allow location to sort or filter by distance.' });
     }
+    const all = q.all !== undefined
+      ? q.all === 'true'
+      : (await db.query<{ y: boolean }>('select city_is_young($1) as y', [q.city])).rows[0]!.y;
+    // A cuisine filter matches whole words ("thai" isn't in "thali").
+    const cuisineRe = q.cuisine ? `\\m${q.cuisine.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M` : null;
     const { rows } = await db.query(
       `with base as (
          select r.*,
@@ -43,7 +49,7 @@ export async function exploreRoutes(app: FastifyInstance) {
                    and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')) as dish_count,
                 (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
                  where de.restaurant_id = r.id and de.status = 'live' and e.kind = 'recommend'
-                   and e.user_id is distinct from r.created_by) as lovers,
+                   and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)) as lovers,
                 -- "Most loved" ranks by the People's Pick weight of the loves (trust x standing),
                 -- over dishes still up: a few throwaway accounts or a hidden dish don't count.
                 (select coalesce(sum(dr.w_loves), 0)::float8 from dishes dl join dish_rating dr on dr.dish_id = dl.id
@@ -55,7 +61,7 @@ export async function exploreRoutes(app: FastifyInstance) {
          from restaurants r
          where r.city_id = $1 and r.status = 'active'
            and ($4::text is null or lower(r.locality) = lower($4))
-           and ($5::text is null or replace(lower(r.cuisine), '_', ' ') like '%' || lower($5) || '%')
+           and ($5::text is null or replace(lower(r.cuisine), '_', ' ') ~ $5)
            and ($6::int is null or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live' and d.category_id = $6))
            and (not $7 or r.osm_tags->>'diet:vegetarian' = 'only'
                 or (exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live')
@@ -97,8 +103,8 @@ export async function exploreRoutes(app: FastifyInstance) {
          case when $10 = 'new' then b.last_post end desc nulls last,
          b.dish_count desc, b.dist asc nulls last, b.id
        limit $11 offset $12`,
-      [q.city, q.lat ?? null, q.lng ?? null, q.area || null, q.cuisine || null, q.category ?? null, q.veg === 'true',
-       q.maxKm ?? null, q.all === 'true', q.sort, q.limit, q.offset],
+      [q.city, q.lat ?? null, q.lng ?? null, q.area || null, cuisineRe, q.category ?? null, q.veg === 'true',
+       q.maxKm ?? null, all, q.sort, q.limit, q.offset],
     );
     return {
       items: rows.map((r) => ({ ...r, emoji: r.topDish?.emoji ?? foodLogo(r.cuisine, r.name) })),

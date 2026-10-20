@@ -35,7 +35,7 @@ async function tastersFor(app: FastifyInstance, dishIds: string[], viewer: strin
             b.trust, b.picks, b.backers, b.expert,
             (select l.name from loved l where l.user_id = b.user_id order by l.conf desc, l.dish_id limit 1) as "topPick"
      from best b join profiles pr on pr.id = b.user_id
-     where ($2::uuid is null or not exists (select 1 from blocks bl where bl.blocker_id = $2 and bl.blocked_id = pr.id))
+     where ($2::uuid is null or not exists (select 1 from blocks bl where (bl.blocker_id = $2 and bl.blocked_id = pr.id) or (bl.blocker_id = pr.id and bl.blocked_id = $2)))
      order by b.trust desc, b.backers desc, pr.handle
      limit $3`,
     [dishIds, viewer, limit],
@@ -124,11 +124,35 @@ export async function discoverRoutes(app: FastifyInstance) {
       [q.q, q.city, canonicals, categoryId, viewer],
     );
     const ids = rows.map((r) => r.id);
+    // Places that serve it, by name or cuisine, even before anyone posted the dish there (a
+    // new city has thousands of places and few photos): "pizza" still finds the pizzerias.
+    const { rows: places } = await db.query(
+      `with term as (select norm_name($1) as t)
+       select r.id, r.name, r.locality, r.cuisine,
+              case when $3::float8 is not null and $4::float8 is not null
+                   then round(st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography))::int end as "distanceM",
+              (select count(*)::int from dishes d where d.restaurant_id = r.id and d.status = 'live'
+                 and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')) as "dishCount"
+       from term, restaurants r
+       where r.city_id = $2 and r.status = 'active'
+         and (r.name_norm ~ ('(^| )' || term.t || '( |$)') or word_similarity(term.t, r.name_norm) >= 0.7
+              or replace(lower(coalesce(r.cuisine, '')), '_', ' ') ~ ('\\m' || term.t || '\\M')
+              or exists (select 1 from unnest($5::text[]) c(name)
+                         where r.name_norm ~ ('(^| )' || norm_name(c.name) || '( |$)')))
+       order by (select count(*) from dishes d where d.restaurant_id = r.id and d.id = any($6::uuid[])) desc,
+                word_similarity(term.t, r.name_norm) desc,
+                case when $3::float8 is not null and $4::float8 is not null
+                     then st_distance(r.geo, st_setsrid(st_makepoint($4, $3), 4326)::geography) end nulls last,
+                r.name
+       limit 15`,
+      [q.q, q.city, q.lat ?? null, q.lng ?? null, canonicals, ids],
+    );
     return {
       query: q.q,
       label,
       results: await loadDishCards(db, ids, viewer, q.lat, q.lng),
       tasters: await tastersFor(app, ids, viewer, 6),
+      places,
     };
   });
 
@@ -149,16 +173,20 @@ export async function discoverRoutes(app: FastifyInstance) {
            where ${visible} and dr.loves > 0
            order by dr.confidence desc, dr.loves desc, d.id limit 10`),
       ids(`select d.id from dishes d join dish_stats s on s.dish_id = d.id
-           where ${visible} and s.score_7d > 0 and s.w_endorsers >= cfg('min_endorsers_trending')
+           where ${visible} and s.score_7d > 0
+             and (s.w_endorsers >= cfg('min_endorsers_trending') or (city_is_young($1) and s.w_endorsers >= 0.5))
            order by s.score_7d desc, s.score desc, d.id limit 10`),
       ids(`select d.id from dishes d where ${visible} order by d.created_at desc, d.id limit 10`),
       viewer
         ? db.query<{ id: string; handle: string }>(
-            `select distinct on (d.id) d.id, pr.handle, e.created_at from engagements e
-             join follows f on f.followee_id = e.user_id and f.follower_id = $2
-             join dishes d on d.id = e.dish_id join profiles pr on pr.id = e.user_id
-             where ${visible} and e.kind = 'recommend' and e.created_at > now() - interval '60 days'
-             order by d.id, e.created_at desc`,
+            // The latest loves first, each dish once (named after whoever loved it last).
+            `select id, handle from (
+               select distinct on (d.id) d.id, pr.handle, e.created_at from engagements e
+               join follows f on f.followee_id = e.user_id and f.follower_id = $2
+               join dishes d on d.id = e.dish_id join profiles pr on pr.id = e.user_id
+               where ${visible} and e.kind = 'recommend' and e.created_at > now() - interval '60 days'
+               order by d.id, e.created_at desc
+             ) x order by created_at desc, id limit 10`,
             [q.city, viewer],
           ).then((r) => r.rows)
         : Promise.resolve([] as { id: string; handle: string }[]),
@@ -234,7 +262,7 @@ export async function discoverRoutes(app: FastifyInstance) {
               count(d.id)::int as "dishCount",
               (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
                where de.restaurant_id = r.id and de.status = 'live' and e.kind = 'recommend'
-                 and e.user_id is distinct from r.created_by) as lovers,
+                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)) as lovers,
               (select coalesce(sum(dr.w_loves), 0)::float8 from dishes dl join dish_rating dr on dr.dish_id = dl.id
                where dl.restaurant_id = r.id and dl.status = 'live') as "lovedWeight",
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
@@ -271,7 +299,10 @@ export async function discoverRoutes(app: FastifyInstance) {
     const people =
       filter === 'friends'
         ? `select followee_id as id, null::float8 as match from follows where follower_id = $2`
-        : `select other_id as id, match from taste_matches($2) where match >= 0.55 order by match desc limit 50`;
+        // The same taste matches For You uses: answers alone don't make a match.
+        : `select other_id as id, match from taste_matches($2)
+           where match >= 0.55 and (co_votes >= 1 or evidence >= 1.5)
+           order by match * least(1.0, evidence / 3.0) desc, other_id limit 50`;
     const { rows } = await db.query(
       `with people as (${people}),
        loved as (
@@ -283,7 +314,7 @@ export async function discoverRoutes(app: FastifyInstance) {
          left join dish_rating dr on dr.dish_id = d.id
          where e.kind = 'recommend'
            and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
-           and not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = e.user_id)
+           and not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = e.user_id) or (b.blocker_id = e.user_id and b.blocked_id = $2))
          order by r.id, pe.match desc nulls last, coalesce(dr.confidence, 0) desc, e.created_at desc, d.id
        )
        select r.id, r.name, r.locality, r.cuisine, r.address, r.opening_hours as "openingHours",
@@ -291,7 +322,7 @@ export async function discoverRoutes(app: FastifyInstance) {
               (select count(*)::int from dishes dd where dd.restaurant_id = r.id and dd.status = 'live') as "dishCount",
               (select count(distinct e2.user_id)::int from engagements e2 join dishes de on de.id = e2.dish_id
                where de.restaurant_id = r.id and de.status = 'live' and e2.kind = 'recommend'
-                 and e2.user_id is distinct from r.created_by) as lovers,
+                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e2.user_id)) as lovers,
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
                order by (rp.source = 'owner') desc, rp.created_at limit 1) as "photoUrl",
               json_build_object('dishId', d.id, 'name', d.name, 'loves', coalesce(dr.loves, 0),

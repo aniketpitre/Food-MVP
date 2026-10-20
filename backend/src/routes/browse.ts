@@ -14,6 +14,16 @@ const coords = {
 };
 const uuid = z.string().uuid();
 
+/**
+ * Feed orders by scroll session (the app sends one seed per session): the first page ranks
+ * the whole lane once, later pages read from that list, so a vote landing mid-scroll can't
+ * shift dishes between pages (shown twice, or skipped).
+ */
+const FEED_CACHE_MS = 15 * 60_000;
+const FEED_CACHE_MAX = 2000;
+const FEED_DEPTH = 300;
+const feedCache = new Map<string, { at: number; rows: { dish_id: string; lane: string }[] }>();
+
 export async function browseRoutes(app: FastifyInstance) {
   const { db, config } = app;
 
@@ -77,12 +87,31 @@ export async function browseRoutes(app: FastifyInstance) {
     const viewer = userId(req);
     if (q.tab === 'foryou') {
       if (!viewer) return reply.code(401).send({ error: 'sign_in', message: 'Sign in to see dishes picked for you.' });
-      return forYouCards(db, viewer, q.city, q.limit, q.offset, q.lat, q.lng);
+      return forYouCards(db, viewer, q.city, q.limit, q.offset, q.lat, q.lng, q.category);
     }
-    const { rows } = await db.query<{ dish_id: string; lane: string }>(
-      'select * from get_feed($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [q.city, q.category ?? null, q.tab, q.lat ?? null, q.lng ?? null, q.limit, q.offset, q.seed, viewer],
-    );
+    const key = q.seed
+      ? [q.city, q.category ?? '', q.tab, q.seed, viewer ?? '', q.lat?.toFixed(2) ?? '', q.lng?.toFixed(2) ?? ''].join('|')
+      : null;
+    let rows: { dish_id: string; lane: string }[];
+    const cached = key ? feedCache.get(key) : undefined;
+    if (key && q.offset + q.limit <= FEED_DEPTH && (q.offset === 0 || (cached && Date.now() - cached.at < FEED_CACHE_MS))) {
+      let list = cached?.rows;
+      if (q.offset === 0 || !list) {
+        list = (await db.query<{ dish_id: string; lane: string }>(
+          'select * from get_feed($1, $2, $3, $4, $5, $6, 0, $7, $8)',
+          [q.city, q.category ?? null, q.tab, q.lat ?? null, q.lng ?? null, FEED_DEPTH, q.seed, viewer],
+        )).rows;
+        feedCache.delete(key);
+        feedCache.set(key, { at: Date.now(), rows: list });
+        while (feedCache.size > FEED_CACHE_MAX) feedCache.delete(feedCache.keys().next().value!);
+      }
+      rows = list.slice(q.offset, q.offset + q.limit);
+    } else {
+      rows = (await db.query<{ dish_id: string; lane: string }>(
+        'select * from get_feed($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        [q.city, q.category ?? null, q.tab, q.lat ?? null, q.lng ?? null, q.limit, q.offset, q.seed, viewer],
+      )).rows;
+    }
     const cards = await loadDishCards(db, rows.map((r) => r.dish_id), viewer, q.lat, q.lng);
     cards.forEach((c, i) => (c.lane = rows[i]!.lane));
     return { items: cards, nextOffset: rows.length < q.limit ? null : q.offset + rows.length };
@@ -130,8 +159,8 @@ export async function browseRoutes(app: FastifyInstance) {
        from engagements e join profiles pr on pr.id = e.user_id
        join dishes d on d.id = e.dish_id join restaurants r on r.id = d.restaurant_id
        where e.dish_id = $1 and e.kind = 'recommend'
-         and e.user_id is distinct from r.created_by
-         and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = pr.id))
+         and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)
+         and ($2::uuid is null or not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = pr.id) or (b.blocker_id = pr.id and b.blocked_id = $2)))
        order by e.created_at desc, pr.handle limit 12`,
       [p.id, viewer],
     );
@@ -283,15 +312,16 @@ export async function browseRoutes(app: FastifyInstance) {
          join restaurants r on r.id = d.restaurant_id and r.status = 'active'
          left join dish_stats s on s.dish_id = d.id
          where d.city_id = $1 and d.status = 'live'
-           and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
+           and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live'
+                         and ($4::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $4 and b.blocked_id = p.author_id)))
            and ${dishInCuisineSql(2, 3)}
          order by coalesce(s.score, 0) desc limit 40`,
-        [q.city, cuisine.categories, cuisine.terms],
+        [q.city, cuisine.categories, cuisine.terms, viewer],
       );
       const { rows: places } = await db.query(
         `select r.id, r.name, r.locality from restaurants r
          where r.city_id = $1 and r.status = 'active'
-           and (exists (select 1 from unnest($3::text[]) t where coalesce(r.cuisine, '') ilike '%' || t || '%')
+           and (exists (select 1 from unnest($3::text[]) t where coalesce(r.cuisine, '') ~* ('\\m' || t || '\\M'))
                 or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live' and ${dishInCuisineSql(2, 3)}))
          order by (select count(*) from dishes d where d.restaurant_id = r.id and d.status = 'live') desc, r.name
          limit 30`,
@@ -313,7 +343,8 @@ export async function browseRoutes(app: FastifyInstance) {
        join restaurants r on r.id = d.restaurant_id and r.status = 'active'
        left join dish_stats s on s.dish_id = d.id
        where d.city_id = $2 and d.status = 'live'
-         and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')
+         and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live'
+                       and ($3::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $3 and b.blocked_id = p.author_id)))
          and (word_similarity(term.t, d.name_norm) >= 0.5 or d.name_norm like '%' || term.t || '%'
               or d.name_norm in (select norm_name(canonical) from alias_hits)
               or d.category_id in (select category_id from alias_hits where category_id is not null)
@@ -321,7 +352,7 @@ export async function browseRoutes(app: FastifyInstance) {
        order by greatest(word_similarity(term.t, d.name_norm), word_similarity(term.t, r.name_norm)) desc,
                 coalesce(s.score, 0) desc
        limit 30`,
-      [q.q, q.city],
+      [q.q, q.city, viewer],
     );
     const { rows: places } = await db.query(
       `select id, name, locality from restaurants, (select norm_name($1) as t) term
@@ -399,8 +430,10 @@ export async function browseRoutes(app: FastifyInstance) {
        from restaurants
        where status <> 'hidden'
          and st_dwithin(geo, st_setsrid(st_makepoint($3, $2), 4326)::geography, 150)
-         and (similarity(name_norm, norm_name($1)) >= 0.35 or word_similarity(norm_name($1), name_norm) >= 0.6)
-       order by similarity(name_norm, norm_name($1)) desc limit 3`,
+         and (similarity(name_norm, norm_name($1)) >= 0.35 or word_similarity(norm_name($1), name_norm) >= 0.6
+              or word_similarity(name_norm, norm_name($1)) >= 0.6)
+       order by greatest(similarity(name_norm, norm_name($1)), word_similarity(norm_name($1), name_norm),
+                         word_similarity(name_norm, norm_name($1))) desc limit 3`,
       [q.name, q.lat, q.lng],
     );
     return rows;
@@ -420,9 +453,10 @@ export async function browseRoutes(app: FastifyInstance) {
     if (!q) return;
     const { rows } = await db.query(
       `select id, name, locality, st_y(geo::geometry) as lat, st_x(geo::geometry) as lng,
-              round(st_distance(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography))::int as "distanceM"
+              round(st_distance(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography))::int as "distanceM",
+              (status = 'pending') as pending
        from restaurants
-       where status = 'active'
+       where status in ('active', 'pending')
          and st_dwithin(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography, $3)
          and ($4::text is null or word_similarity(norm_name($4), name_norm) >= 0.5 or name_norm like '%' || norm_name($4) || '%')
        order by geo <-> st_setsrid(st_makepoint($2, $1), 4326)::geography
@@ -432,7 +466,9 @@ export async function browseRoutes(app: FastifyInstance) {
     return rows;
   });
 
-  // Place search without location (for people who deny location in the add flow).
+  // Place search without location (for people who deny location in the add flow). Both
+  // place pickers list places waiting for approval too, so a second diner posts there
+  // instead of adding the same place again.
   app.get('/restaurants', async (req, reply) => {
     const q = parse(
       z.object({ city: z.coerce.number().int().positive(), q: z.string().trim().max(60).default('') }),
@@ -441,8 +477,8 @@ export async function browseRoutes(app: FastifyInstance) {
     );
     if (!q) return;
     const { rows } = await db.query(
-      `select id, name, locality from restaurants
-       where city_id = $1 and status = 'active'
+      `select id, name, locality, (status = 'pending') as pending from restaurants
+       where city_id = $1 and status in ('active', 'pending')
          and ($2 = '' or word_similarity(norm_name($2), name_norm) >= 0.5 or name_norm like '%' || norm_name($2) || '%')
        order by case when $2 = '' then 0 else word_similarity(norm_name($2), name_norm) end desc, name
        limit 30`,

@@ -12,7 +12,7 @@ import { cuisines, type Cuisine } from '../seed-data.js';
 export function dishInCuisineSql(cats: number, terms: number): string {
   return `(d.category_id in (select id from dish_categories where slug = any($${cats}::text[]))
            or exists (select 1 from unnest($${terms}::text[]) t
-                      where coalesce(r.cuisine, '') ilike '%' || t || '%' or d.name_norm like '%' || norm_name(t) || '%'))`;
+                      where coalesce(r.cuisine, '') ~* ('\\m' || t || '\\M') or d.name_norm ~ ('\\m' || norm_name(t) || '\\M')))`;
 }
 
 export function cuisineBySlug(slug: string): Cuisine | undefined {
@@ -93,7 +93,9 @@ export async function searchRoutes(app: FastifyInstance) {
       ),
       db.query<{ id: number; name: string; emoji: string | null; n: number }>(
         `select c.id, c.name, c.emoji,
-                (select count(*)::int from dishes d where d.category_id = c.id and d.city_id = $2 and d.status = 'live') as n
+                (select count(*)::int from dishes d join restaurants r on r.id = d.restaurant_id and r.status = 'active'
+                 where d.category_id = c.id and d.city_id = $2 and d.status = 'live'
+                   and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')) as n
          from dish_categories c, (select norm_name($1) as t) term
          where norm_name(c.name) like '%' || term.t || '%' or word_similarity(term.t, norm_name(c.name)) >= 0.6
          limit 6`,
@@ -120,12 +122,13 @@ export async function searchRoutes(app: FastifyInstance) {
         ? db.query<{ handle: string; displayName: string | null; followers: number }>(
           `select p.handle, p.display_name as "displayName", (select count(*)::int from follows where followee_id = p.id) as followers
            from profiles p
-           where ($2::uuid is null or not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = p.id)
-                                                                      or (b.blocker_id = p.id and b.blocked_id = $2)))
-             and (p.handle like $1 || '%' or lower(coalesce(p.display_name, '')) like $1 || '%'
-                  or lower(coalesce(p.display_name, '')) like '% ' || $1 || '%')
+           where ($2::uuid is null or (p.id <> $2 and not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = p.id)
+                                                                      or (b.blocker_id = p.id and b.blocked_id = $2))))
+             and (p.handle like $1 || '%' or lower(coalesce(p.display_name, '')) like $3 || '%'
+                  or lower(coalesce(p.display_name, '')) like '% ' || $3 || '%')
            order by (p.handle = $1) desc, followers desc limit 4`,
-          [t.replace(/^@/, '').replace(/ /g, ''), viewer],
+          // Handles have no spaces; names do ("ravi k" finds Ravi Kulkarni).
+          [t.replace(/^@/, '').replace(/ /g, ''), viewer, t.replace(/^@/, '')],
         )
         : Promise.resolve({ rows: [] as { handle: string; displayName: string | null; followers: number }[] }),
     ]);
@@ -173,7 +176,7 @@ export async function searchRoutes(app: FastifyInstance) {
          from restaurants r left join dishes d on d.restaurant_id = r.id and d.status = 'live'
          where r.city_id = $1 and r.status = 'active'
            and ((d.id is not null and ${dishInCuisineSql(2, 3)})
-                or exists (select 1 from unnest($3::text[]) t where coalesce(r.cuisine, '') ilike '%' || t || '%'))`,
+                or exists (select 1 from unnest($3::text[]) t where coalesce(r.cuisine, '') ~* ('\\m' || t || '\\M')))`,
         [q.city, c.categories, c.terms],
       ).then((r) => r.rows[0]!)));
     return cuisines

@@ -354,7 +354,7 @@ export async function socialRoutes(app: FastifyInstance) {
                 (p.id = $2) as "isMe"
          from follows f join profiles p on p.id = f.${theirs}
          where f.${mine} = $1
-           and ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = p.id))
+           and ($2::uuid is null or not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = p.id) or (b.blocker_id = p.id and b.blocked_id = $2)))
          order by f.created_at desc limit 300`,
         [id, viewer],
       );
@@ -375,7 +375,7 @@ export async function socialRoutes(app: FastifyInstance) {
               (p.id = $2::uuid) is true as "isMe",
               (select count(*) from follows where followee_id = p.id)::int as followers
        from profiles p
-       where ($2::uuid is null or not exists (select 1 from blocks b where b.blocker_id = $2 and b.blocked_id = p.id))
+       where ($2::uuid is null or not exists (select 1 from blocks b where (b.blocker_id = $2 and b.blocked_id = p.id) or (b.blocker_id = p.id and b.blocked_id = $2)))
          and (p.handle like $1 || '%' or p.handle % $1 or lower(coalesce(p.display_name, '')) like '%' || $1 || '%')
        order by (p.handle = $1) desc, (p.handle like $1 || '%') desc, similarity(p.handle, $1) desc
        limit 20`,

@@ -1057,10 +1057,10 @@ describe('fair ranking', () => {
     await vote(contrarian.id, dishes[5]!, 'recommend', 24 * 20);
     for (let g = 0; g < 4; g++) {
       const crowd = await aged(100);
-      // Hours apart, so the crowd are independent people, not a ring.
-      for (const [i, d] of dishes.slice(0, 4).entries()) await vote(crowd.id, d, g === 3 ? 'pass' : 'recommend', 24 * 10 + g * 5 + i * 30);
-      await vote(crowd.id, dishes[4]!, 'pass', 24 * 9 + g * 5);
-      await vote(crowd.id, dishes[5]!, 'pass', 24 * 8 + g * 5);
+      // More than a day apart, so the crowd are independent people, not a ring.
+      for (const [i, d] of dishes.slice(0, 4).entries()) await vote(crowd.id, d, g === 3 ? 'pass' : 'recommend', 24 * 10 + g * 26 + i * 30);
+      await vote(crowd.id, dishes[4]!, 'pass', 24 * 9 + g * 26);
+      await vote(crowd.id, dishes[5]!, 'pass', 24 * 8 + g * 26);
     }
     await db.query('select refresh_people_pick()');
     const floor = 0.6;

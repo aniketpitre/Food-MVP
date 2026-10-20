@@ -30,6 +30,7 @@ export async function forYouCards(
   offset: number,
   lat?: number | null,
   lng?: number | null,
+  category?: number | null,
 ): Promise<{ items: (DishCard & { because: Because })[]; nextOffset: number | null }> {
   const { rows } = await db.query<{
     dish_id: string;
@@ -42,11 +43,15 @@ export async function forYouCards(
     category: string | null;
   }>(
     `select f.dish_id, f.by_match, f.followed, f.people, pr.handle, pr.display_name, pr.avatar_path, c.name as category
-     from for_you($1, $2, $3, $4) with ordinality f
+     from for_you($1, $2, case when $5::int is null then $3 else 500 end, case when $5::int is null then $4 else 0 end)
+          with ordinality f
      left join profiles pr on pr.id = f.by_user
      left join dish_categories c on c.id = f.category_id
-     order by f.ordinality`,
-    [viewer, city, limit, offset],
+     -- A dish type picked above the feed: only those, paged here.
+     where $5::int is null or f.category_id = $5
+     order by f.ordinality
+     offset case when $5::int is null then 0 else $4 end limit $3`,
+    [viewer, city, limit, offset, category ?? null],
   );
   const cards = await loadDishCards(db, rows.map((r) => r.dish_id), viewer, lat, lng);
   const items = cards.map((c, i) => {
@@ -235,6 +240,8 @@ export async function tasteRoutes(app: FastifyInstance) {
        left join voter_independence vi on vi.user_id = p.id
        where m.match >= 0.5
          and standing(p.created_at, vi.twins) >= 0.5
+         -- Demo accounts vote at random: not someone to suggest as sharing your taste.
+         and not p.is_demo
          and not exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = p.id)
          and not exists (select 1 from blocks b where (b.blocker_id = $1 and b.blocked_id = p.id) or (b.blocker_id = p.id and b.blocked_id = $1))
        -- Surest first: a close match on lots of evidence beats a perfect one on a little.

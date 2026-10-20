@@ -9,7 +9,14 @@ export function startRankingRefresh(db: Db, everySeconds: number, onError: (err:
   const timer = setInterval(() => {
     // The first rebuild of each day also keeps a copy of each city's Top, to see how it moves.
     // The taste table is kept current per person; a full rebuild catches dish types changing.
-    db.query('select refresh_dish_stats(); select refresh_people_pick(); select snapshot_top(); select refresh_taste_affinity();').catch(onError);
+    // One at a time, each on its own: one failing doesn't stop the others. Pending places
+    // that earned it go live first, so the rebuild already counts them.
+    void (async () => {
+      for (const sql of ['select auto_approve_places()', 'select refresh_dish_stats()', 'select refresh_people_pick()',
+        'select snapshot_top()', 'select refresh_taste_affinity()']) {
+        await db.query(sql).catch(onError);
+      }
+    })();
   }, everySeconds * 1000);
   timer.unref();
   return () => clearInterval(timer);

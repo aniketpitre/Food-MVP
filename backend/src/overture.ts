@@ -39,7 +39,9 @@ export async function readOvertureFile(path: string): Promise<OvertureFile> {
 /**
  * Adds Overture's places to a city. One already here (imported from OpenStreetMap, added by
  * someone, or imported before) within 80 m with a similar name is linked and only gets the
- * details it lacks; the rest are added, live at once. Running it again changes nothing new.
+ * details it lacks (a place waiting for approval goes live: Overture confirms it's real); the
+ * rest are added, live at once, except Overture listing one place twice (the same name within
+ * 30 m). Running it again changes nothing new.
  */
 export async function importOverturePlaces(
   db: Db,
@@ -66,14 +68,27 @@ export async function importOverturePlaces(
       `select id from restaurants
        where overture_id is null and city_id = $4 and status <> 'hidden'
          and st_dwithin(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography, 80)
-         and word_similarity(norm_name($3), name_norm) >= 0.6
+         and (word_similarity(norm_name($3), name_norm) >= 0.6 or word_similarity(name_norm, norm_name($3)) >= 0.6)
        order by geo <-> st_setsrid(st_makepoint($2, $1), 4326)::geography
        limit 1`,
       [p.lat, p.lng, p.name, cityId],
     );
     if (twin[0]) {
-      await db.query(`update restaurants set overture_id = $6, ${fill} where id = $1`, [twin[0].id, ...details, p.id]);
+      await db.query(
+        `update restaurants set overture_id = $6, status = case when status = 'pending' then 'active' else status end, ${fill}
+         where id = $1`,
+        [twin[0].id, ...details, p.id],
+      );
       linked++;
+      continue;
+    }
+    const { rowCount: again } = await db.query(
+      `select 1 from restaurants where city_id = $4 and source = 'overture' and name_norm = norm_name($3)
+         and st_dwithin(geo, st_setsrid(st_makepoint($2, $1), 4326)::geography, 30)`,
+      [p.lat, p.lng, p.name, cityId],
+    );
+    if (again) {
+      skipped++;
       continue;
     }
     await db.query(

@@ -49,8 +49,7 @@ try {
       if (!(await seedDemoActivity(db, log))) log('demo activity already present');
       const r = await refreshDemoDishPhotos(db, config.mediaDir, log);
       log(`real photos for ${r.updated} demo dishes` + (r.missing.length ? `; none found for: ${r.missing.join(', ')}` : ''));
-      await db.query('select refresh_dish_stats()');
-      await db.query('select refresh_people_pick()');
+      await db.query('select refresh_rankings_now()');
       break;
     }
     case 'demo-photos': {
@@ -60,8 +59,7 @@ try {
       break;
     }
     case 'refresh':
-      await db.query('select refresh_dish_stats()');
-      await db.query('select refresh_people_pick()');
+      await db.query('select refresh_rankings_now()');
       log('ranking refreshed');
       break;
     case 'import-overture': {

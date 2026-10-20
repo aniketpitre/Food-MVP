@@ -120,8 +120,9 @@ export async function postRoutes(app: FastifyInstance) {
       let cityId: number;
       if (restaurantId) {
         const { rows } = await client.query<{ city_id: number }>(
-          "select city_id from restaurants where id = $1 and (status = 'active' or created_by = $2)",
-          [restaurantId, me],
+          // A place waiting for approval takes posts too (that's how it gets approved).
+          "select city_id from restaurants where id = $1 and status in ('active', 'pending')",
+          [restaurantId],
         );
         if (!rows[0]) throw Object.assign(new Error('That place is not available.'), { statusCode: 404, code: 'not_found' });
         cityId = rows[0].city_id;
@@ -155,14 +156,18 @@ export async function postRoutes(app: FastifyInstance) {
 
       // A new place goes live at once when someone established (a week old) posts from it with
       // a verified visit, and nothing with a similar name is already there; otherwise it waits
-      // for a person to look. Either way the post shows to followers straight away.
-      if (!f.restaurantId && visit === 'verified') {
+      // for a person to look, or for auto_approve_places. Either way the post shows to
+      // followers straight away.
+      if (visit === 'verified') {
         await client.query(
           `update restaurants r set status = 'active'
-           where r.id = $1
+           where r.id = $1 and r.status = 'pending'
              and (select created_at < now() - make_interval(days => greatest(cfg('standing_ramp_days'), 0)::int) from profiles where id = $2)
              and not exists (select 1 from restaurants o where o.id <> r.id and o.status <> 'hidden'
-                               and st_dwithin(o.geo, r.geo, 150) and similarity(o.name_norm, r.name_norm) >= 0.35)`,
+                               and st_dwithin(o.geo, r.geo, 150)
+                               and (similarity(o.name_norm, r.name_norm) >= 0.35
+                                    or word_similarity(o.name_norm, r.name_norm) >= 0.6
+                                    or word_similarity(r.name_norm, o.name_norm) >= 0.6))`,
           [restaurantId, me],
         );
       }
@@ -217,7 +222,7 @@ export async function postRoutes(app: FastifyInstance) {
         [me, dishId],
       );
       if (today[0]!.n >= Number(today[0]!.max)) {
-        throw Object.assign(new Error('You already posted this dish today. Come back tomorrow for another photo.'), {
+        throw Object.assign(new Error('You already posted this dish in the last 24 hours. You can post it again after that.'), {
           statusCode: 429, code: 'dish_daily_limit',
         });
       }
@@ -243,7 +248,13 @@ export async function postRoutes(app: FastifyInstance) {
       } else if (verdict === 'pass') {
         await client.query("delete from engagements where user_id = $1 and dish_id = $2 and kind = 'recommend'", [me, dishId]);
         await client.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'pass') on conflict do nothing", [me, dishId]);
-        await client.query("insert into engagements (user_id, dish_id, kind) values ($1, $2, 'tried') on conflict do nothing", [me, dishId]);
+        // The pass's own timestamp, so undoing the pass takes this "tried" back too.
+        await client.query(
+          `insert into engagements (user_id, dish_id, kind, created_at)
+           select user_id, dish_id, 'tried', created_at from engagements where user_id = $1 and dish_id = $2 and kind = 'pass'
+           on conflict do nothing`,
+          [me, dishId],
+        );
       }
       await client.query('commit');
       published = { dishId, cityId, restaurantId: restaurantId!, held: copyOf !== null };
@@ -282,6 +293,14 @@ export async function postRoutes(app: FastifyInstance) {
     );
     if (!rows[0]) return reply.code(404).send({ error: 'not_found', message: 'Post not found.' });
     await deletePostImages(config.mediaDir, p.id);
+    // The dish loses a photo (and maybe its cover): rank it again now.
+    await db.query(
+      `update dishes set cover_post_id = (select id from posts where dish_id = $1 and status = 'live' order by created_at limit 1)
+       where id = $1 and (cover_post_id is null or not exists (select 1 from posts where id = cover_post_id))`,
+      [rows[0].dish_id],
+    );
+    await db.query('select refresh_dish_stats($1)', [rows[0].dish_id]);
+    await db.query('select refresh_people_pick($1)', [rows[0].dish_id]);
     return { ok: true };
   });
 
