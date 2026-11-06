@@ -11,8 +11,22 @@ const uuid = z.string().uuid();
 type Queryable = { query: (sql: string, params?: unknown[]) => Promise<unknown> };
 const actionLimit = { rateLimit: { max: 60, timeWindow: '1 minute' } };
 
+// Reports that would take something down first refresh the lockstep check. A burst of reports
+// shares one refresh (and one that ran in the last 15 seconds is fresh enough).
+let lockstepRun: Promise<void> | null = null;
+let lockstepAt = 0;
+
 export async function actionRoutes(app: FastifyInstance) {
   const { db } = app;
+
+  async function freshLockstep(): Promise<void> {
+    if (Date.now() - lockstepAt < 15_000) return;
+    lockstepRun ??= inTransaction(db, async (tx) => {
+      await tx.query('select pg_advisory_xact_lock(727002)');
+      await tx.query('select refresh_voter_independence()');
+    }).then(() => { lockstepAt = Date.now(); }).finally(() => { lockstepRun = null; });
+    await lockstepRun;
+  }
 
   async function dishIsLive(id: string): Promise<boolean> {
     const { rowCount } = await db.query("select 1 from dishes where id = $1 and status = 'live'", [id]);
@@ -190,19 +204,28 @@ export async function actionRoutes(app: FastifyInstance) {
     let hidden = false;
     // Messages go to the review queue only; the reporter can already block the sender.
     if (body.targetType !== 'user' && body.targetType !== 'message' && body.targetType !== 'dish') {
-      const { rows } = await db.query<{ n: number }>(
-        `select coalesce(sum(standing(pr.created_at, vi.twins)), 0)::float8 as n
-         from reports rp join profiles pr on pr.id = rp.reporter_id
-         left join voter_independence vi on vi.user_id = rp.reporter_id
-         where rp.target_type = $1 and rp.target_id = $2 and rp.status = 'open'
-           and pr.created_at < now() - make_interval(hours => cfg('report_min_account_hours')::int)`,
-        [body.targetType, targetId],
-      );
+      type Q = { query: (sql: string, params?: unknown[]) => Promise<{ rows: { n: number }[] }> };
+      const weight = async (q: Q) =>
+        (await q.query(
+          `select coalesce(sum(standing(pr.created_at, vi.twins)), 0)::float8 as n
+           from reports rp join profiles pr on pr.id = rp.reporter_id
+           left join voter_independence vi on vi.user_id = rp.reporter_id
+           where rp.target_type = $1 and rp.target_id = $2 and rp.status = 'open'
+             and pr.created_at < now() - make_interval(hours => cfg('report_min_account_hours')::int)`,
+          [body.targetType, targetId],
+        )).rows[0]!.n;
       const { rows: t } = await db.query<{ v: string }>("select cfg('report_hide_threshold') as v");
-      if (rows[0]!.n >= Number(t[0]!.v) - 1e-9) {
-        if (body.targetType === 'story') await db.query('update stories set expires_at = now() where id = $1', [targetId]);
-        else await db.query(`update ${table} set status = 'hidden' where id = $1 and status = 'live'`, [targetId]);
-        hidden = true;
+      const threshold = Number(t[0]!.v) - 1e-9;
+      if ((await weight(db as unknown as Q)) >= threshold) {
+        // About to take something down: first look again for accounts acting together, so a ring
+        // that reported before the lockstep check last ran can't tip it.
+        await freshLockstep();
+        const stillOver = (await weight(db as unknown as Q)) >= threshold;
+        if (stillOver) {
+          if (body.targetType === 'story') await db.query('update stories set expires_at = now() where id = $1', [targetId]);
+          else await db.query(`update ${table} set status = 'hidden' where id = $1 and status = 'live'`, [targetId]);
+          hidden = true;
+        }
       }
     }
     return reply.code(201).send({ ok: true, hidden });

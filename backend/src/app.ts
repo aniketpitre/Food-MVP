@@ -135,6 +135,11 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean;
 
 /** Parses input with a zod schema; on failure sends a 400 and returns undefined. */
 export function parse<T extends z.ZodType>(schema: T, data: unknown, reply: FastifyReply): z.infer<T> | undefined {
+  // A NUL character is never valid text, and the database refuses it: say so, not a 500.
+  if (JSON.stringify(data ?? null)?.includes('\\u0000')) {
+    reply.code(400).send({ error: 'invalid_input', message: 'That text has a character we can’t use.' });
+    return undefined;
+  }
   const result = schema.safeParse(data);
   if (!result.success) {
     const issue = result.error.issues[0];

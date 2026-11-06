@@ -436,6 +436,38 @@ describe('cheating', () => {
   });
 });
 
+describe('found by the simulated crowd', () => {
+  it('refuses text with a NUL character with a 400, not a 500', async () => {
+    expect((await app.inject(`/craving?q=%00%00&city=${cityId}`)).statusCode).toBe(400);
+    expect((await app.inject(`/search?q=a%00b&city=${cityId}`)).statusCode).toBe(400);
+    const u = await signUp({ established: true });
+    const res = await app.inject({ method: 'POST', url: '/reports', headers: u.auth, payload: { targetType: 'dish', targetId: '00000000-0000-0000-0000-000000000000', reason: 'other', note: 'a\u0000b' } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("doesn't let a ring that reports before the lockstep check last ran take a post down", async () => {
+    const place = await testPlace('Ring Report Roti');
+    const dish = await mkDish(place, 'Ring Report Gem', 10);
+    const postId = (await db.query('select id from posts where dish_id = $1', [dish])).rows[0].id;
+    const shared = [dish, await mkDish(place, 'Ring Report Two', 10), await mkDish(place, 'Ring Report Three', 10)];
+    const ring = [];
+    for (let i = 0; i < 4; i++) {
+      const u = await signUp({ days: 30 });
+      for (const d of shared) await vote(u.id, d, 'pass', 1);
+      ring.push(u);
+    }
+    // No rebuild in between: the lockstep table doesn't know them yet.
+    expect((await db.query('select count(*)::int as n from voter_independence where user_id = any($1)', [ring.map((r) => r.id)])).rows[0].n).toBe(0);
+    let hidden = false;
+    for (const r of ring) {
+      const res = await app.inject({ method: 'POST', url: '/reports', headers: r.auth, payload: { targetType: 'post', targetId: postId, reason: 'spam' } });
+      hidden = hidden || res.json().hidden;
+    }
+    expect(hidden).toBe(false);
+    expect((await db.query('select status from posts where id = $1', [postId])).rows[0].status).toBe('live');
+  });
+});
+
 describe('polish', () => {
   it("matches a cuisine by whole words: Thai isn't Thali", async () => {
     const thali = await testPlace('Whole Word Thali House');
