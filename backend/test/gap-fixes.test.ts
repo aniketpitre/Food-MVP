@@ -486,6 +486,79 @@ describe('found by the simulated crowd', () => {
   });
 });
 
+describe('details people asked for (AI user test)', () => {
+  it('prices a dish by the median of what trusted people paid', async () => {
+    const place = await testPlace('Price Point Pav');
+    const dish = await mkDish(place, 'Price Point Bhaji', 10);
+    const price = (u: { auth: Record<string, string> }, priceInr: number) =>
+      app.inject({ method: 'PUT', url: `/dishes/${dish}/price`, headers: u.auth, payload: { priceInr } });
+    for (const v of [100, 120, 5000]) expect((await price(await signUp({ days: 30 }), v)).statusCode).toBe(200);
+    // A troll account made a moment ago says ₹1: the trusted median stands.
+    const r = (await price(await signUp(), 1)).json();
+    expect(r).toMatchObject({ priceInr: 120, priceReports: 4 });
+    const card = (await app.inject(`/dishes/${dish}`)).json();
+    expect(card).toMatchObject({ priceInr: 120, priceReports: 4 });
+    // Posting with a price is a report too.
+    const poster = await signUp({ days: 30 });
+    const posted = await post(poster.auth, { dishName: 'Price Point Bhaji', restaurantId: place, priceInr: '130' });
+    expect(posted.json().dishId).toBe(dish);
+    expect((await app.inject({ url: `/dishes/${dish}`, headers: poster.auth })).json()).toMatchObject({ priceInr: 125, priceReports: 5, myPrice: 130 });
+  });
+
+  it('tags a dish (Jain, healthy, spicy, mild) once someone trusted says so', async () => {
+    const place = await testPlace('Tag Thali Ghar');
+    const dish = await mkDish(place, 'Tag Jain Thali', 10);
+    const tag = (u: { auth: Record<string, string> }, t: string, method = 'PUT') =>
+      app.inject({ method, url: `/dishes/${dish}/tags/${t}`, headers: u.auth });
+    const fresh = await signUp();
+    expect((await tag(fresh, 'jain')).json()).toMatchObject({ tags: [], myTags: ['jain'] });
+    const old = await signUp({ days: 30 });
+    expect((await tag(old, 'jain')).json().tags).toEqual(['jain']);
+    await tag(old, 'spicy');
+    expect((await tag(old, 'mild')).json().myTags).toEqual(['jain', 'mild']); // mild replaced spicy
+    expect((await tag(old, 'nonsense')).statusCode).toBe(400);
+    const card = (await app.inject({ url: `/dishes/${dish}`, headers: old.auth })).json();
+    expect(card.tags).toEqual(['jain', 'mild']);
+    expect(card.myTags).toEqual(['jain', 'mild']);
+    expect((await tag(old, 'jain', 'DELETE')).json().tags).toEqual(['mild']);
+    // Tags come with a post too.
+    const poster = await signUp({ days: 30 });
+    await post(poster.auth, { dishName: 'Tag Jain Thali', restaurantId: place, tags: 'healthy,jain,bogus' });
+    expect((await app.inject(`/dishes/${dish}`)).json().tags).toEqual(['healthy', 'jain', 'mild']);
+  });
+
+  it('lets you fix your own caption, nobody else', async () => {
+    const place = await testPlace('Caption Corner');
+    const me = await signUp({ established: true });
+    const p = (await post(me.auth, { dishName: 'Caption Cutlet', restaurantId: place, caption: 'tpyo' })).json();
+    const edit = (u: { auth: Record<string, string> }, caption: string) =>
+      app.inject({ method: 'PATCH', url: `/posts/${p.id}`, headers: u.auth, payload: { caption } });
+    expect((await edit(await signUp({ established: true }), 'hijacked')).statusCode).toBe(404);
+    expect((await edit(me, 'Crisp and hot')).json()).toEqual({ ok: true, caption: 'Crisp and hot' });
+    const page = (await app.inject(`/dishes/${p.dishId}`)).json();
+    expect(page.posts.find((x: { id: string }) => x.id === p.id).caption).toBe('Crisp and hot');
+  });
+
+  it('lets a trusted person add missing opening hours, but not overwrite the map data', async () => {
+    const empty = await testPlace('Hours Missing Hotel');
+    const mapped = await testPlace('Hours Mapped Hotel');
+    await db.query("update restaurants set opening_hours = 'Mo-Su 07:00-23:00' where id = $1", [mapped]);
+    const hours = (u: { auth: Record<string, string> }, id: string, openingHours: string) =>
+      app.inject({ method: 'PUT', url: `/restaurants/${id}/hours`, headers: u.auth, payload: { openingHours } });
+    const fresh = await signUp();
+    expect((await hours(fresh, empty, 'Mo-Su 08:00-22:00')).statusCode).toBe(403);
+    const old = await signUp({ days: 30 });
+    expect((await hours(old, empty, 'open late')).statusCode).toBe(400);
+    expect((await hours(old, empty, 'Mo-Sa 09:00-21:00; Su off')).json()).toEqual({ ok: true, openingHours: 'Mo-Sa 09:00-21:00; Su off' });
+    expect((await hours(old, empty, '24/7')).statusCode).toBe(200); // people's hours can be corrected
+    expect((await hours(old, mapped, 'Mo-Su 08:00-22:00')).statusCode).toBe(409);
+    const page = (await app.inject(`/restaurants/${empty}`)).json();
+    expect(page).toMatchObject({ openingHours: '24/7', hoursEditable: true });
+    expect((await app.inject(`/restaurants/${mapped}`)).json().hoursEditable).toBe(false);
+    expect((await db.query('select count(*)::int as n from place_edits where restaurant_id = $1', [empty])).rows[0].n).toBe(2);
+  });
+});
+
 describe('polish', () => {
   it("matches a cuisine by whole words: Thai isn't Thali", async () => {
     const thali = await testPlace('Whole Word Thali House');

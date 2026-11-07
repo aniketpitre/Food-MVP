@@ -4,6 +4,10 @@ export interface DishCard {
   id: string;
   name: string;
   priceInr: number | null;
+  /** How many people reported a price (the price is their median). */
+  priceReports: number;
+  /** Tags trusted people gave it: jain, healthy, spicy, mild. */
+  tags: string[];
   isVeg: boolean | null;
   categoryId: number | null;
   createdAt: string;
@@ -46,6 +50,8 @@ interface CardRow {
   id: string;
   name: string;
   price_inr: number | null;
+  price_reports: number | null;
+  tags: string[] | null;
   is_veg: boolean | null;
   category_id: number | null;
   created_at: Date;
@@ -98,7 +104,7 @@ export async function loadDishCards(
 ): Promise<DishCard[]> {
   if (ids.length === 0) return [];
   const { rows } = await db.query<CardRow>(
-    `select d.id, d.name, d.price_inr, d.is_veg, d.category_id, d.created_at,
+    `select d.id, d.name, d.price_inr, d.price_reports, dish_tags(d.id) as tags, d.is_veg, d.category_id, d.created_at,
             r.id as restaurant_id, r.name as restaurant_name, r.locality, r.status as restaurant_status,
             (r.source = 'seed') as restaurant_demo,
             st_y(r.geo::geometry) as lat, st_x(r.geo::geometry) as lng,
@@ -146,6 +152,8 @@ function toCard(r: CardRow): DishCard {
     id: r.id,
     name: r.name,
     priceInr: r.price_inr,
+    priceReports: Number(r.price_reports ?? 0),
+    tags: r.tags ?? [],
     isVeg: r.is_veg,
     categoryId: r.category_id,
     createdAt: r.created_at.toISOString(),

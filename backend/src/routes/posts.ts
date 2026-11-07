@@ -21,6 +21,8 @@ const postFields = z
     newPlaceLng: z.coerce.number().min(-180).max(180).optional(),
     caption: z.string().trim().max(280).optional(),
     priceInr: z.coerce.number().int().min(1).max(20000).optional(),
+    // Comma-separated: jain, healthy, spicy, mild.
+    tags: z.string().max(60).regex(/^[a-z,]*$/).optional(),
     isVeg: z.enum(['true', 'false']).optional(),
     isSponsored: z.enum(['true', 'false']).default('false'),
     sponsorNote: z.string().trim().max(120).optional(),
@@ -40,6 +42,9 @@ const postFields = z
   .refine((f) => f.restaurantId || (f.newPlaceName && f.newPlaceLat !== undefined && f.newPlaceLng !== undefined), {
     message: 'pick a place or add a new one with its location',
   });
+
+/** Tags people can give a dish (see migrations/022_people_details.sql). */
+export const DISH_TAGS = ['jain', 'healthy', 'spicy', 'mild'];
 
 export async function postRoutes(app: FastifyInstance) {
   const { db, config } = app;
@@ -256,6 +261,21 @@ export async function postRoutes(app: FastifyInstance) {
           [me, dishId],
         );
       }
+      // What you paid and how you'd describe it: your report on the dish (a held copy's isn't).
+      if (!copyOf && f.priceInr) {
+        await client.query(
+          `insert into dish_prices (dish_id, user_id, price_inr) values ($1, $2, $3)
+           on conflict (dish_id, user_id) do update set price_inr = excluded.price_inr, created_at = now()`,
+          [dishId, me, f.priceInr],
+        );
+      }
+      const tags = [...new Set((f.tags ?? '').split(',').filter((t) => DISH_TAGS.includes(t)))];
+      if (!copyOf && tags.length) {
+        await client.query(
+          'insert into dish_tag_votes (dish_id, user_id, tag) select $1, $2, unnest($3::text[]) on conflict do nothing',
+          [dishId, me, tags],
+        );
+      }
       await client.query('commit');
       published = { dishId, cityId, restaurantId: restaurantId!, held: copyOf !== null };
     } catch (err) {
@@ -272,6 +292,7 @@ export async function postRoutes(app: FastifyInstance) {
     // Followers hear about it at once (they see it in Following too); phones in the city
     // check for new food near them only once the place is live.
     if (published) {
+      await db.query('select refresh_dish_price($1)', [published.dishId]);
       await db.query('select refresh_dish_stats($1)', [published.dishId]);
       await db.query('select refresh_people_pick($1)', [published.dishId]);
       scheduleTrustRefresh(db, 3000, (err) => app.log.error(err));
@@ -282,6 +303,19 @@ export async function postRoutes(app: FastifyInstance) {
       if (live.rows[0]) await app.push.tickleCity(published.cityId, me);
     }
     return reply.code(201).send(await postJson(postId));
+  });
+
+  // Fix your own caption (the photo, dish and place stay: delete and post again for those).
+  app.patch('/posts/:id', { preHandler: requireAuth }, async (req, reply) => {
+    const p = parse(z.object({ id: z.string().uuid() }), req.params, reply);
+    const b = parse(z.object({ caption: z.string().trim().max(280) }), req.body, reply);
+    if (!p || !b) return;
+    const { rowCount } = await db.query(
+      "update posts set caption = nullif($3, '') where id = $1 and author_id = $2 and status <> 'hidden'",
+      [p.id, userId(req), b.caption],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'not_found', message: 'Post not found.' });
+    return { ok: true, caption: b.caption || null };
   });
 
   app.delete('/posts/:id', { preHandler: requireAuth }, async (req, reply) => {

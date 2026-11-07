@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { parse } from '../app.js';
-import { optionalAuth, userId } from '../auth.js';
+import { optionalAuth, requireAuth, userId } from '../auth.js';
 import { loadDishCards } from '../cards.js';
 import { forYouCards } from './taste.js';
 import { inCity, nearestCity } from '../geo.js';
@@ -171,9 +171,19 @@ export async function browseRoutes(app: FastifyInstance) {
        order by coalesce(s.score, 0) desc, d.featured_rank nulls last, d.created_at desc limit 6`,
       [dish.restaurant_id, p.id],
     );
+    // Your own price report and tags, so the buttons show what you said.
+    const { rows: mine } = viewer
+      ? await db.query<{ price: number | null; tags: string[] }>(
+          `select (select price_inr from dish_prices where dish_id = $1 and user_id = $2) as price,
+                  coalesce((select array_agg(tag order by tag) from dish_tag_votes where dish_id = $1 and user_id = $2), '{}') as tags`,
+          [p.id, viewer],
+        )
+      : { rows: [] };
     return {
       ...card,
       description: dish.description,
+      myPrice: mine[0]?.price ?? null,
+      myTags: mine[0]?.tags ?? [],
       posts,
       recommenders,
       moreAtPlace: await loadDishCards(db, more.map((m) => m.id), viewer, q.lat, q.lng),
@@ -188,6 +198,7 @@ export async function browseRoutes(app: FastifyInstance) {
     const viewer = userId(req);
     const { rows } = await db.query(
       `select id, name, locality, address, maps_url as "mapsUrl", instagram_handle as "instagramHandle",
+              (opening_hours is null or hours_by is not null) as "hoursEditable",
               price_band as "priceBand", status, created_by as "createdBy", source, cuisine, opening_hours as "openingHours",
               coalesce(osm_tags->>'phone', osm_tags->>'contact:phone') as phone,
               coalesce(osm_tags->>'website', osm_tags->>'contact:website') as website,
@@ -234,6 +245,37 @@ export async function browseRoutes(app: FastifyInstance) {
       isDemo: !isReal,
       dishes: await loadDishCards(db, dishIds.map((d) => d.id), viewer, q.lat, q.lng),
     };
+  });
+
+  // Opening hours for a place the map data has none for (or that people added): from someone the
+  // ranking trusts, in the OpenStreetMap style the app writes ("Mo-Su 08:00-22:00", "Mo-Sa
+  // 09:00-21:00; Su 10:00-14:00", "24/7"). Every change is kept in place_edits.
+  const DAY = '(?:Mo|Tu|We|Th|Fr|Sa|Su)';
+  const DAYS = `${DAY}(?:-${DAY})?(?:,${DAY}(?:-${DAY})?)*`;
+  const TIMES = '(?:[01]\\d|2[0-4]):[0-5]\\d-(?:[01]\\d|2[0-4]):[0-5]\\d(?:,(?:[01]\\d|2[0-4]):[0-5]\\d-(?:[01]\\d|2[0-4]):[0-5]\\d)?';
+  const HOURS = new RegExp(`^(?:24/7|${DAYS} (?:${TIMES}|off)(?:; ${DAYS} (?:${TIMES}|off))*)$`);
+  app.put('/restaurants/:id/hours', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req, reply) => {
+    const p = parse(z.object({ id: uuid }), req.params, reply);
+    const b = parse(z.object({ openingHours: z.string().trim().max(120).regex(HOURS, 'Use the hours picker.') }), req.body, reply);
+    if (!p || !b) return;
+    const me = userId(req)!;
+    const { rows: ok } = await db.query<{ ok: boolean }>('select vote_shown($1) as ok', [me]);
+    if (!ok[0]?.ok) {
+      return reply.code(403).send({ error: 'too_new', message: 'You can add opening hours once your account is a day old.' });
+    }
+    const { rows } = await db.query<{ old: string | null }>(
+      `update restaurants r set opening_hours = $2, hours_by = $3, hours_at = now()
+       from (select id, opening_hours from restaurants where id = $1 for update) o
+       where r.id = o.id and r.status <> 'hidden' and (o.opening_hours is null or r.hours_by is not null)
+       returning o.opening_hours as old`,
+      [p.id, b.openingHours, me],
+    );
+    if (!rows[0]) return reply.code(409).send({ error: 'not_editable', message: 'These hours come from the map data and can only be changed by an admin.' });
+    await db.query(
+      "insert into place_edits (restaurant_id, user_id, field, old_value, new_value) values ($1, $2, 'opening_hours', $3, $4)",
+      [p.id, me, rows[0].old, b.openingHours],
+    );
+    return { ok: true, openingHours: b.openingHours };
   });
 
   // The Google Maps id for Take me there, so directions open the real listing. Null for

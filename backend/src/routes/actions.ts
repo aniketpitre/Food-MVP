@@ -6,6 +6,7 @@ import { loadDishCards } from '../cards.js';
 import { inTransaction } from '../db.js';
 import { notify } from '../notify.js';
 import { scheduleTrustRefresh } from '../ranking.js';
+import { DISH_TAGS } from './posts.js';
 
 const uuid = z.string().uuid();
 type Queryable = { query: (sql: string, params?: unknown[]) => Promise<unknown> };
@@ -128,6 +129,52 @@ export async function actionRoutes(app: FastifyInstance) {
       else await tx.query('delete from engagements where user_id = $1 and dish_id = $2 and kind = $3', [me, p.id, p.kind]);
     });
     return counts(p.id, me);
+  });
+
+  // What you paid for a dish. The dish shows the median of everyone's (trusted reports first).
+  app.put('/dishes/:id/price', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
+    const p = parse(z.object({ id: uuid }), req.params, reply);
+    const b = parse(z.object({ priceInr: z.number().int().min(1).max(20000) }), req.body, reply);
+    if (!p || !b) return;
+    if (!(await dishIsLive(p.id))) return reply.code(404).send({ error: 'not_found', message: 'Dish not found.' });
+    await db.query(
+      `insert into dish_prices (dish_id, user_id, price_inr) values ($1, $2, $3)
+       on conflict (dish_id, user_id) do update set price_inr = excluded.price_inr, created_at = now()`,
+      [p.id, userId(req), b.priceInr],
+    );
+    await db.query('select refresh_dish_price($1)', [p.id]);
+    const { rows } = await db.query<{ price_inr: number | null; price_reports: number }>(
+      'select price_inr, price_reports from dishes where id = $1', [p.id]);
+    return { priceInr: rows[0]!.price_inr, priceReports: rows[0]!.price_reports, myPrice: b.priceInr };
+  });
+
+  // Tags: Jain (no onion or garlic), healthy, spicy, mild. On/off like the other buttons.
+  const tagParams = z.object({ id: uuid, tag: z.enum(DISH_TAGS as [string, ...string[]]) });
+  async function tagState(dishId: string, me: string) {
+    const { rows } = await db.query<{ tags: string[]; mine: string[] }>(
+      `select dish_tags($1) as tags,
+              coalesce((select array_agg(tag order by tag) from dish_tag_votes where dish_id = $1 and user_id = $2), '{}') as mine`,
+      [dishId, me],
+    );
+    return { tags: rows[0]!.tags, myTags: rows[0]!.mine };
+  }
+  app.put('/dishes/:id/tags/:tag', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
+    const p = parse(tagParams, req.params, reply);
+    if (!p) return;
+    if (!(await dishIsLive(p.id))) return reply.code(404).send({ error: 'not_found', message: 'Dish not found.' });
+    const me = userId(req)!;
+    // Spicy and mild exclude each other for one person.
+    const other = { spicy: 'mild', mild: 'spicy' }[p.tag as 'spicy' | 'mild'];
+    if (other) await db.query('delete from dish_tag_votes where dish_id = $1 and user_id = $2 and tag = $3', [p.id, me, other]);
+    await db.query('insert into dish_tag_votes (dish_id, user_id, tag) values ($1, $2, $3) on conflict do nothing', [p.id, me, p.tag]);
+    return tagState(p.id, me);
+  });
+  app.delete('/dishes/:id/tags/:tag', { preHandler: requireAuth, config: actionLimit }, async (req, reply) => {
+    const p = parse(tagParams, req.params, reply);
+    if (!p) return;
+    const me = userId(req)!;
+    await db.query('delete from dish_tag_votes where dish_id = $1 and user_id = $2 and tag = $3', [p.id, me, p.tag]);
+    return tagState(p.id, me);
   });
 
   // A share is recorded once per person and dish and cannot be undone. Guests can
