@@ -383,6 +383,10 @@ const summary = await llm([
   { role: 'user', content: `These are reviews from people who tried WorthAbite, a dish-ranking food app for Nashik:\n${JSON.stringify(reviews).slice(0, 14000)}\n\nWrite: 1) the 5 things people liked most, 2) the 5 biggest confusions or complaints, 3) the 5 most wanted missing features, 4) which kinds of people were least happy and why. Each point one line, and say how many people mentioned it.` },
 ], 3000);
 
+// Models don't always keep to the format: a list may come back as one string.
+const list = (v) => (Array.isArray(v) ? v.map(String) : v ? [String(v)] : []);
+fs.mkdirSync(OUT_DIR, { recursive: true });
+fs.writeFileSync(path.join(OUT_DIR, 'ai-users-traces.json'), JSON.stringify({ bugs, friction, results }, null, 1));
 const stars = results.map((r) => Number(r.review.stars)).filter((n) => n >= 1 && n <= 5);
 const avg = stars.length ? (stars.reduce((a, b) => a + b, 0) / stars.length).toFixed(1) : '?';
 const again = results.filter((r) => r.review.would_use_again === 'yes').length;
@@ -402,11 +406,9 @@ const md = [
   summary ?? '(no summary)',
   '',
   '## Each person',
-  ...results.map((r) => `### ${r.name}, ${r.age} (${r.diet}, ${r.area}): ${r.review.stars ?? '?'}★\n_${r.style}_\n\n> ${r.review.quote ?? ''}\n\n- Did: ${r.did.join(' → ')}\n- Liked: ${(r.review.liked ?? []).join('; ')}\n- Confusing: ${(r.review.confusing ?? []).join('; ')}\n- Missing: ${(r.review.missing ?? []).join('; ')}\n`),
+  ...results.map((r) => `### ${r.name}, ${r.age} (${r.diet}, ${r.area}): ${r.review.stars ?? '?'}★\n_${r.style}_\n\n> ${r.review.quote ?? ''}\n\n- Did: ${r.did.join(' → ')}\n- Liked: ${list(r.review.liked).join('; ')}\n- Confusing: ${list(r.review.confusing).join('; ')}\n- Missing: ${list(r.review.missing).join('; ')}\n`),
 ].join('\n');
-fs.mkdirSync(OUT_DIR, { recursive: true });
 fs.writeFileSync(path.join(OUT_DIR, 'ai-users-report.md'), md);
-fs.writeFileSync(path.join(OUT_DIR, 'ai-users-traces.json'), JSON.stringify({ bugs, friction, results }, null, 1));
 console.log(`\nAverage ${avg}★, would use again ${again}/${results.length}, bugs ${bugs.length}, friction ${friction.length}, ${llmCalls} model calls`);
 console.log(`Report: ${path.join(OUT_DIR, 'ai-users-report.md')}`);
 process.exit(bugs.length ? 1 : 0);
