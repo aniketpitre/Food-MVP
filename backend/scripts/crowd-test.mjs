@@ -12,8 +12,13 @@ const sharp = require('sharp');
 
 const BASE = process.env.BASE ?? 'http://localhost:8099';
 const DB = process.env.DB ?? 'crowd';
-const SPREAD = process.env.SPREAD === '1'; // honest votes spread over weeks (else all on launch day)
-const N = { honest: 150, ring: 40, throwaway: 40, owners: 6, chaos: 10 };
+// SPREAD: 0 = everyone votes on launch day, 1 = honest votes spread over weeks,
+// week = launch week: every honest account is new that week, 60 % only browse, 30 % vote,
+// 10 % also post photos, and a third of the voting happens in the first hour.
+const MODE = process.env.SPREAD ?? '0';
+const SPREAD = MODE === '1';
+const WEEK = MODE === 'week';
+const N = { honest: Number(process.env.HONEST ?? 150), ring: 40, throwaway: 40, owners: 6, chaos: 10 };
 const OUT = process.env.OUT ?? './crowd-report.json';
 const PASS = 'correct horse battery';
 
@@ -85,7 +90,11 @@ function spearman(xs, ys) {
   return 1 - (6 * d2) / (n * (n * n - 1));
 }
 
-const report = { scenario: SPREAD ? 'honest votes spread over weeks' : 'launch day: everyone votes the same day', checks: [] };
+const report = {
+  scenario: WEEK ? 'launch week: new accounts, mostly browsing, a busy first hour'
+    : SPREAD ? 'honest votes spread over weeks' : 'launch day: everyone votes the same day',
+  checks: [],
+};
 const check = (name, ok, detail = '') => { report.checks.push({ name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`); };
 const T0 = Date.now();
 
@@ -100,11 +109,18 @@ await pool(all, 20, async (p) => {
   people.push(p);
 });
 check('Signed up the whole crowd', people.length === all.length, `${people.length}/${all.length} accounts`);
-// Age the accounts: honest 10–60 days, ring and owners 30 days, throwaways and chaos brand new.
-sql(`update profiles set created_at = now() - (10 + random() * 50) * interval '1 day' where handle like 'sim_h%';
+// Age the accounts: honest 10–60 days (in launch week: joined during the week, half in its first
+// six hours), ring and owners 30 days, throwaways and chaos brand new.
+sql(WEEK
+  ? `update profiles set created_at = now() - interval '7 days' + case when random() < 0.5 then random() * interval '6 hours'
+                                                                       else random() * interval '6 days' end where handle like 'sim_h%';`
+  : `update profiles set created_at = now() - (10 + random() * 50) * interval '1 day' where handle like 'sim_h%';`);
+sql(`
      update profiles set created_at = now() - interval '30 days' where handle like 'sim_r%' or handle like 'sim_o%';`);
 const by = (k) => people.filter((p) => p.kind === k);
 const honest = by('honest'), ring = by('ring'), thr = by('throwaway'), owners = by('owners'), chaos = by('chaos');
+// What each honest person does: in launch week most only look around.
+honest.forEach((h, i) => (h.role = !WEEK ? 'voter' : i % 10 < 6 ? 'lurker' : i % 10 < 9 ? 'voter' : 'poster'));
 
 // ---------- 2. the menu: real places, dishes with a hidden true quality ----------
 const mapRes = await api('GET', '/cities/nearest?lat=20.0059&lng=73.7898');
@@ -134,7 +150,23 @@ check('Posted the menu through the real app flow', live.length === menu.length, 
 const allDishes = [...live, ...ownerPlaces.map((o) => o.dish)];
 const votes = { honest: 0 };
 await pool(honest, 25, async (h) => {
-  const myDishes = shuffle(allDishes).slice(0, 12);
+  if (h.role === 'lurker') {
+    // Looks around: Home, the feed tabs, a craving, a dish and a place, Explore.
+    await api('GET', `/home?city=${city}`, { token: h.token });
+    for (const tab of ['top', 'trending', 'gems']) await api('GET', `/feed?city=${city}&tab=${tab}&limit=20&seed=${h.handle}`, { token: h.token });
+    await api('GET', `/craving?q=${encodeURIComponent(pick(['misal', 'pizza', 'chai', 'biryani', 'dosa', 'vada pav']))}&city=${city}`, { token: h.token });
+    const d = pick(allDishes);
+    await api('GET', `/dishes/${d.id}`, { token: h.token });
+    await api('GET', `/places?city=${city}&sort=loved&limit=20`, { token: h.token });
+    return;
+  }
+  const myDishes = shuffle(allDishes).slice(0, WEEK ? 8 + Math.floor(rand() * 8) : 12);
+  if (h.role === 'poster') {
+    // Also posts a photo of a dish they loved, standing at the place.
+    const fav = myDishes.find((d) => d.kind === 'real' && rand() < d.q + 0.2) ?? myDishes[0];
+    const r = await postDish(h.token, { dishName: fav.name, restaurantId: fav.place?.id ?? '', verdict: 'loved', lat: String(fav.place?.lat ?? 20), lng: String(fav.place?.lng ?? 73.79), capture: 'camera' });
+    if (![200, 201, 409, 429].includes(r.status)) errors5xx.push(`poster ${h.handle}: ${r.status} ${JSON.stringify(r.json).slice(0, 100)}`);
+  }
   for (const d of myDishes) {
     const love = rand() < d.q;
     await api('PUT', `/dishes/${d.id}/engagements/${love ? 'recommend' : 'pass'}`, { token: h.token });
@@ -196,8 +228,14 @@ await pool([...ring.slice(0, 10), ...thr.slice(0, 10)], 20, async (r) => {
   await api('POST', '/reports', { token: r.token, body: { targetType: 'post', targetId: gemPost, reason: 'spam' } });
 });
 
-// Honest votes spread over weeks (real life) or all on launch day.
+// Honest votes spread over weeks (real life), over launch week (a third in the first hour,
+// never before the account existed), or all right now (launch day).
 if (SPREAD) sql(`update engagements set created_at = now() - random() * interval '40 days' where user_id in (select id from profiles where handle like 'sim_h%')`);
+if (WEEK) {
+  sql(`update engagements e set created_at = least(now(), greatest(p.created_at + interval '10 minutes',
+         now() - interval '7 days' + case when random() < 0.33 then random() * interval '1 hour' else random() * interval '7 days' end))
+       from profiles p where p.id = e.user_id and p.handle like 'sim_h%'`);
+}
 await new Promise((r) => setTimeout(r, 6000));
 sql('select refresh_rankings_now()');
 
@@ -216,6 +254,13 @@ for (let off = 0; off < 200; off += 50) {
 const pos = (id) => feed.findIndex((c) => c.id === id);
 const realWithVotes = live.filter((d) => d.kind === 'real' && (byId.get(d.id)?.loves + byId.get(d.id)?.passes) >= 4);
 const rho = spearman(realWithVotes.map((d) => d.q), realWithVotes.map((d) => byId.get(d.id).conf));
+if (WEEK) {
+  const topCards = feed.filter((c) => c.lane === 'top').length;
+  check('Top isn\'t empty in launch week (every account is under a week old)', topCards >= 10, `${topCards} dishes in Top`);
+  const roles = Object.fromEntries(['lurker', 'voter', 'poster'].map((r) => [r, honest.filter((h) => h.role === r).length]));
+  report.roles = roles;
+  console.log('Honest roles:', JSON.stringify(roles));
+}
 check('Ranking recovers the honest crowd\'s true taste', rho > 0.6, `Spearman ${rho.toFixed(2)} over ${realWithVotes.length} dishes (1.0 = perfect)`);
 const confs = rows.filter((r) => r.status === 'live').map((r) => r.conf).sort((a, b) => b - a);
 const rankOf = (id) => confs.findIndex((c) => c <= byId.get(id).conf) + 1;
