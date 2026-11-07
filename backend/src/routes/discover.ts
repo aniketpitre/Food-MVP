@@ -262,7 +262,7 @@ export async function discoverRoutes(app: FastifyInstance) {
               count(d.id)::int as "dishCount",
               (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
                where de.restaurant_id = r.id and de.status = 'live' and e.kind = 'recommend'
-                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)) as lovers,
+                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id) and vote_shown(e.user_id)) as lovers,
               (select coalesce(sum(dr.w_loves), 0)::float8 from dishes dl join dish_rating dr on dr.dish_id = dl.id
                where dl.restaurant_id = r.id and dl.status = 'live') as "lovedWeight",
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
@@ -322,7 +322,7 @@ export async function discoverRoutes(app: FastifyInstance) {
               (select count(*)::int from dishes dd where dd.restaurant_id = r.id and dd.status = 'live') as "dishCount",
               (select count(distinct e2.user_id)::int from engagements e2 join dishes de on de.id = e2.dish_id
                where de.restaurant_id = r.id and de.status = 'live' and e2.kind = 'recommend'
-                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e2.user_id)) as lovers,
+                 and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e2.user_id) and vote_shown(e2.user_id)) as lovers,
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = r.id
                order by (rp.source = 'owner') desc, rp.created_at limit 1) as "photoUrl",
               json_build_object('dishId', d.id, 'name', d.name, 'loves', coalesce(dr.loves, 0),

@@ -1034,7 +1034,11 @@ describe('fair ranking', () => {
     const rating = async (id: string) => (await db.query('select * from dish_rating where dish_id = $1', [id])).rows[0];
     const p = await rating(pick);
     const r = await rating(rival);
-    expect(p.loves).toBe(6);
+    // Six loves were cast, but the ring's votes don't show in the plain numbers people read...
+    expect((await db.query("select count(*)::int as n from engagements where dish_id = $1 and kind = 'recommend'", [pick])).rows[0].n).toBe(6);
+    expect(p.loves).toBe(0);
+    expect(r.passes).toBe(0);
+    expect(r.loves).toBe(4); // ...while the four independent fans do
     expect(p.w_loves).toBeLessThan(0.7); // six accounts, one person's worth of love
     expect(r.confidence).toBeGreaterThan(p.confidence);
     expect(p.champion_id).toBeNull(); // nobody in the ring stands tall enough to be its champion

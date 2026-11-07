@@ -514,4 +514,5 @@ const SETTING_RANGES: Record<string, [number, number]> = {
   revote_keep_days: [0, 365],
   place_auto_approve_posters: [1, 50],
   place_auto_approve_days: [1, 365],
+  shown_min_account_hours: [0, 720],
 };

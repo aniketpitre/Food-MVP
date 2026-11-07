@@ -437,6 +437,24 @@ describe('cheating', () => {
 });
 
 describe('found by the simulated crowd', () => {
+  it('shows "% loved" and votes only from accounts the ranking trusts', async () => {
+    const place = await testPlace('Shown Count Shop');
+    const dish = await mkDish(place, 'Shown Count Bhel', 10);
+    const fresh = await signUp(); // made a moment ago
+    const old = await signUp({ days: 30 });
+    await put(fresh, dish, 'recommend');
+    await put(old, dish, 'pass');
+    const r = await ratingOf(dish);
+    expect(r).toMatchObject({ loves: 0, passes: 1 });
+    expect(r.w_loves).toBeGreaterThan(0); // the new account still counts, at its tiny weight
+    const card = (await app.inject(`/dishes/${dish}`)).json();
+    expect(card.rating).toMatchObject({ loves: 0, passes: 1, percent: 0 });
+    // A day later their love shows.
+    await db.query("update profiles set created_at = now() - interval '2 days' where id = $1", [fresh.id]);
+    await db.query('select refresh_people_pick($1)', [dish]);
+    expect(await ratingOf(dish)).toMatchObject({ loves: 1, passes: 1 });
+  });
+
   it('refuses text with a NUL character with a 400, not a 500', async () => {
     expect((await app.inject(`/craving?q=%00%00&city=${cityId}`)).statusCode).toBe(400);
     expect((await app.inject(`/search?q=a%00b&city=${cityId}`)).statusCode).toBe(400);

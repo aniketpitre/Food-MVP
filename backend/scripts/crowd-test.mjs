@@ -266,6 +266,11 @@ const confs = rows.filter((r) => r.status === 'live').map((r) => r.conf).sort((a
 const rankOf = (id) => confs.findIndex((c) => c <= byId.get(id).conf) + 1;
 check('The ring\'s fake dish did NOT win', rankOf(X.id) > Math.floor(confs.length / 2), `fake thali ranks ${rankOf(X.id)} of ${confs.length} by confidence; feed position ${pos(X.id) < 0 ? 'not in Top' : pos(X.id) + 1}`);
 check('The sunk gem stays near the top', rankOf(Y.id) <= 5, `gem ranks ${rankOf(Y.id)} of ${confs.length}; feed position ${pos(Y.id) < 0 ? 'not in Top' : pos(Y.id) + 1}`);
+// The numbers people read ("% loved · votes") must tell the same story as the ranking.
+const shownPct = (r) => (r.loves + r.passes ? Math.round((100 * r.loves) / (r.loves + r.passes)) : null);
+const xs = byId.get(X.id), ys = byId.get(Y.id);
+check('The "% loved" people read agrees with the ranking', (shownPct(ys) ?? 0) > (shownPct(xs) ?? 0) && (shownPct(xs) ?? 0) < 50,
+  `gem shows ${shownPct(ys)}% of ${ys.loves + ys.passes} votes, fake thali ${shownPct(xs)}% of ${xs.loves + xs.passes} votes`);
 const twins = Object.fromEntries(sql(`select p.handle, coalesce(vi.twins,0) from profiles p left join voter_independence vi on vi.user_id = p.id where p.handle like 'sim_%'`).split('\n').map((l) => l.split('|')).map(([h, t]) => [h, +t]));
 const flagged = (arr) => arr.filter((p) => twins[p.handle] > 0).length;
 check('Ring accounts were found voting in lockstep', flagged(ring) >= ring.length * 0.9, `${flagged(ring)}/${ring.length} flagged`);

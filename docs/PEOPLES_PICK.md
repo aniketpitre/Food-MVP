@@ -99,7 +99,13 @@ confidence = rating − 1.0 × sqrt(rating × (1 − rating) / (weighted votes +
 * Dishes are ranked by **confidence**, a cautious lower estimate, so a dish needs both a
   high share of loves and enough votes to reach the top. 5 loves and 0 passes beats
   28 loves and 6 passes; 1 love does not beat 30 loves.
-* People see the plain numbers: "82 % loved it · 34 votes", plus the **champion**, the
+* People see the plain numbers: "82 % loved it · 34 votes". Those count only the votes the
+  ranking trusts: accounts at least a day old (`shown_min_account_hours`, 24) that aren't voting
+  in lockstep (and never whoever added the place), so a ring of fake accounts can't make a bad
+  dish *look* loved any more than it can rank it (the AI test users caught the card showing 72 %
+  for a dish the ranking put last). A brand-new account's vote still counts toward the rating at
+  its small weight; it shows in the numbers after a day. A place's "lovers" follow the same rule.
+  Next to them is the **champion**, the
   most trusted person in good standing who loved it ("Loved by @diya_k, misal expert").
   A champion you've blocked isn't shown to you. The faces on a card are the latest people
   who loved it (not people who only marked it tried, nor the owner, nor anyone you blocked).

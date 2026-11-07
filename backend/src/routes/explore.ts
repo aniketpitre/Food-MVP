@@ -49,7 +49,7 @@ export async function exploreRoutes(app: FastifyInstance) {
                    and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')) as dish_count,
                 (select count(distinct e.user_id)::int from engagements e join dishes de on de.id = e.dish_id
                  where de.restaurant_id = r.id and de.status = 'live' and e.kind = 'recommend'
-                   and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id)) as lovers,
+                   and not exists (select 1 from place_claimants pc where pc.restaurant_id = r.id and pc.user_id = e.user_id) and vote_shown(e.user_id)) as lovers,
                 -- "Most loved" ranks by the People's Pick weight of the loves (trust x standing),
                 -- over dishes still up: a few throwaway accounts or a hidden dish don't count.
                 (select coalesce(sum(dr.w_loves), 0)::float8 from dishes dl join dish_rating dr on dr.dish_id = dl.id
