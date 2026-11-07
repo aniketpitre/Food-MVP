@@ -1,5 +1,10 @@
 package app.worthabite.ui.restaurant
 
+import app.worthabite.ui.components.OpenHours
+import app.worthabite.data.HoursBody
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import app.worthabite.data.GooglePhoto
 import app.worthabite.data.PlacePhoto
 import app.worthabite.data.apiCall
@@ -100,7 +105,7 @@ class RestaurantViewModel(private val app: AppContainer, private val id: String)
     /** Opening hours for a place the map data has none for (or that people added). */
     fun setHours(hours: String, say: (String) -> Unit) = viewModelScope.launch {
         try {
-            val r = apiCall { app.api.setHours(id, app.worthabite.data.HoursBody(hours)) }
+            val r = apiCall { app.api.setHours(id, HoursBody(hours)) }
             _state.value.place?.let { _state.value = _state.value.copy(place = it.copy(openingHours = r.openingHours)) }
             say("Thanks! Hours added.")
         } catch (e: ApiException) { say(e.message ?: "Couldn't save the hours.") }
@@ -266,7 +271,7 @@ private fun BigStat(value: String, label: String) {
 @Composable
 private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit, onSetHours: (String) -> Unit) {
     var addingHours by remember { mutableStateOf(false) }
-    val open = remember(place.openingHours) { place.openingHours?.let { app.worthabite.ui.components.OpenHours.stateAt(it) } }
+    val open = remember(place.openingHours) { place.openingHours?.let { OpenHours.stateAt(it) } }
     val lines = listOfNotNull(
         place.cuisine?.let { "🍽️  ${it.replaceFirstChar { c -> c.uppercase() }}" to null },
         place.openingHours?.let { "🕒  ${friendlyHours(it)}" to null },
@@ -318,19 +323,19 @@ private fun HoursDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var open by remember { mutableStateOf("09:00") }
     var close by remember { mutableStateOf("22:00") }
     var allDay by remember { mutableStateOf(false) }
-    val tp = app.worthabite.ui.components.OpenHours.timePattern
+    val tp = OpenHours.timePattern
     val ok = allDay || (tp.matches(open) && tp.matches(close) && open != close)
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("When is it open?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     dayOptions.forEachIndexed { i, (value, label) ->
-                        androidx.compose.material3.SegmentedButton(
+                        SegmentedButton(
                             selected = days == value,
                             onClick = { days = value },
-                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, dayOptions.size),
+                            shape = SegmentedButtonDefaults.itemShape(i, dayOptions.size),
                         ) { Text(label) }
                     }
                 }
@@ -351,7 +356,7 @@ private fun HoursDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
         },
         confirmButton = {
             androidx.compose.material3.TextButton(
-                onClick = { onSave(app.worthabite.ui.components.OpenHours.build(days, open, close, allDay)) },
+                onClick = { onSave(OpenHours.build(days, open, close, allDay)) },
                 enabled = ok,
             ) { Text("Save") }
         },

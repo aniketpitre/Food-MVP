@@ -1,5 +1,6 @@
 package app.worthabite.ui.add
 
+import app.worthabite.ui.components.TagPicker
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.testTag
 import android.Manifest
@@ -427,7 +428,7 @@ fun AddDishContent(
             }
         }
         Text("How would you describe it?", style = MaterialTheme.typography.titleSmall)
-        app.worthabite.ui.components.TagPicker(state.tags, onTag, Modifier.fillMaxWidth())
+        TagPicker(state.tags, onTag, Modifier.fillMaxWidth())
         OutlinedTextField(
             value = state.caption,
             onValueChange = onCaption,

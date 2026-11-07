@@ -1,5 +1,6 @@
 package app.worthabite.ui.add
 
+import app.worthabite.ui.components.DishTags
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -237,7 +238,7 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
     fun setVeg(v: VegChoice) = _state.update { it.copy(veg = v) }
     fun setCaption(v: String) = _state.update { it.copy(caption = v.take(280)) }
 
-    fun toggleTag(tag: String) = _state.update { it.copy(tags = app.worthabite.ui.components.DishTags.toggle(it.tags, tag)) }
+    fun toggleTag(tag: String) = _state.update { it.copy(tags = DishTags.toggle(it.tags, tag)) }
     fun setSponsored(v: Boolean) = _state.update { it.copy(sponsored = v) }
 
     fun submit(context: Context) {

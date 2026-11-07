@@ -1,5 +1,7 @@
 package app.worthabite.ui.search
 
+import app.worthabite.ui.components.DishFilter
+import app.worthabite.ui.components.DishFilterChips
 import app.worthabite.data.Category
 import app.worthabite.data.CuisineInfo
 import app.worthabite.data.Suggestion
@@ -264,7 +266,7 @@ fun SearchContent(
 ) {
     val focus = remember { FocusRequester() }
     var tab by remember { mutableStateOf(SearchTab.Top) }
-    var filter by remember { mutableStateOf(app.worthabite.ui.components.DishFilter()) }
+    var filter by remember { mutableStateOf(DishFilter()) }
     // A cuisine or dish type shows everything at once, without the tabs.
     LaunchedEffect(state.result?.cuisine, state.result?.category) {
         if (state.result?.cuisine != null || state.result?.category != null) tab = SearchTab.Top
@@ -449,7 +451,7 @@ fun SearchContent(
                 val dishes = filter.apply(r.dishes)
                 if (showDishes && r.dishes.isNotEmpty()) {
                     item { SectionTitle("Dishes") }
-                    item(key = "filters") { app.worthabite.ui.components.DishFilterChips(filter, { filter = it }, Modifier.padding(bottom = 8.dp)) }
+                    item(key = "filters") { DishFilterChips(filter, { filter = it }, Modifier.padding(bottom = 8.dp)) }
                     if (dishes.isEmpty()) item {
                         Text(
                             "No dishes match these filters. Prices and tags come from people, so many dishes don't have them yet.",

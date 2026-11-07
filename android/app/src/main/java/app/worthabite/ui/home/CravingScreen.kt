@@ -1,5 +1,7 @@
 package app.worthabite.ui.home
 
+import app.worthabite.ui.components.DishFilter
+import app.worthabite.ui.components.DishFilterChips
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -134,7 +136,7 @@ fun CravingContent(
     onOpenPlace: (String) -> Unit = {},
 ) {
     var explain by remember { mutableStateOf(false) }
-    var filter by remember { mutableStateOf(app.worthabite.ui.components.DishFilter()) }
+    var filter by remember { mutableStateOf(DishFilter()) }
     val r = state.result
     // Places that may serve it and aren't already ranked above.
     val morePlaces = r?.places.orEmpty().filter { p -> r?.results.orEmpty().none { it.restaurant.id == p.id } }
@@ -181,7 +183,7 @@ fun CravingContent(
                     }
                 }
                 item(key = "filters") {
-                    app.worthabite.ui.components.DishFilterChips(filter, { filter = it }, Modifier.padding(top = 12.dp))
+                    DishFilterChips(filter, { filter = it }, Modifier.padding(top = 12.dp))
                 }
                 val shown = filter.apply(r.results)
                 if (shown.isEmpty()) {
