@@ -118,7 +118,7 @@ class FullAppTest {
             block()
         } catch (e: Throwable) {
             Log.e("JOURNEY", "step \"$name\" failed", e)
-            runCatching { shot("99_failure_${name.replace(' ', '_')}") }
+            runCatching { shot("99_failure_${name.replace(Regex("[^A-Za-z0-9]+"), "_")}") }
             runCatching { compose.onRoot(useUnmergedTree = true).printToLog("JOURNEY") }
             throw AssertionError("Step \"$name\" failed: ${e.message}", e)
         }

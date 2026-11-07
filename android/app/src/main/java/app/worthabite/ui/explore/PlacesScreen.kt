@@ -220,12 +220,6 @@ fun PlacesScreen(vm: PlacesViewModel, onOpenPlace: (String) -> Unit, onAskLocati
                 tag = "places_veg",
                 leading = { VegMark(true, size = 12.dp) },
             ) { vm.setFilters(f.copy(veg = !f.veg)) }
-            Pill("Open now", on = f.openNow, tag = "places_open") { vm.setFilters(f.copy(openNow = !f.openNow)) }
-            Pill(f.maxPrice?.let { "Under ₹$it" } ?: "Budget", on = f.maxPrice != null, tag = "places_budget") {
-                // Tap to cycle: any, under ₹100, ₹200, ₹500.
-                val steps = listOf<Int?>(null, 100, 200, 500)
-                vm.setFilters(f.copy(maxPrice = steps[(steps.indexOf(f.maxPrice) + 1) % steps.size]))
-            }
             Pill(f.area ?: "All areas", on = f.area != null, tag = "places_area", leading = { Icon(AppIcons.Near, null, Modifier.size(14.dp)) }) { areas = true }
             Pill(f.sort.label, on = f.sort != PlaceSort.Loved, tag = "places_sort") {
                 // Tap to cycle through the sorts; the sheet lists them too.
@@ -233,6 +227,13 @@ fun PlacesScreen(vm: PlacesViewModel, onOpenPlace: (String) -> Unit, onAskLocati
                 vm.setFilters(f.copy(sort = all[(all.indexOf(f.sort) + 1) % all.size]))
             }
             Pill(if (f.count > 0) "Filters · ${f.count}" else "Filters", on = f.count > 0, tag = "places_filters") { sheet = true }
+            // Newer quick filters after the rest, a swipe along the row.
+            Pill("Open now", on = f.openNow, tag = "places_open") { vm.setFilters(f.copy(openNow = !f.openNow)) }
+            Pill(f.maxPrice?.let { "Under ₹$it" } ?: "Budget", on = f.maxPrice != null, tag = "places_budget") {
+                // Tap to cycle: any, under ₹100, ₹200, ₹500.
+                val steps = listOf<Int?>(null, 100, 200, 500)
+                vm.setFilters(f.copy(maxPrice = steps[(steps.indexOf(f.maxPrice) + 1) % steps.size]))
+            }
         }
         // Explore by dish type.
         if (state.facets.categories.isNotEmpty()) {
