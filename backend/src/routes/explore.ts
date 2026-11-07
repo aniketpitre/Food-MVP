@@ -24,6 +24,10 @@ export async function exploreRoutes(app: FastifyInstance) {
         category: z.coerce.number().int().positive().optional(),
         veg: z.enum(['true', 'false']).default('false'),
         maxKm: z.coerce.number().min(0.5).max(50).optional(),
+        // A dish here at or under this price, a dish here with this tag, open right now.
+        maxPrice: z.coerce.number().int().min(1).max(20000).optional(),
+        tag: z.enum(['jain', 'healthy', 'spicy', 'mild']).optional(),
+        openNow: z.enum(['true', 'false']).default('false'),
         // Places nobody has posted from yet: shown while the city is young unless asked.
         all: z.enum(['true', 'false']).optional(),
         limit: z.coerce.number().int().min(1).max(50).default(20),
@@ -67,6 +71,12 @@ export async function exploreRoutes(app: FastifyInstance) {
                 or (exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live')
                     and not exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live' and d.is_veg is not true)))
            and ($8::float8 is null or st_dwithin(r.geo, st_setsrid(st_makepoint($3, $2), 4326)::geography, $8 * 1000))
+           and ($13::int is null or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live'
+                                              and d.price_inr <= $13
+                                              and exists (select 1 from posts p where p.dish_id = d.id and p.status = 'live')))
+           and ($14::text is null or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live'
+                                               and $14 = any(dish_tags(d.id))))
+           and (not $15 or is_open_now(r.opening_hours) is true)
            -- Skip places nobody has posted from before counting anything (the city can hold
            -- thousands of imported places with no dishes).
            and ($9 or exists (select 1 from dishes d where d.restaurant_id = r.id and d.status = 'live'
@@ -74,7 +84,7 @@ export async function exploreRoutes(app: FastifyInstance) {
        )
        select b.id, b.name, b.locality, b.cuisine, b.address, b.opening_hours as "openingHours",
               (b.source = 'seed') as demo, st_y(b.geo::geometry) as lat, st_x(b.geo::geometry) as lng,
-              b.dish_count as "dishCount", b.lovers, round(b.dist)::int as "distanceM",
+              b.dish_count as "dishCount", b.lovers, is_open_now(b.opening_hours) as "openNow", round(b.dist)::int as "distanceM",
               (b.osm_tags->>'diet:vegetarian' = 'only'
                or (b.dish_count > 0 and not exists (select 1 from dishes d where d.restaurant_id = b.id and d.status = 'live' and d.is_veg is not true))) as "pureVeg",
               (select rp.thumb_path from restaurant_photos rp where rp.restaurant_id = b.id
@@ -104,7 +114,7 @@ export async function exploreRoutes(app: FastifyInstance) {
          b.dish_count desc, b.dist asc nulls last, b.id
        limit $11 offset $12`,
       [q.city, q.lat ?? null, q.lng ?? null, q.area || null, cuisineRe, q.category ?? null, q.veg === 'true',
-       q.maxKm ?? null, all, q.sort, q.limit, q.offset],
+       q.maxKm ?? null, all, q.sort, q.limit, q.offset, q.maxPrice ?? null, q.tag ?? null, q.openNow === 'true'],
     );
     return {
       items: rows.map((r) => ({ ...r, emoji: r.topDish?.emoji ?? foodLogo(r.cuisine, r.name) })),

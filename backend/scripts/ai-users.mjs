@@ -90,9 +90,11 @@ async function slot(fn) {
   try { return await fn(); } finally { running--; waiting.shift()?.(); }
 }
 let llmCalls = 0;
-async function llm(messages, maxTokens = 1500) {
-  for (const model of [MODEL, FALLBACK]) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+// A model that "thinks" first can spend its whole answer on thinking; long summaries go to the
+// fallback first. Two tries per model: the free tier's errors rarely clear on a third.
+async function llm(messages, maxTokens = 1500, models = [MODEL, FALLBACK]) {
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       const out = await slot(async () => {
         llmCalls++;
         try {
@@ -435,7 +437,7 @@ const reviews = results.map((r) => ({ who: `${r.name}, ${r.age}, ${r.style}`, ..
 const summary = await llm([
   { role: 'system', content: 'You are a product researcher. Be concrete and brief. Plain text, no markdown tables.' },
   { role: 'user', content: `These are reviews from people who tried WorthAbite, a dish-ranking food app for Nashik:\n${JSON.stringify(reviews).slice(0, 14000)}\n\nWrite: 1) the 5 things people liked most, 2) the 5 biggest confusions or complaints, 3) the 5 most wanted missing features, 4) which kinds of people were least happy and why. Each point one line, and say how many people mentioned it.` },
-], 6000);
+], 3000, [FALLBACK, MODEL]);
 
 // Models don't always keep to the format: a list may come back as one string.
 const list = (v) => (Array.isArray(v) ? v.map(String) : v ? [String(v)] : []);

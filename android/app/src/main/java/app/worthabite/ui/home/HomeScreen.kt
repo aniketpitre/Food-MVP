@@ -1,5 +1,7 @@
 package app.worthabite.ui.home
 
+import app.worthabite.ui.components.DishFilter
+import app.worthabite.ui.components.DishFilterChips
 import app.worthabite.data.StoryReel
 import app.worthabite.data.UserRef
 import app.worthabite.ui.stories.StoriesRow
@@ -288,6 +290,14 @@ fun HomeContent(
     onExplorePlaces: () -> Unit = {},
 ) {
     val d = state.data
+    // Veg only, a budget, nearest, or a tag: narrows every row of dishes below at once.
+    var filter by remember { mutableStateOf(DishFilter()) }
+    val forYou = remember(d.forYou, filter) { filter.apply(d.forYou) }
+    val picks = remember(d.peoplesPicks, filter) { filter.apply(d.peoplesPicks) }
+    val nearby = remember(d.nearby, filter) { filter.apply(d.nearby) }
+    val following = remember(d.following, filter) { d.following.filter { f -> filter.apply(listOf(f.card)).isNotEmpty() } }
+    val trending = remember(d.trending, filter) { filter.apply(d.trending) }
+    val fresh = remember(d.fresh, filter) { filter.apply(d.fresh) }
     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().testTag("home_list"), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "stories") {
@@ -337,12 +347,25 @@ fun HomeContent(
                             city = state.city?.name ?: "your city",
                         )
                     }
-                    if (d.forYou.isNotEmpty()) {
+                    item(key = "filters", contentType = "filters") {
+                        DishFilterChips(filter, { filter = it }, Modifier.padding(top = 4.dp, bottom = 4.dp))
+                    }
+                    if (filter.active && forYou.isEmpty() && picks.isEmpty() && nearby.isEmpty() && trending.isEmpty() && fresh.isEmpty()) {
+                        item(key = "no-match", contentType = "prompt") {
+                            Text(
+                                "No dishes here match. Prices and tags come from people who tried them, so many dishes don't have them yet.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            )
+                        }
+                    }
+                    if (forYou.isNotEmpty()) {
                         item(key = "foryou-title", contentType = "header") {
                             SectionHeader("For you", "Loved by people whose taste matches yours")
                         }
                         item(key = "foryou", contentType = "carousel") {
-                            CardCarousel(d.forYou, imageUrl, onOpenDish, onOpenUser, big = true, section = "home:foryou")
+                            CardCarousel(forYou, imageUrl, onOpenDish, onOpenUser, big = true, section = "home:foryou")
                         }
                     }
                     if (state.tasteSet == false) {
@@ -354,33 +377,33 @@ fun HomeContent(
                         }
                         item(key = "mates", contentType = "mates") { MateRow(state.mates, onOpenUser, onFollowMate) }
                     }
-                    if (d.peoplesPicks.isNotEmpty()) {
+                    if (picks.isNotEmpty()) {
                         item(key = "picks-title", contentType = "header") {
                             SectionHeader("People's Pick", "Loved most by people who tried them", onMore = onExplore)
                         }
-                        item(key = "picks", contentType = "carousel") { CardCarousel(d.peoplesPicks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true, section = "home:picks") }
+                        item(key = "picks", contentType = "carousel") { CardCarousel(picks, imageUrl, onOpenDish, onOpenUser, big = true, ranked = true, section = "home:picks") }
                     }
-                    if (d.nearby.isNotEmpty()) {
+                    if (nearby.isNotEmpty()) {
                         item(key = "near-title", contentType = "header") { SectionHeader("Good near you", "Within 5 km") }
-                        item(key = "near", contentType = "carousel") { CardCarousel(d.nearby, imageUrl, onOpenDish, onOpenUser, section = "home:near") }
+                        item(key = "near", contentType = "carousel") { CardCarousel(nearby, imageUrl, onOpenDish, onOpenUser, section = "home:near") }
                     }
-                    if (d.following.isNotEmpty()) {
+                    if (following.isNotEmpty()) {
                         item(key = "follow-title", contentType = "header") { SectionHeader("From people you follow", null) }
                         item(key = "follow", contentType = "carousel") {
-                            CardCarousel(d.following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = d.following.map { it.lovedBy }, section = "home:following")
+                            CardCarousel(following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = following.map { it.lovedBy }, section = "home:following")
                         }
                     }
                     if (d.tasters.isNotEmpty()) {
                         item(key = "tasters-title", contentType = "header") { SectionHeader("Tastemakers", "Their picks were backed by the most people") }
                         item(key = "tasters", contentType = "tasters") { TasterRow(d.tasters, onOpenUser) }
                     }
-                    if (d.trending.isNotEmpty()) {
+                    if (trending.isNotEmpty()) {
                         item(key = "trend-title", contentType = "header") { SectionHeader("Trending this week", null) }
-                        item(key = "trend", contentType = "carousel") { CardCarousel(d.trending, imageUrl, onOpenDish, onOpenUser, section = "home:trend") }
+                        item(key = "trend", contentType = "carousel") { CardCarousel(trending, imageUrl, onOpenDish, onOpenUser, section = "home:trend") }
                     }
-                    if (d.fresh.isNotEmpty()) {
+                    if (fresh.isNotEmpty()) {
                         item(key = "fresh-title", contentType = "header") { SectionHeader("Just posted", "Help decide: tried any of these?") }
-                        item(key = "fresh", contentType = "carousel") { CardCarousel(d.fresh, imageUrl, onOpenDish, onOpenUser, section = "home:fresh") }
+                        item(key = "fresh", contentType = "carousel") { CardCarousel(fresh, imageUrl, onOpenDish, onOpenUser, section = "home:fresh") }
                     }
                 }
             }

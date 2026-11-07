@@ -559,6 +559,46 @@ describe('details people asked for (AI user test)', () => {
   });
 });
 
+describe('Explore filters (AI user test, round 2)', () => {
+  it('reads opening hours in India time: days off, split hours, late nights', async () => {
+    // 2026-11-09 is a Monday; times are India time (+05:30).
+    const open = async (h: string, at: string) => (await db.query('select is_open_now($1, $2::timestamptz) as o', [h, at])).rows[0].o;
+    expect(await open('Mo-Su 08:00-22:00', '2026-11-09T12:00:00+05:30')).toBe(true);
+    expect(await open('Mo-Su 08:00-22:00', '2026-11-09T23:00:00+05:30')).toBe(false);
+    expect(await open('Mo-Sa 09:00-21:00; Su off', '2026-11-15T12:00:00+05:30')).toBe(false); // Sunday
+    expect(await open('Mo-Fr 11:00-15:00,19:00-23:30', '2026-11-10T16:00:00+05:30')).toBe(false);
+    expect(await open('Mo-Fr 11:00-15:00,19:00-23:30', '2026-11-10T20:00:00+05:30')).toBe(true);
+    expect(await open('Mo-Su 18:00-02:00', '2026-11-11T01:00:00+05:30')).toBe(true); // last night's hours
+    expect(await open('Mo-Su 18:00-02:00', '2026-11-11T03:00:00+05:30')).toBe(false);
+    expect(await open('24/7', '2026-11-11T03:00:00+05:30')).toBe(true);
+    expect(await open('Mo-Fr 10:00-18:00; Sa,Su off', '2026-11-14T12:00:00+05:30')).toBe(false); // Saturday
+    expect(await open('sunrise till late', '2026-11-09T12:00:00+05:30')).toBeNull();
+    expect(await open(null as unknown as string, '2026-11-09T12:00:00+05:30')).toBeNull();
+  });
+
+  it('filters places by price, tag and open now', async () => {
+    const cheap = await testPlace('Filter Cheap Canteen');
+    const pricey = await testPlace('Filter Fancy Bistro');
+    const cheapDish = await mkDish(cheap, 'Filter Poha', 5);
+    const priceyDish = await mkDish(pricey, 'Filter Truffle Pasta', 5);
+    await db.query('update dishes set price_inr = 60 where id = $1', [cheapDish]);
+    await db.query('update dishes set price_inr = 650 where id = $1', [priceyDish]);
+    await db.query("insert into dish_tag_votes (dish_id, user_id, tag) values ($1, $2, 'jain')", [cheapDish, (await signUp({ days: 30 })).id]);
+    await db.query("update restaurants set opening_hours = '24/7' where id = $1", [cheap]);
+    await db.query("update restaurants set opening_hours = 'Mo-Su off' where id = $1", [pricey]);
+    const names = async (qs: string) => (await app.inject(`/places?city=${cityId}&all=false&limit=50&${qs}`)).json().items.map((i: { name: string }) => i.name);
+    expect(await names('maxPrice=100')).toContain('Filter Cheap Canteen');
+    expect(await names('maxPrice=100')).not.toContain('Filter Fancy Bistro');
+    expect(await names('tag=jain')).toEqual(expect.arrayContaining(['Filter Cheap Canteen']));
+    expect(await names('tag=jain')).not.toContain('Filter Fancy Bistro');
+    const openNow = await names('openNow=true');
+    expect(openNow).toContain('Filter Cheap Canteen');
+    expect(openNow).not.toContain('Filter Fancy Bistro');
+    const item = (await app.inject(`/places?city=${cityId}&all=false&limit=50`)).json().items.find((i: { name: string }) => i.name === 'Filter Cheap Canteen');
+    expect(item.openNow).toBe(true);
+  });
+});
+
 describe('polish', () => {
   it("matches a cuisine by whole words: Thai isn't Thali", async () => {
     const thali = await testPlace('Whole Word Thali House');

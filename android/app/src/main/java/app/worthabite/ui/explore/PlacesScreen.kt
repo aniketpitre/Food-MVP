@@ -1,5 +1,6 @@
 package app.worthabite.ui.explore
 
+import app.worthabite.ui.components.DishTags
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -95,9 +96,14 @@ data class PlaceFilters(
     val cuisine: String? = null,
     val category: Int? = null,
     val maxKm: Double? = null,
+    /** A dish here at or under this price (from people's reports). */
+    val maxPrice: Int? = null,
+    /** A dish here with this tag: jain, healthy, spicy, mild. */
+    val tag: String? = null,
+    val openNow: Boolean = false,
 ) {
     /** How many filters are on (the sort doesn't count). */
-    val count: Int get() = listOf(veg, area != null, cuisine != null, category != null, maxKm != null).count { it }
+    val count: Int get() = listOf(veg, area != null, cuisine != null, category != null, maxKm != null, maxPrice != null, tag != null, openNow).count { it }
     val needsLocation: Boolean get() = sort.needsLocation || maxKm != null
 }
 
@@ -163,6 +169,7 @@ class PlacesViewModel(private val app: AppContainer) : ViewModel() {
                 app.api.places(
                     city = city.id, lat = loc?.lat, lng = loc?.lng, sort = f.sort.api, area = f.area, cuisine = f.cuisine,
                     category = f.category, veg = f.veg, maxKm = f.maxKm, offset = if (replace) 0 else next ?: 0,
+                    maxPrice = f.maxPrice, tag = f.tag, openNow = f.openNow,
                 )
             }
             next = page.nextOffset
@@ -213,6 +220,12 @@ fun PlacesScreen(vm: PlacesViewModel, onOpenPlace: (String) -> Unit, onAskLocati
                 tag = "places_veg",
                 leading = { VegMark(true, size = 12.dp) },
             ) { vm.setFilters(f.copy(veg = !f.veg)) }
+            Pill("Open now", on = f.openNow, tag = "places_open") { vm.setFilters(f.copy(openNow = !f.openNow)) }
+            Pill(f.maxPrice?.let { "Under ₹$it" } ?: "Budget", on = f.maxPrice != null, tag = "places_budget") {
+                // Tap to cycle: any, under ₹100, ₹200, ₹500.
+                val steps = listOf<Int?>(null, 100, 200, 500)
+                vm.setFilters(f.copy(maxPrice = steps[(steps.indexOf(f.maxPrice) + 1) % steps.size]))
+            }
             Pill(f.area ?: "All areas", on = f.area != null, tag = "places_area", leading = { Icon(AppIcons.Near, null, Modifier.size(14.dp)) }) { areas = true }
             Pill(f.sort.label, on = f.sort != PlaceSort.Loved, tag = "places_sort") {
                 // Tap to cycle through the sorts; the sheet lists them too.
@@ -339,6 +352,7 @@ private fun PlaceCard(p: PlaceItem, imageUrl: String?, onOpen: () -> Unit, onGo:
                 }
                 Spacer(Modifier.height(4.dp))
                 val facts = listOfNotNull(
+                    when (p.openNow) { true -> "Open now"; false -> "Closed now"; null -> null },
                     p.distanceM?.let { listOfNotNull(Format.distance(it), Format.driveTime(it)).joinToString(" · ") },
                     if (p.lovers > 0) "♥ ${p.lovers} loved" else null,
                     if (p.dishCount > 0) "${p.dishCount} dish${if (p.dishCount == 1) "" else "es"}" else null,
@@ -401,6 +415,27 @@ private fun FilterSheet(state: PlacesUiState, onApply: (PlaceFilters) -> Unit, o
                     Text("Pure vegetarian places", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                     Switch(f.veg, { f = f.copy(veg = it) }, Modifier.testTag("sheet_veg"))
                 }
+                Section("Budget")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf<Int?>(null, 100, 200, 500).forEach { p ->
+                        Pill(p?.let { "A dish under ₹$it" } ?: "Any", f.maxPrice == p, "sheet_price_${p ?: 0}") { f = f.copy(maxPrice = p) }
+                    }
+                }
+                Section("Diet and taste")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DishTags.all.forEach { t ->
+                        Pill(DishTags.label(t), f.tag == t, "sheet_tag_$t") { f = f.copy(tag = if (f.tag == t) null else t) }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
+                    Text("Open now", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Switch(f.openNow, { f = f.copy(openNow = it) }, Modifier.testTag("sheet_open"))
+                }
+                Text(
+                    "Prices, tags and hours come from people, so places without them are left out while a filter is on.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Section("Distance")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf<Double?>(null, 1.0, 3.0, 5.0, 10.0).forEach { km ->

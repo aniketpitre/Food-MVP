@@ -238,6 +238,10 @@ interface WorthAbiteApi {
         @Query("maxKm") maxKm: Double?,
         @Query("offset") offset: Int = 0,
         @Query("limit") limit: Int = 20,
+        // A dish here at or under this price, a dish with this tag, open right now.
+        @Query("maxPrice") maxPrice: Int? = null,
+        @Query("tag") tag: String? = null,
+        @Query("openNow") openNow: Boolean = false,
     ): PlacePage
 
     @GET("places/facets") suspend fun placeFacets(@Query("city") city: Int): PlaceFacets

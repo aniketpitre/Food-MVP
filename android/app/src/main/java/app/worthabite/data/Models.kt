@@ -886,6 +886,8 @@ data class PlaceItem(
     val emoji: String = "🍽️",
     val topDish: MapTopDish? = null,
     val dishNames: List<String> = emptyList(),
+    /** From its opening hours: true open, false closed, null not known. */
+    val openNow: Boolean? = null,
 )
 
 @Serializable
