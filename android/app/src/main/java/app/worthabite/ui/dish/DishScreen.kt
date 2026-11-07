@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -98,6 +99,16 @@ import app.worthabite.ui.components.EngageAction
 import app.worthabite.ui.components.LocalApp
 import app.worthabite.ui.components.QuietButton
 import app.worthabite.ui.components.ReportSheet
+import app.worthabite.ui.components.TagPicker
+import app.worthabite.ui.components.TagPills
+import app.worthabite.ui.home.HowItWorksSheet
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.KeyboardType
+import app.worthabite.data.CaptionBody
+import app.worthabite.data.PriceBody
 import app.worthabite.ui.components.Reveal
 import app.worthabite.ui.components.Tag
 import app.worthabite.ui.components.VegMark
@@ -135,6 +146,43 @@ class DishViewModel(private val app: AppContainer, private val dishId: String) :
                 _state.value = _state.value.copy(loading = false, error = e.message)
             }
         }
+    }
+
+    private fun update(f: (DishDetail) -> DishDetail) {
+        _state.value.dish?.let { _state.value = _state.value.copy(dish = f(it)) }
+    }
+
+    /** What you paid: the dish shows the median of everyone's. */
+    fun setPrice(price: Int, say: (String) -> Unit) = viewModelScope.launch {
+        try {
+            val r = apiCall { app.api.setPrice(dishId, PriceBody(price)) }
+            update { it.copy(priceInr = r.priceInr, priceReports = r.priceReports, myPrice = r.myPrice) }
+            say("Thanks! Price added.")
+        } catch (e: ApiException) { say(e.message ?: "Couldn't save the price.") }
+    }
+
+    fun toggleTag(tag: String, say: (String) -> Unit) = viewModelScope.launch {
+        val d = _state.value.dish ?: return@launch
+        try {
+            val r = apiCall { if (tag in d.myTags) app.api.removeTag(dishId, tag) else app.api.addTag(dishId, tag) }
+            update { it.copy(tags = r.tags, myTags = r.myTags) }
+        } catch (e: ApiException) { say(e.message ?: "Couldn't save that.") }
+    }
+
+    fun editCaption(postId: String, caption: String, say: (String) -> Unit) = viewModelScope.launch {
+        try {
+            val r = apiCall { app.api.editCaption(postId, CaptionBody(caption)) }
+            update { d -> d.copy(posts = d.posts.map { if (it.id == postId) it.copy(caption = r.caption) else it }) }
+            say("Caption updated.")
+        } catch (e: ApiException) { say(e.message ?: "Couldn't update the caption.") }
+    }
+
+    fun deletePost(postId: String, say: (String) -> Unit) = viewModelScope.launch {
+        try {
+            apiCall { app.api.deletePost(postId) }
+            say("Photo deleted.")
+            load()
+        } catch (e: ApiException) { say(e.message ?: "Couldn't delete the photo.") }
     }
 }
 
@@ -184,6 +232,11 @@ fun DishScreen(
                 onReport = { type, id -> if (session == null) onNeedSignIn() else reportTarget = type to id },
                 commentCountOf = { post -> commentCounts[post.id] ?: post.commentCount },
                 onComments = { commentsFor = it },
+                myHandle = session?.user?.handle,
+                onSetPrice = { if (session == null) onNeedSignIn() else vm.setPrice(it, showMessage) },
+                onToggleTag = { if (session == null) onNeedSignIn() else vm.toggleTag(it, showMessage) },
+                onEditCaption = { id, text -> vm.editCaption(id, text, showMessage) },
+                onDeletePost = { vm.deletePost(it, showMessage) },
                 onBlock = { handle ->
                     if (session == null) onNeedSignIn()
                     else scope.launch {
@@ -246,8 +299,18 @@ fun DishContent(
     onBlock: (String) -> Unit,
     commentCountOf: (Post) -> Int = { it.commentCount },
     onComments: (postId: String) -> Unit = {},
+    myHandle: String? = null,
+    onSetPrice: (Int) -> Unit = {},
+    onToggleTag: (String) -> Unit = {},
+    onEditCaption: (postId: String, caption: String) -> Unit = { _, _ -> },
+    onDeletePost: (postId: String) -> Unit = {},
 ) {
     val photos = dish.posts
+    var showHow by remember { mutableStateOf(false) }
+    var askPrice by remember { mutableStateOf(false) }
+    var tagging by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Post?>(null) }
+    var deleting by remember { mutableStateOf<Post?>(null) }
     val pager = rememberPagerState { photos.size.coerceAtLeast(1) }
     val currentPost = photos.getOrNull(pager.currentPage)
     val scroll = rememberScrollState()
@@ -331,6 +394,26 @@ fun DishContent(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp),
                             )
                         }
+                        // Price: the median of what people paid, or a prompt to add it.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                when {
+                                    dish.priceInr == null -> "No price yet"
+                                    dish.priceReports > 1 -> "${Format.price(dish.priceInr)} · from ${dish.priceReports} people"
+                                    else -> "${Format.price(dish.priceInr)} · from 1 person"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { askPrice = true }, modifier = Modifier.testTag("add_price")) {
+                                Text(if (dish.myPrice != null) "You paid ₹${dish.myPrice}" else if (dish.priceInr == null) "Add what you paid" else "Paid something else?")
+                            }
+                        }
+                        TagPills(dish.tags)
+                        TextButton(onClick = { tagging = !tagging }, contentPadding = PaddingValues(0.dp)) {
+                            Text(if (tagging) "Done" else if (dish.myTags.isEmpty()) "Jain, healthy, spicy or mild? Tag it" else "Edit your tags")
+                        }
+                        if (tagging) TagPicker(dish.myTags.toSet(), onToggleTag)
                     }
                 }
 
@@ -339,6 +422,12 @@ fun DishContent(
                         // The People's Pick verdict and whose top pick this is.
                         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             RatingPill(engagement.rating)
+                            Text(
+                                ratingWhy(engagement.rating.loves, engagement.rating.passes),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.clickable(role = Role.Button) { showHow = true }.testTag("rating_why"),
+                            )
                             dish.champion?.let { ChampionLine(it, onOpenUser) }
                         }
                         Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -428,6 +517,15 @@ fun DishContent(
                                         }
                                     }
                                     post.caption?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                                    if (myHandle != null && post.authorHandle == myHandle) {
+                                        Row {
+                                            TextButton(onClick = { editing = post }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Edit caption") }
+                                            Spacer(Modifier.width(12.dp))
+                                            TextButton(onClick = { deleting = post }, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                                                Text("Delete photo", color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
                                     if (dish.photographers > 1) {
                                         Text(
                                             "Photos by ${dish.photographers} people",
@@ -491,6 +589,21 @@ fun DishContent(
                     }
                 }
             }
+        }
+
+        if (showHow) HowItWorksSheet { showHow = false }
+        if (askPrice) PriceDialog(dish.myPrice, onDismiss = { askPrice = false }) { askPrice = false; onSetPrice(it) }
+        editing?.let { post ->
+            CaptionDialog(post.caption.orEmpty(), onDismiss = { editing = null }) { editing = null; onEditCaption(post.id, it) }
+        }
+        deleting?.let { post ->
+            AlertDialog(
+                onDismissRequest = { deleting = null },
+                title = { Text("Delete this photo?") },
+                text = { Text("It goes from the dish for everyone. Your vote on the dish stays.") },
+                confirmButton = { TextButton(onClick = { deleting = null; onDeletePost(post.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { deleting = null }) { Text("Keep") } },
+            )
         }
 
         // Slim title bar that fades in once the photo has scrolled away. Its own composable,
@@ -608,4 +721,53 @@ fun MiniDishTile(card: DishCard, thumbUrl: String?, onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+
+/** One line under the rating saying what the numbers are. */
+fun ratingWhy(loves: Int, passes: Int): String {
+    val n = loves + passes
+    if (n == 0) return "No verdicts yet. Tried it? Say if it's worth a bite. How ratings work ›"
+    val pct = (100.0 * loves / n).toInt()
+    return "$pct% of ${if (n == 1) "1 person" else "$n people"} who tried it loved it. New accounts count from their second day. How ratings work ›"
+}
+
+@Composable
+private fun PriceDialog(current: Int?, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    var text by remember { mutableStateOf(current?.toString().orEmpty()) }
+    val value = text.toIntOrNull()?.takeIf { it in 1..20000 }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("What did you pay?") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { v -> text = v.filter(Char::isDigit).take(5) },
+                label = { Text("Price ₹") },
+                supportingText = { Text("The dish shows the middle of what people paid.") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.testTag("price_input"),
+            )
+        },
+        confirmButton = { TextButton(onClick = { value?.let(onSave) }, enabled = value != null) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun CaptionDialog(current: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit caption") },
+        text = {
+            OutlinedTextField(
+                value = text, onValueChange = { text = it.take(280) }, minLines = 2, maxLines = 5,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onSave(text.trim()) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

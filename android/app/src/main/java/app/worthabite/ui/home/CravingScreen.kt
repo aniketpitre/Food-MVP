@@ -134,6 +134,7 @@ fun CravingContent(
     onOpenPlace: (String) -> Unit = {},
 ) {
     var explain by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf(app.worthabite.ui.components.DishFilter()) }
     val r = state.result
     // Places that may serve it and aren't already ranked above.
     val morePlaces = r?.places.orEmpty().filter { p -> r?.results.orEmpty().none { it.restaurant.id == p.id } }
@@ -179,10 +180,23 @@ fun CravingContent(
                         )
                     }
                 }
-                item(key = "winner") {
-                    Reveal(60) { WinnerCard(r.results.first(), imageUrl, onOpenDish, onOpenUser) }
+                item(key = "filters") {
+                    app.worthabite.ui.components.DishFilterChips(filter, { filter = it }, Modifier.padding(top = 12.dp))
                 }
-                itemsIndexed(r.results.drop(1), key = { _, c -> c.id }) { i, c ->
+                val shown = filter.apply(r.results)
+                if (shown.isEmpty()) {
+                    item(key = "no-match") {
+                        Text(
+                            "None match these filters yet. Prices and tags come from people who tried the dish.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(20.dp),
+                        )
+                    }
+                } else item(key = "winner") {
+                    Reveal(60) { WinnerCard(shown.first(), imageUrl, onOpenDish, onOpenUser) }
+                }
+                itemsIndexed(shown.drop(1), key = { _, c -> c.id }) { i, c ->
                     Reveal(100 + 50 * i.coerceAtMost(8)) { RankedRow(i + 2, c, imageUrl, onOpenDish, onOpenUser) }
                 }
                 if (morePlaces.isNotEmpty()) {

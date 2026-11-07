@@ -99,6 +99,10 @@ data class DishCard(
     val id: String,
     val name: String,
     val priceInr: Int? = null,
+    /** How many people reported a price (the price is their median). */
+    val priceReports: Int = 0,
+    /** Tags trusted people gave it: jain, healthy, spicy, mild. */
+    val tags: List<String> = emptyList(),
     val isVeg: Boolean? = null,
     val categoryId: Int? = null,
     val createdAt: String = "",
@@ -159,6 +163,11 @@ data class DishDetail(
     val id: String,
     val name: String,
     val priceInr: Int? = null,
+    val priceReports: Int = 0,
+    val tags: List<String> = emptyList(),
+    /** What you said it cost, and the tags you gave it. */
+    val myPrice: Int? = null,
+    val myTags: List<String> = emptyList(),
     val isVeg: Boolean? = null,
     val categoryId: Int? = null,
     val createdAt: String = "",
@@ -177,7 +186,7 @@ data class DishDetail(
     val photographers: Int = 0,
 ) {
     fun toCard() = DishCard(
-        id = id, name = name, priceInr = priceInr, isVeg = isVeg, categoryId = categoryId,
+        id = id, name = name, priceInr = priceInr, priceReports = priceReports, tags = tags, isVeg = isVeg, categoryId = categoryId,
         createdAt = createdAt, restaurant = restaurant, cover = cover, stats = stats, me = me,
         recentRecommenders = recentRecommenders, distanceM = distanceM, rating = rating, champion = champion,
         photographers = photographers,
@@ -199,6 +208,8 @@ data class RestaurantDetail(
     val distanceM: Int? = null,
     val cuisine: String? = null,
     val openingHours: String? = null,
+    /** Whether people may add or fix the hours (the map data had none, or people added them). */
+    val hoursEditable: Boolean = false,
     val phone: String? = null,
     val website: String? = null,
     val photos: List<PlacePhoto> = emptyList(),
@@ -495,6 +506,27 @@ data class ShareResult(val url: String, val counted: Boolean = false)
 
 @Serializable
 data class OkResult(val ok: Boolean = true, val hidden: Boolean = false, val status: String? = null)
+
+@Serializable
+data class PriceBody(val priceInr: Int)
+
+@Serializable
+data class PriceResult(val priceInr: Int? = null, val priceReports: Int = 0, val myPrice: Int? = null)
+
+@Serializable
+data class TagState(val tags: List<String> = emptyList(), val myTags: List<String> = emptyList())
+
+@Serializable
+data class CaptionBody(val caption: String)
+
+@Serializable
+data class CaptionResult(val ok: Boolean = true, val caption: String? = null)
+
+@Serializable
+data class HoursBody(val openingHours: String)
+
+@Serializable
+data class HoursResult(val ok: Boolean = true, val openingHours: String? = null)
 
 @Serializable
 data class ReportBody(

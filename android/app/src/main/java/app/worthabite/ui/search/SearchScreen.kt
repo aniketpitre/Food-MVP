@@ -264,6 +264,7 @@ fun SearchContent(
 ) {
     val focus = remember { FocusRequester() }
     var tab by remember { mutableStateOf(SearchTab.Top) }
+    var filter by remember { mutableStateOf(app.worthabite.ui.components.DishFilter()) }
     // A cuisine or dish type shows everything at once, without the tabs.
     LaunchedEffect(state.result?.cuisine, state.result?.category) {
         if (state.result?.cuisine != null || state.result?.category != null) tab = SearchTab.Top
@@ -445,8 +446,20 @@ fun SearchContent(
                     }
                 }
                 val showDishes = tab == SearchTab.Top || tab == SearchTab.Dishes
-                if (showDishes && r.dishes.isNotEmpty()) item { SectionTitle("Dishes") }
-                if (showDishes) items(r.dishes, key = { it.id }) { d ->
+                val dishes = filter.apply(r.dishes)
+                if (showDishes && r.dishes.isNotEmpty()) {
+                    item { SectionTitle("Dishes") }
+                    item(key = "filters") { app.worthabite.ui.components.DishFilterChips(filter, { filter = it }, Modifier.padding(bottom = 8.dp)) }
+                    if (dishes.isEmpty()) item {
+                        Text(
+                            "No dishes match these filters. Prices and tags come from people, so many dishes don't have them yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                if (showDishes) items(dishes, key = { it.id }) { d ->
                     DishRow(d, engagementOf(d), thumbOf(d), { onOpenDish(d.id) }, { onSave(d) }, modifier = Modifier.animateItem())
                 }
             }

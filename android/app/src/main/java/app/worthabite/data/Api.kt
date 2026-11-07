@@ -75,6 +75,20 @@ interface WorthAbiteApi {
 
     @POST("dishes/{id}/share") suspend fun share(@Path("id") id: String): ShareResult
 
+    // What you paid, and tags (jain, healthy, spicy, mild): details people add to a dish.
+    @PUT("dishes/{id}/price") suspend fun setPrice(@Path("id") id: String, @Body body: PriceBody): PriceResult
+
+    @PUT("dishes/{id}/tags/{tag}") suspend fun addTag(@Path("id") id: String, @Path("tag") tag: String): TagState
+
+    @DELETE("dishes/{id}/tags/{tag}") suspend fun removeTag(@Path("id") id: String, @Path("tag") tag: String): TagState
+
+    // Your own photo: fix its caption, or delete it.
+    @PATCH("posts/{id}") suspend fun editCaption(@Path("id") id: String, @Body body: CaptionBody): CaptionResult
+
+    @DELETE("posts/{id}") suspend fun deletePost(@Path("id") id: String): OkResult
+
+    @PUT("restaurants/{id}/hours") suspend fun setHours(@Path("id") id: String, @Body body: HoursBody): HoursResult
+
     @GET("me/saved") suspend fun saved(@Query("lat") lat: Double?, @Query("lng") lng: Double?): FeedPage
 
     @POST("reports") suspend fun report(@Body body: ReportBody): OkResult

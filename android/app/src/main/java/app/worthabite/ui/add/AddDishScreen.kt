@@ -168,6 +168,7 @@ fun AddDishScreen(
         onPrice = vm::setPrice,
         onVeg = vm::setVeg,
         onCaption = vm::setCaption,
+        onTag = vm::toggleTag,
         onSponsored = vm::setSponsored,
         onSubmit = { vm.submit(context) },
         onVerdict = vm::setVerdict,
@@ -204,6 +205,7 @@ fun AddDishContent(
     onPickOnMap: () -> Unit = {},
     onSimilarDish: (app.worthabite.data.SimilarDish) -> Unit = {},
     onSimilarPlace: (app.worthabite.data.SimilarPlace) -> Unit = {},
+    onTag: (String) -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp),
@@ -407,7 +409,8 @@ fun AddDishContent(
             OutlinedTextField(
                 value = state.price,
                 onValueChange = onPrice,
-                label = { Text("Price ₹ (optional)") },
+                label = { Text("What did you pay? ₹") },
+                supportingText = { Text("The detail people ask for most") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.weight(1f),
@@ -423,6 +426,8 @@ fun AddDishContent(
                 ) { Text(label) }
             }
         }
+        Text("How would you describe it?", style = MaterialTheme.typography.titleSmall)
+        app.worthabite.ui.components.TagPicker(state.tags, onTag, Modifier.fillMaxWidth())
         OutlinedTextField(
             value = state.caption,
             onValueChange = onCaption,

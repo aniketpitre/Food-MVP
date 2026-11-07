@@ -46,6 +46,8 @@ data class AddDishUiState(
     val price: String = "",
     val veg: VegChoice = VegChoice.Unsure,
     val caption: String = "",
+    /** Tags you give it: jain, healthy, spicy, mild. */
+    val tags: Set<String> = emptySet(),
     val sponsored: Boolean = false,
     val submitting: Boolean = false,
     val error: String? = null,
@@ -234,6 +236,8 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
     fun setPrice(v: String) = _state.update { it.copy(price = v.filter(Char::isDigit).take(5)) }
     fun setVeg(v: VegChoice) = _state.update { it.copy(veg = v) }
     fun setCaption(v: String) = _state.update { it.copy(caption = v.take(280)) }
+
+    fun toggleTag(tag: String) = _state.update { it.copy(tags = app.worthabite.ui.components.DishTags.toggle(it.tags, tag)) }
     fun setSponsored(v: Boolean) = _state.update { it.copy(sponsored = v) }
 
     fun submit(context: Context) {
@@ -272,6 +276,7 @@ class AddDishViewModel(private val app: AppContainer) : ViewModel() {
                         VegChoice.Unsure -> Unit
                     }
                     if (s.caption.isNotBlank()) put("caption", s.caption.trim())
+                    if (s.tags.isNotEmpty()) put("tags", s.tags.sorted().joinToString(","))
                     put("isSponsored", s.sponsored.toString())
                     s.verdict?.let { put("verdict", it.api) }
                     s.photoSource?.let { put("capture", it) }

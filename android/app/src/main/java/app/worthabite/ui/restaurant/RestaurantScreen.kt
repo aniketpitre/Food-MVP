@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Alignment
@@ -95,6 +96,15 @@ class RestaurantViewModel(private val app: AppContainer, private val id: String)
             }
         }
     }
+
+    /** Opening hours for a place the map data has none for (or that people added). */
+    fun setHours(hours: String, say: (String) -> Unit) = viewModelScope.launch {
+        try {
+            val r = apiCall { app.api.setHours(id, app.worthabite.data.HoursBody(hours)) }
+            _state.value.place?.let { _state.value = _state.value.copy(place = it.copy(openingHours = r.openingHours)) }
+            say("Thanks! Hours added.")
+        } catch (e: ApiException) { say(e.message ?: "Couldn't save the hours.") }
+    }
 }
 
 @Composable
@@ -136,6 +146,7 @@ fun RestaurantScreen(
             mediaUrl = { app.mediaUrl(it) },
             googlePhotos = googlePhotos,
             onOpenLink = { openUrl(context, it) },
+            onSetHours = { if (app.session.value == null) onNeedSignIn() else vm.setHours(it, showMessage) },
         )
     }
 }
@@ -153,6 +164,7 @@ fun RestaurantContent(
     googlePhotos: List<GooglePhoto> = emptyList(),
     onOpenLink: (String) -> Unit = {},
     onSend: (RestaurantDetail) -> Unit = {},
+    onSetHours: (String) -> Unit = {},
 ) {
     val totalRecs = place.dishes.sumOf { engagementOf(it).stats.recommenders }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -213,7 +225,7 @@ fun RestaurantContent(
                 }
             }
         }
-        item(key = "info") { PlaceInfo(place, onOpenLink) }
+        item(key = "info") { PlaceInfo(place, onOpenLink, onSetHours) }
         if (place.photos.isNotEmpty() || googlePhotos.isNotEmpty()) {
             item(key = "photos") { PlacePhotos(place.photos, googlePhotos, mediaUrl, onOpenLink) }
         }
@@ -247,18 +259,37 @@ private fun BigStat(value: String, label: String) {
     }
 }
 
-/** Cuisine, hours, phone and website, from OpenStreetMap, when we have them. */
+/**
+ * Open now or not (from the hours), a Call button, then cuisine, hours, address and website, from
+ * the map data or from people. Missing hours can be added by anyone signed in a day or more.
+ */
 @Composable
-private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit) {
+private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit, onSetHours: (String) -> Unit) {
+    var addingHours by remember { mutableStateOf(false) }
+    val open = remember(place.openingHours) { place.openingHours?.let { app.worthabite.ui.components.OpenHours.stateAt(it) } }
     val lines = listOfNotNull(
         place.cuisine?.let { "🍽️  ${it.replaceFirstChar { c -> c.uppercase() }}" to null },
         place.openingHours?.let { "🕒  ${friendlyHours(it)}" to null },
         place.address?.let { "📍  $it" to null },
-        place.phone?.let { "📞  $it" to "tel:${it.filter { c -> c.isDigit() || c == '+' }}" },
         place.website?.let { "🌐  ${it.removePrefix("https://").removePrefix("http://").trimEnd('/')}" to it },
     )
-    if (lines.isEmpty()) return
     Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            open?.let {
+                Text(
+                    it.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (it.open) androidx.compose.ui.graphics.Color(0xFF1B7F3B) else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("open_now"),
+                )
+            }
+            place.phone?.let { phone ->
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { onOpenLink("tel:${phone.filter { c -> c.isDigit() || c == '+' }}") },
+                    modifier = Modifier.testTag("call_place"),
+                ) { Text("📞  Call") }
+            }
+        }
         lines.forEach { (text, link) ->
             Text(
                 text,
@@ -268,7 +299,64 @@ private fun PlaceInfo(place: RestaurantDetail, onOpenLink: (String) -> Unit) {
                 modifier = if (link != null) Modifier.clickable { onOpenLink(link) } else Modifier,
             )
         }
+        if (place.hoursEditable && !place.isDemo) {
+            androidx.compose.material3.TextButton(
+                onClick = { addingHours = true },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                modifier = Modifier.testTag("add_hours"),
+            ) { Text(if (place.openingHours == null) "🕒  Know when it's open? Add the hours" else "Hours wrong? Fix them") }
+        }
     }
+    if (addingHours) HoursDialog(onDismiss = { addingHours = false }) { addingHours = false; onSetHours(it) }
+}
+
+/** A simple hours picker: which days, and from when to when (or open all day). */
+@Composable
+private fun HoursDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    val dayOptions = listOf("Mo-Su" to "Every day", "Mo-Sa" to "Mon–Sat", "Mo-Fr" to "Mon–Fri")
+    var days by remember { mutableStateOf("Mo-Su") }
+    var open by remember { mutableStateOf("09:00") }
+    var close by remember { mutableStateOf("22:00") }
+    var allDay by remember { mutableStateOf(false) }
+    val tp = app.worthabite.ui.components.OpenHours.timePattern
+    val ok = allDay || (tp.matches(open) && tp.matches(close) && open != close)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("When is it open?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    dayOptions.forEachIndexed { i, (value, label) ->
+                        androidx.compose.material3.SegmentedButton(
+                            selected = days == value,
+                            onClick = { days = value },
+                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, dayOptions.size),
+                        ) { Text(label) }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = allDay, onCheckedChange = { allDay = it })
+                    Text("Open 24 hours")
+                }
+                if (!allDay) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.OutlinedTextField(open, { open = it.take(5) }, Modifier.weight(1f), label = { Text("Opens (24h)") }, singleLine = true)
+                    androidx.compose.material3.OutlinedTextField(close, { close = it.take(5) }, Modifier.weight(1f), label = { Text("Closes (24h)") }, singleLine = true)
+                }
+                Text(
+                    "Closing after midnight? Put the time it closes, like 01:30.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = { onSave(app.worthabite.ui.components.OpenHours.build(days, open, close, allDay)) },
+                enabled = ok,
+            ) { Text("Save") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**
