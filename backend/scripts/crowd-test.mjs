@@ -151,6 +151,9 @@ for (const [i, o] of owners.entries()) {
   if (r.status === 201) ownerPlaces.push({ owner: o, dish: { name: `Owner Special ${i + 1}`, id: r.json.dishId, q: 0.1, kind: 'owner' }, place: r.json.restaurantId });
 }
 sql(`update restaurants set status = 'active' where created_by in (select id from profiles where handle like 'sim_o%')`);
+// Opening hours on the menu's places, as the map data or people would have them (a few have none).
+const HOURS = ['Mo-Su 08:00-22:00', 'Mo-Sa 11:00-23:30; Su off', 'Mo-Su 18:00-02:00', 'Mo-Su 07:00-11:30,17:00-21:00', '24/7', null];
+places.forEach((p, i) => { const h = HOURS[i % HOURS.length]; if (h) sql(`update restaurants set opening_hours = '${h}' where id = '${p.id}'`); });
 const live = menu.filter((d) => d.id);
 check('Posted the menu through the real app flow', live.length === menu.length, `${live.length}/${menu.length} dishes, ${ownerPlaces.length} owner places`);
 

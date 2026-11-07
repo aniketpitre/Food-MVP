@@ -166,6 +166,9 @@ async function show(agent, screen, arg) {
     const h = r.json ?? {};
     title = 'Home';
     if (h.cravings?.length) lines.push(`Craving chips: ${h.cravings.map((c) => c.label).join(', ')}`);
+    lines.push(`Filter chips: veg only, under ₹100/₹200/₹500, nearest, jain, healthy, spicy, mild${agent.filter ? ` (on: ${JSON.stringify(agent.filter)})` : ''}`);
+    for (const k of ['forYou', 'peoplesPicks', 'nearby']) h[k] = applyFilter(h[k] ?? [], agent.filter);
+    if (h.following) h.following = h.following.filter((f) => applyFilter([f.card], agent.filter).length);
     if (h.forYou?.length) {
       lines.push('For you:');
       for (const c of h.forYou.slice(0, 5)) {
@@ -205,10 +208,14 @@ async function show(agent, screen, arg) {
       if (arg === 'foryou' && agent.diet !== 'nonveg' && MEAT.test(c.name) && !(agent.diet === 'egg' && /egg/i.test(c.name))) bug(agent.name, `${agent.diet} user was shown meat in For You`, c.name);
     }
   } else if (screen === 'explore') {
-    const r = await api('GET', `/places?city=${agent.city}&sort=nearest&lat=${agent.lat}&lng=${agent.lng}&limit=10`, { token: t });
+    const f = agent.placeFilter ?? {};
+    const qs = [f.under ? `maxPrice=${f.under}` : '', f.tag ? `tag=${f.tag}` : '', f.openNow ? 'openNow=true' : '', f.veg ? 'veg=true' : ''].filter(Boolean).join('&');
+    const r = await api('GET', `/places?city=${agent.city}&sort=nearest&lat=${agent.lat}&lng=${agent.lng}&limit=10${qs ? '&' + qs : ''}`, { token: t });
     if (r.status >= 500) bug(agent.name, 'Explore failed', r.status);
     title = 'Explore: places near you';
-    for (const p of r.json?.items ?? []) add('place', p.id, `${p.name}${p.locality ? `, ${p.locality}` : ''}, ${((p.distanceM ?? 0) / 1000).toFixed(1)} km${p.topDish ? `, best: ${p.topDish.name}` : ', no dishes posted yet'}${p.cuisine ? `, ${p.cuisine}` : ''}`);
+    lines.push(`Filters: open now, budget (a dish under ₹100/₹200/₹500), pure veg, jain, healthy, spicy, mild, area, dish type, cuisine${qs ? ` (on: ${qs})` : ''}`);
+    if (!(r.json?.items ?? []).length) lines.push('No places match these filters. Prices, tags and hours come from people.');
+    for (const p of r.json?.items ?? []) add('place', p.id, `${p.name}${p.locality ? `, ${p.locality}` : ''}, ${((p.distanceM ?? 0) / 1000).toFixed(1)} km${p.openNow === true ? ', open now' : p.openNow === false ? ', closed now' : ''}${p.topDish ? `, best: ${p.topDish.name}${p.topDish.priceInr ? ` ₹${p.topDish.priceInr}` : ''}` : ', no dishes posted yet'}${p.cuisine ? `, ${p.cuisine}` : ''}`);
   } else if (screen === 'dish') {
     const r = await api('GET', `/dishes/${arg}`, { token: t });
     if (r.status !== 200) { bug(agent.name, 'dish page did not open', `${arg} -> ${r.status}`); return show(agent, 'home'); }
@@ -254,7 +261,8 @@ const ACTIONS = `Actions (reply with ONE as JSON):
   {"action":"search","text":"<words>"}        search dishes and places
   {"action":"feed","tab":"top|trending|gems|foryou"}
   {"action":"explore"}  {"action":"home"}  {"action":"post"}  {"action":"me"}
-  On results: {"action":"filter","veg":true|false,"under":100|200|500|null,"nearest":true|false,"tag":"jain|healthy|spicy|mild"|null}
+  On Home or results: {"action":"filter","veg":true|false,"under":100|200|500|null,"nearest":true|false,"tag":"jain|healthy|spicy|mild"|null}
+  On Explore: {"action":"filter","open_now":true|false,"under":100|200|500|null,"veg":true|false,"tag":"jain|healthy|spicy|mild"|null}
   On a dish: {"action":"love"} {"action":"not_for_me"} {"action":"save"} {"action":"share"}
              {"action":"add_price","price":<rupees you paid>} {"action":"tag","tag":"jain|healthy|spicy|mild"}
              {"action":"comment","text":"<comment>"} {"action":"follow","handle":"<handle>"} {"action":"open_place"}
@@ -294,7 +302,17 @@ async function act(agent, a) {
       return `(Done: ${a.action.replace(/_/g, ' ')}. Now ${pct(r.json?.rating)}.)\n` + await show(agent, 'dish', sc.arg);
     }
     case 'filter': {
-      if (!['craving', 'search'].includes(sc.name)) return show(agent, sc.name, sc.arg);
+      if (sc.name === 'explore') {
+        agent.placeFilter = {
+          under: [100, 200, 500].includes(Number(a.under)) ? Number(a.under) : null,
+          tag: ['jain', 'healthy', 'spicy', 'mild'].includes(a.tag) ? a.tag : null,
+          openNow: a.open_now === true || a.open_now === 'true' || a.openNow === true,
+          veg: a.veg === true || a.veg === 'true',
+        };
+        agent.did.push(`explore filter ${JSON.stringify(agent.placeFilter)}`);
+        return show(agent, 'explore');
+      }
+      if (!['craving', 'search', 'home'].includes(sc.name)) return show(agent, sc.name, sc.arg);
       const under = [100, 200, 500].includes(Number(a.under)) ? Number(a.under) : null;
       agent.filter = { veg: a.veg === true || a.veg === 'true', under, nearest: a.nearest === true || a.nearest === 'true', tag: ['jain', 'healthy', 'spicy', 'mild'].includes(a.tag) ? a.tag : null };
       agent.did.push(`filter ${JSON.stringify(agent.filter)}`);
