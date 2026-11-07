@@ -131,9 +131,17 @@ const menu = DISHES.map((name, i) => ({ name, q: 0.15 + 0.8 * rand(), place: pla
 const X = { name: 'Famous Fake Thali', q: 0.08, place: places[0], kind: 'cheat-target' }; // bad dish the ring pushes
 const Y = { name: 'Hidden Gem Misal', q: 0.95, place: places[1], kind: 'rival' };          // great dish the ring sinks
 menu.push(X, Y);
+// What a dish costs and how people describe it (a few have neither, as in real life).
+const PRICES = { Thali: 220, Biryani: 260, Pizza: 240, Pasta: 260, Chicken: 280, Mutton: 340, Fish: 300, Coffee: 120, Chai: 20, Misal: 90 };
+const TAGS = { Misal: 'spicy', 'Kanda Bhaji': 'spicy', Shawarma: 'spicy', 'Sabudana Khichdi': 'jain,mild', Poha: 'mild,healthy', 'Idli Sambar': 'healthy,mild', Thalipeeth: 'healthy', 'Paneer Tikka': 'spicy' };
+const priceOf = (name) => Object.entries(PRICES).find(([k]) => name.includes(k))?.[1] ?? 40 + Math.round(rand() * 16) * 10;
+const tagsOf = (name) => Object.entries(TAGS).find(([k]) => name.includes(k))?.[1];
 await pool(menu, 8, async (d, i) => {
   const poster = honest[i % honest.length];
-  const r = await postDish(poster.token, { dishName: d.name, restaurantId: d.place.id });
+  const extra = {};
+  if (rand() < 0.85) extra.priceInr = String(priceOf(d.name));
+  if (tagsOf(d.name)) extra.tags = tagsOf(d.name);
+  const r = await postDish(poster.token, { dishName: d.name, restaurantId: d.place.id, ...extra });
   if (r.status === 201 || r.status === 200) d.id = r.json.dishId; else errors5xx.push(`post ${d.name}: ${r.status} ${JSON.stringify(r.json).slice(0, 100)}`);
 });
 // An owner's own place (made active) with an owner's dish nobody honest likes.
@@ -164,7 +172,8 @@ await pool(honest, 25, async (h) => {
   if (h.role === 'poster') {
     // Also posts a photo of a dish they loved, standing at the place.
     const fav = myDishes.find((d) => d.kind === 'real' && rand() < d.q + 0.2) ?? myDishes[0];
-    const r = await postDish(h.token, { dishName: fav.name, restaurantId: fav.place?.id ?? '', verdict: 'loved', lat: String(fav.place?.lat ?? 20), lng: String(fav.place?.lng ?? 73.79), capture: 'camera' });
+    const paid = Math.round(priceOf(fav.name) * (0.85 + rand() * 0.3));
+    const r = await postDish(h.token, { dishName: fav.name, restaurantId: fav.place?.id ?? '', verdict: 'loved', lat: String(fav.place?.lat ?? 20), lng: String(fav.place?.lng ?? 73.79), capture: 'camera', priceInr: String(paid) });
     if (![200, 201, 409, 429].includes(r.status)) errors5xx.push(`poster ${h.handle}: ${r.status} ${JSON.stringify(r.json).slice(0, 100)}`);
   }
   for (const d of myDishes) {

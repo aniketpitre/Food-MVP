@@ -125,7 +125,7 @@ function jsonFrom(text) {
   const part = text.match(/\{[\s\S]*/)?.[0];
   if (!part) return null;
   const out = {};
-  for (const k of ['action', 'n', 'text', 'tab', 'handle', 'dish', 'verdict', 'caption', 'price', 'thought']) {
+  for (const k of ['action', 'n', 'text', 'tab', 'handle', 'dish', 'verdict', 'caption', 'price', 'tag', 'tags', 'under', 'hours', 'thought']) {
     const m = part.match(new RegExp(`"${k}"\\s*:\\s*(?:"([^"]*)|(-?\\d+(?:\\.\\d+)?))`));
     if (m) out[k] = m[1] !== undefined ? m[1] : Number(m[2]);
   }
@@ -140,7 +140,17 @@ const pct = (r) => (r?.percent != null ? `${r.percent}% loved, ${r.votes ?? (r.l
 
 // ---------- screens: what the person sees, as text ----------
 function dishLine(c) {
-  return `${c.name} at ${c.restaurant?.name ?? '?'}${c.restaurant?.locality ? ` (${c.restaurant.locality})` : ''} — ${pct(c.rating)}${c.priceInr ? `, ₹${c.priceInr}` : ''}${c.isVeg === true ? ', veg' : c.isVeg === false ? ', non-veg' : ''}${c.champion ? `, loved by @${c.champion.handle}` : ''}`;
+  return `${c.name} at ${c.restaurant?.name ?? '?'}${c.restaurant?.locality ? ` (${c.restaurant.locality})` : ''} — ${pct(c.rating)}${c.priceInr ? `, ₹${c.priceInr}` : ', no price yet'}${c.isVeg === true ? ', veg' : c.isVeg === false ? ', non-veg' : ''}${c.tags?.length ? `, ${c.tags.join('/')}` : ''}${c.distanceM != null ? `, ${(c.distanceM / 1000).toFixed(1)} km` : ''}${c.champion ? `, loved by @${c.champion.handle}` : ''}`;
+}
+// The filter chips on search and craving results (veg only, under ₹N, nearest, a tag), as in the app.
+function applyFilter(list, f) {
+  if (!f) return list;
+  const kept = list.filter((d) => (!f.veg || d.isVeg === true) && (!f.under || (d.priceInr != null && d.priceInr <= f.under)) && (!f.tag || d.tags?.includes(f.tag)));
+  return f.nearest ? [...kept].sort((a, b) => (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9)) : kept;
+}
+function ratingWhy(r) {
+  const n = (r?.loves ?? 0) + (r?.passes ?? 0);
+  return n ? `${r.percent}% of ${n} people who tried it loved it. New accounts count from their second day.` : 'No verdicts yet.';
 }
 async function show(agent, screen, arg) {
   const t = agent.token;
@@ -173,8 +183,11 @@ async function show(agent, screen, arg) {
     if (r.status === 400) friction.push({ agent: agent.name, what: `${screen} refused "${arg}"`, message: r.json?.message });
     const j = r.json ?? {};
     title = screen === 'craving' ? `Best "${j.label ?? arg}" in Nashik` : `Search results for "${arg}"`;
-    const dishes = j.results ?? j.dishes ?? [];
-    if (!dishes.length) lines.push('No dishes with photos yet.');
+    const all = j.results ?? j.dishes ?? [];
+    const dishes = applyFilter(all, agent.filter);
+    lines.push(`Filter chips: veg only, under ₹100/₹200/₹500, nearest, jain, healthy, spicy, mild${agent.filter ? ` (on: ${JSON.stringify(agent.filter)})` : ''}`);
+    if (!all.length) lines.push('No dishes with photos yet.');
+    else if (!dishes.length) lines.push('No dishes match these filters. Prices and tags come from people.');
     for (const c of dishes.slice(0, 8)) add('dish', c.id, dishLine(c));
     const places = j.places ?? j.restaurants ?? [];
     if (places.length) { lines.push('Places that may serve it:'); for (const p of places.slice(0, 5)) add('place', p.id, `${p.name}${p.locality ? `, ${p.locality}` : ''}${p.distanceM != null ? `, ${(p.distanceM / 1000).toFixed(1)} km` : ''}`); }
@@ -200,7 +213,10 @@ async function show(agent, screen, arg) {
     const d = r.json;
     agent.dish = d;
     title = `Dish: ${d.name}`;
-    lines.push(`${d.name} at ${d.restaurant?.name} — ${pct(d.rating)}${d.priceInr ? `, ₹${d.priceInr}` : ''}${d.isVeg === true ? ', veg' : d.isVeg === false ? ', non-veg' : ''}`);
+    lines.push(`${d.name} at ${d.restaurant?.name} — ${pct(d.rating)}${d.isVeg === true ? ', veg' : d.isVeg === false ? ', non-veg' : ''}`);
+    lines.push(ratingWhy(d.rating));
+    lines.push(d.priceInr ? `Price ₹${d.priceInr} (from ${d.priceReports} ${d.priceReports === 1 ? 'person' : 'people'})${d.myPrice ? `, you said ₹${d.myPrice}` : ''}` : 'No price yet: you can add what you paid.');
+    lines.push(d.tags?.length ? `Tags: ${d.tags.join(', ')}` : 'No tags yet (jain, healthy, spicy, mild).');
     if (d.champion) lines.push(`Champion: @${d.champion.handle}${d.champion.isExpert ? ' (expert)' : ''}`);
     if (d.recommenders?.length) lines.push(`Loved by: ${d.recommenders.map((x) => '@' + x.handle).join(', ')}`);
     lines.push(`${d.posts?.length ?? 0} photos.${d.posts?.[0]?.caption ? ` Latest caption: "${d.posts[0].caption}"` : ''}`);
@@ -212,7 +228,9 @@ async function show(agent, screen, arg) {
     const p = r.json;
     agent.place = p;
     title = `Place: ${p.name}`;
-    lines.push(`${p.name}${p.locality ? `, ${p.locality}` : ''}${p.cuisine ? ` · ${p.cuisine}` : ''}${p.distanceM != null ? ` · ${(p.distanceM / 1000).toFixed(1)} km` : ''}${p.openingHours ? ` · hours: ${p.openingHours}` : ''}`);
+    lines.push(`${p.name}${p.locality ? `, ${p.locality}` : ''}${p.cuisine ? ` · ${p.cuisine}` : ''}${p.distanceM != null ? ` · ${(p.distanceM / 1000).toFixed(1)} km` : ''}`);
+    lines.push(p.openingHours ? `Hours: ${p.openingHours}` : 'Hours not known yet (you can add them).');
+    if (p.phone) lines.push(`Phone: ${p.phone} (Call button)`);
     if (!p.dishes?.length) lines.push('No dishes posted here yet. You could be the first.');
     for (const c of (p.dishes ?? []).slice(0, 8)) add('dish', c.id, dishLine(c));
   } else if (screen === 'post') {
@@ -234,9 +252,12 @@ const ACTIONS = `Actions (reply with ONE as JSON):
   {"action":"search","text":"<words>"}        search dishes and places
   {"action":"feed","tab":"top|trending|gems|foryou"}
   {"action":"explore"}  {"action":"home"}  {"action":"post"}  {"action":"me"}
+  On results: {"action":"filter","veg":true|false,"under":100|200|500|null,"nearest":true|false,"tag":"jain|healthy|spicy|mild"|null}
   On a dish: {"action":"love"} {"action":"not_for_me"} {"action":"save"} {"action":"share"}
+             {"action":"add_price","price":<rupees you paid>} {"action":"tag","tag":"jain|healthy|spicy|mild"}
              {"action":"comment","text":"<comment>"} {"action":"follow","handle":"<handle>"} {"action":"open_place"}
-  On "Post a dish": {"action":"submit","n":<place number>,"dish":"<dish name>","verdict":"loved|pass","caption":"<short caption>","price":<rupees or null>}
+  On a place: {"action":"add_hours","hours":"Mo-Su 09:00-22:00"}
+  On "Post a dish": {"action":"submit","n":<place number>,"dish":"<dish name>","verdict":"loved|pass","caption":"<short caption>","price":<rupees or null>,"tags":"jain,healthy,spicy,mild or empty"}
   {"action":"quit"}  when you would close the app
 Always add "thought": what you honestly think of this screen right now (max 20 words).`;
 
@@ -269,6 +290,37 @@ async function act(agent, a) {
       else if (a.action === 'not_for_me' && (!r.json.me?.passed || r.json.me?.recommended)) bug(agent.name, '"not for me" did not stick', sc.arg);
       agent.did.push(`${a.action} ${agent.dish?.name}`);
       return `(Done: ${a.action.replace(/_/g, ' ')}. Now ${pct(r.json?.rating)}.)\n` + await show(agent, 'dish', sc.arg);
+    }
+    case 'filter': {
+      if (!['craving', 'search'].includes(sc.name)) return show(agent, sc.name, sc.arg);
+      const under = [100, 200, 500].includes(Number(a.under)) ? Number(a.under) : null;
+      agent.filter = { veg: a.veg === true || a.veg === 'true', under, nearest: a.nearest === true || a.nearest === 'true', tag: ['jain', 'healthy', 'spicy', 'mild'].includes(a.tag) ? a.tag : null };
+      agent.did.push(`filter ${JSON.stringify(agent.filter)}`);
+      return show(agent, sc.name, sc.arg);
+    }
+    case 'add_price': {
+      const price = Math.round(Number(a.price));
+      if (sc.name !== 'dish' || !(price >= 1 && price <= 20000)) return show(agent, sc.name, sc.arg);
+      const r = await api('PUT', `/dishes/${sc.arg}/price`, { token: t, body: { priceInr: price } });
+      if (r.status !== 200) bug(agent.name, 'adding a price failed', `${r.status} ${JSON.stringify(r.json).slice(0, 100)}`);
+      else if (r.json.myPrice !== price) bug(agent.name, 'price report not saved', JSON.stringify(r.json));
+      agent.did.push(`add_price ₹${price} on ${agent.dish?.name}`);
+      return `(Price added.)\n` + await show(agent, 'dish', sc.arg);
+    }
+    case 'tag': {
+      if (sc.name !== 'dish' || !['jain', 'healthy', 'spicy', 'mild'].includes(a.tag)) return show(agent, sc.name, sc.arg);
+      const r = await api('PUT', `/dishes/${sc.arg}/tags/${a.tag}`, { token: t });
+      if (r.status !== 200 || !r.json.myTags?.includes(a.tag)) bug(agent.name, 'tagging failed', `${r.status} ${JSON.stringify(r.json).slice(0, 100)}`);
+      agent.did.push(`tag ${a.tag} on ${agent.dish?.name}`);
+      return `(Tagged ${a.tag}. It shows to others once your account is a day old.)\n` + await show(agent, 'dish', sc.arg);
+    }
+    case 'add_hours': {
+      if (sc.name !== 'place') return show(agent, sc.name, sc.arg);
+      const r = await api('PUT', `/restaurants/${sc.arg}/hours`, { token: t, body: { openingHours: String(a.hours ?? '') } });
+      if (r.status >= 500) bug(agent.name, 'adding hours failed', r.status);
+      else if (r.status !== 200) friction.push({ agent: agent.name, what: 'add hours refused', message: r.json?.message });
+      agent.did.push(`add_hours "${a.hours}"`);
+      return `(${r.status === 200 ? 'Hours added.' : `The app said: ${r.json?.message}`})\n` + await show(agent, 'place', sc.arg);
     }
     case 'share': {
       if (sc.name !== 'dish') return show(agent, sc.name, sc.arg);
@@ -311,6 +363,8 @@ async function act(agent, a) {
       if (a.caption) f.set('caption', String(a.caption).slice(0, 200));
       if (['loved', 'pass'].includes(a.verdict)) f.set('verdict', a.verdict);
       if (Number.isFinite(Number(a.price)) && Number(a.price) > 0) f.set('priceInr', String(Math.round(Number(a.price))));
+      const tags = String(a.tags ?? '').split(',').map((x) => x.trim()).filter((x) => ['jain', 'healthy', 'spicy', 'mild'].includes(x));
+      if (tags.length) f.set('tags', tags.join(','));
       f.set('lat', String((pl.lat ?? agent.lat) + 0.0003)); f.set('lng', String(pl.lng ?? agent.lng)); f.set('capture', 'camera');
       f.set('image', new Blob([await photo()], { type: 'image/jpeg' }), 'dish.jpg');
       const r = await api('POST', '/posts', { token: t, form: f });
@@ -352,7 +406,7 @@ Use it the way you really would, with your own patience and habits. You are a re
     history.push({ role: 'user', content: msg.slice(0, 1500) }, { role: 'assistant', content: JSON.stringify(a) });
     if (a.action === 'quit') { agent.did.push(`quit after ${step + 1} steps`); break; }
     // Taps on a dish and posts are logged by act() with their details.
-    if (!['love', 'not_for_me', 'save', 'share', 'comment', 'follow', 'submit'].includes(a.action)) {
+    if (!['love', 'not_for_me', 'save', 'share', 'comment', 'follow', 'submit', 'filter', 'add_price', 'tag', 'add_hours'].includes(a.action)) {
       agent.did.push(`${a.action}${a.text ? ` "${a.text}"` : a.tab ? ` ${a.tab}` : a.n ? ` #${a.n}` : ''}`);
     }
     screen = await act(agent, a);
@@ -381,7 +435,7 @@ const reviews = results.map((r) => ({ who: `${r.name}, ${r.age}, ${r.style}`, ..
 const summary = await llm([
   { role: 'system', content: 'You are a product researcher. Be concrete and brief. Plain text, no markdown tables.' },
   { role: 'user', content: `These are reviews from people who tried WorthAbite, a dish-ranking food app for Nashik:\n${JSON.stringify(reviews).slice(0, 14000)}\n\nWrite: 1) the 5 things people liked most, 2) the 5 biggest confusions or complaints, 3) the 5 most wanted missing features, 4) which kinds of people were least happy and why. Each point one line, and say how many people mentioned it.` },
-], 3000);
+], 6000);
 
 // Models don't always keep to the format: a list may come back as one string.
 const list = (v) => (Array.isArray(v) ? v.map(String) : v ? [String(v)] : []);
@@ -391,6 +445,21 @@ const stars = results.map((r) => Number(r.review.stars)).filter((n) => n >= 1 &&
 const avg = stars.length ? (stars.reduce((a, b) => a + b, 0) / stars.length).toFixed(1) : '?';
 const again = results.filter((r) => r.review.would_use_again === 'yes').length;
 const trust = results.filter((r) => r.review.trust_the_ratings === 'yes').length;
+// How many people raised each common theme in "confusing" or "missing" (no model needed).
+const THEMES = {
+  'prices': /pric|cost|budget|₹|rupee|cheap/i,
+  'opening hours / open now': /hour|open|timing|late|closing|close/i,
+  'filters and sorting': /filter|sort/i,
+  'trust in ratings / reviews': /trust|fake|genuine|review|vote|rating|percent|%/i,
+  'photos': /photo|pic|image/i,
+  'dish details (spice, portion, ingredients)': /spice|spicy|portion|ingredient|detail|description|protein|nutrition/i,
+  'diet (Jain, veg, healthy)': /jain|onion|garlic|veg|healthy|diet/i,
+  'empty places / not enough dishes': /no dishes|empty|nothing|few|more (options|places|dishes)|menu/i,
+  'map / distance / location': /map|distance|km|near|location|address/i,
+};
+const themeCounts = Object.entries(THEMES).map(([theme, re]) => [theme,
+  results.filter((r) => [...list(r.review.confusing), ...list(r.review.missing)].some((x) => re.test(x))).length])
+  .sort((a, b) => b[1] - a[1]);
 const md = [
   `# AI test users: ${results.length} people, ${((Date.now() - T0) / 60000).toFixed(1)} min, ${llmCalls} model calls (${MODEL})`,
   '',
@@ -402,6 +471,9 @@ const md = [
   `## Friction: the app said no (${friction.length})`,
   ...friction.map((f) => `- ${f.agent}: ${f.what} — "${f.message}"`),
   '',
+  '## How many people raised each theme (confusing or missing)',
+  ...themeCounts.map(([t, n]) => `- ${t}: ${n}/${results.length}`),
+  '',
   '## What they said (summary)',
   summary ?? '(no summary)',
   '',
@@ -409,6 +481,7 @@ const md = [
   ...results.map((r) => `### ${r.name}, ${r.age} (${r.diet}, ${r.area}): ${r.review.stars ?? '?'}★\n_${r.style}_\n\n> ${r.review.quote ?? ''}\n\n- Did: ${r.did.join(' → ')}\n- Liked: ${list(r.review.liked).join('; ')}\n- Confusing: ${list(r.review.confusing).join('; ')}\n- Missing: ${list(r.review.missing).join('; ')}\n`),
 ].join('\n');
 fs.writeFileSync(path.join(OUT_DIR, 'ai-users-report.md'), md);
-console.log(`\nAverage ${avg}★, would use again ${again}/${results.length}, bugs ${bugs.length}, friction ${friction.length}, ${llmCalls} model calls`);
+console.log(`\nAverage ${avg}★, would use again ${again}/${results.length}, trust ${trust}/${results.length}, bugs ${bugs.length}, friction ${friction.length}, ${llmCalls} model calls`);
+console.log('Themes:', themeCounts.map(([t, n]) => `${t} ${n}`).join(' | '));
 console.log(`Report: ${path.join(OUT_DIR, 'ai-users-report.md')}`);
 process.exit(bugs.length ? 1 : 0);

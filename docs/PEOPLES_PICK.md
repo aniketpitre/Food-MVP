@@ -250,6 +250,13 @@ A photo can't be proven real, but these make faking one costly and copying one u
   after `place_auto_approve_days` (3) with a photo; never while a live place with a
   similar name is within 150 m (a person decides then). Overture confirming a pending
   place also makes it live.
+* **Details from people** follow the same trust rule as the plain numbers (accounts at least a
+  day old, not voting in lockstep). A dish's **price** is the median of the prices people
+  reported (posting with a price, or "Add what you paid"), counting trusted reports when there
+  are any, so a single troll can't set ₹1 or ₹9,999. **Tags** (jain, healthy, spicy, mild) show
+  once someone trusted gives one; spicy and mild exclude each other. **Opening hours** can be
+  added by a trusted person only where the map data has none, and corrected only if people
+  added them; every change is kept in `place_edits`.
 * **Reports** add up by the reporters' standing (accounts under a day old only go to the
   review queue): `report_hide_threshold` (3) full-standing people hide a post, comment or
   story. Reports on a whole dish only go to the review queue.

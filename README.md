@@ -213,6 +213,18 @@ shows the dish types you like, then the city's best.
 - **Reports** add up by the reporters' standing; a whole dish is never hidden by reports alone.
 - **Craving search** also lists places that may serve the dish (by name or cuisine), photos or not.
 
+### 8. Details from people
+
+- **Price**: whoever posts a dish (or taps "Add what you paid") reports a price; the dish shows the
+  median, trusted reports first, so one person can't set ₹1.
+- **Tags**: Jain (no onion or garlic), healthy, spicy, mild. A tag shows once someone the ranking
+  trusts gives it.
+- **Opening hours**: places show "Open now" or "Closed" from their hours; where the map data has
+  none, a trusted person can add them (every change is kept).
+- **Filters** on search and craving results: veg only, under ₹100 / ₹200 / ₹500, nearest, and the tags.
+- Each rating says what it is ("82% of 34 people who tried it loved it"), and you can edit the
+  caption of your own photo or delete it.
+
 ### Tuning and checking
 
 Every number lives in the `ranking_config` table and can be changed from the dashboard without shipping
