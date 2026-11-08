@@ -21,6 +21,7 @@ import { adminRoutes } from './routes/admin.js';
 import { messageRoutes } from './routes/messages.js';
 import { storyRoutes } from './routes/stories.js';
 import { pageRoutes } from './routes/pages.js';
+import { founderRoutes } from './routes/founder.js';
 import { tasteRoutes } from './routes/taste.js';
 import { exploreRoutes } from './routes/explore.js';
 import { searchRoutes } from './routes/search.js';
@@ -128,6 +129,7 @@ export async function buildApp(config: Config, db: Db, opts: { logger?: boolean;
   await app.register(storyRoutes);
   await app.register(adminRoutes);
   await app.register((await import('./routes/dashboard.js')).dashboardRoutes);
+  await app.register(founderRoutes);
   await app.register(pageRoutes);
 
   return app;

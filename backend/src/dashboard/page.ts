@@ -305,7 +305,9 @@ input[type=number] { width: 110px; }
     ['users', 'Users', users],
     ['places', 'Places', places],
     ['moderation', 'Moderation', moderation],
-    ['activity', 'Activity', activity]
+    ['activity', 'Activity', activity],
+    ['launch', 'Launch', launch],
+    ['pilot', 'Restaurant pilot', pilot]
   ];
   var current = 'overview';
   function renderTabs() {
@@ -808,6 +810,60 @@ input[type=number] { width: 110px; }
           return tr([td(userLink(r.reporterId, r.reporter)), td(badge(r.targetType) + (r.targetType === 'dish' ? ' ' + dishLink(r.targetId, 'open') : r.targetType === 'user' ? ' ' + userLink(r.targetId, 'user') : '')), td(esc(r.reason) + (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '')), td(statusBadge(r.status)), td(when(r.createdAt))]);
         }), 'No reports.') + '</div>' +
         '</div>';
+    });
+  }
+
+  // ---------- launch: focus mode, signature dishes and their coverage ----------
+  function launch() {
+    return Promise.all([api('/admin/flags'), api('/admin/coverage')]).then(function (r) {
+      var f = r[0], c = r[1];
+      $('main').innerHTML = '<h2>Launch</h2>' +
+        '<div class="card"><h3>Focus mode</h3><p class="note">On: the app hides ' + esc(f.focusHides.join(', ')) + '. Turn off once the core works.</p>' +
+        '<button id="focusToggle">' + (f.focusMode ? 'Focus mode is ON: turn off' : 'Focus mode is OFF: turn on') + '</button></div>' +
+        '<div class="card"><h3>Signature dishes (' + c.ready + ' of ' + c.dishes.length + ' ready)</h3>' +
+        '<p class="note">Ready = ' + c.bar.places + '+ places with a real photo and ' + c.bar.votes + '+ shown votes. Fill these before inviting outsiders.</p>' +
+        table(['Dish', '#Places with real photo', '#Places with ' + c.bar.votes + '+ votes', '#Covered', '#Votes', 'Ready'], c.dishes.map(function (d) {
+          return tr([td(esc(d.dish)), tdn(d.placesWithPhotos), tdn(d.placesWithVotes), tdn(d.placesCovered + ' / ' + c.bar.places), tdn(d.votes), td(d.ready ? badge('ready', 'ok') : badge('not yet', 'warn'))]);
+        }), 'No signature dishes set.') +
+        '<h3>Edit the list (one per line)</h3><textarea id="sigList" rows="10" style="width:100%">' + esc(f.signatureDishes.join('\\n')) + '</textarea>' +
+        '<button id="sigSave">Save list</button></div>';
+      $('focusToggle').addEventListener('click', function () {
+        api('/admin/flags/focus_mode', { method: 'PUT', body: { value: f.focusMode ? 'off' : 'on' } })
+          .then(function () { toast('Saved. The app picks it up on next open.'); launch(); }).catch(function (e) { toast(e.message); });
+      });
+      $('sigSave').addEventListener('click', function () {
+        api('/admin/flags/signature_dishes', { method: 'PUT', body: { value: $('sigList').value } })
+          .then(function () { toast('List saved.'); launch(); }).catch(function (e) { toast(e.message); });
+      });
+    });
+  }
+
+  // ---------- restaurant pilot: pay per new customer, billed monthly ----------
+  function pilot() {
+    return api('/admin/pilots').then(function (r) {
+      $('main').innerHTML = '<h2>Restaurant pilot</h2>' +
+        '<div class="card"><h3>Add or change a place</h3><p class="note">No prepay. The owner pays the fixed fee only for customers they mark as new, billed at month end. Quiet hours are optional, for example Mo-Fr 15:00-18:00.</p>' +
+        '<p><input id="plPlace" placeholder="Place id (from the Places tab)" style="width:100%"></p>' +
+        '<p><input id="plFee" type="number" min="0" max="500" value="10" placeholder="Fee per new customer, Rs"> ' +
+        '<input id="plOffer" placeholder="Offer shown to diners (optional)" style="width:50%"></p>' +
+        '<p><input id="plQuiet" placeholder="Quiet hours (optional)"> <input id="plContact" placeholder="Owner contact (optional)"> ' +
+        '<label><input id="plActive" type="checkbox" checked> active</label></p>' +
+        '<button id="plSave">Save</button> <span id="plLink" class="note"></span></div>' +
+        '<div class="card"><h3>Places on the pilot</h3>' + table(['Place', '#Fee', 'Offer', 'Quiet hours', 'This month', 'Owner link', 'Status'], r.pilots.map(function (p) {
+          var m = p.months[0] || { month: '-', issued: 0, redeemed: 0, newCustomers: 0, amountInr: 0 };
+          return tr([td(esc(p.name) + '<div class="note">' + esc(p.restaurantId) + '</div>'), tdn('Rs ' + p.feeInr), td(esc(p.offer || '')), td(esc(p.quietHours || 'any time')),
+            td(esc(m.month) + ': ' + m.issued + ' codes, ' + m.redeemed + ' used, ' + m.newCustomers + ' new = <b>Rs ' + m.amountInr + '</b>'),
+            td('<a href="' + esc(p.ownerLink) + '" target="_blank" rel="noopener">open</a>'), td(p.active ? badge('active', 'ok') : badge('paused'))]);
+        }), 'No places yet.') + '</div>';
+      $('plSave').addEventListener('click', function () {
+        var id = $('plPlace').value.trim();
+        if (!id) { toast('Paste a place id.'); return; }
+        api('/admin/pilots/' + encodeURIComponent(id), { method: 'PUT', body: {
+          feeInr: Number($('plFee').value || 0), offer: $('plOffer').value, quietHours: $('plQuiet').value,
+          contact: $('plContact').value, active: $('plActive').checked } })
+          .then(function (res) { toast('Saved.'); pilot().then(function () { $('plLink').textContent = 'Owner link: ' + res.ownerLink; }); })
+          .catch(function (e) { toast(e.message); });
+      });
     });
   }
 

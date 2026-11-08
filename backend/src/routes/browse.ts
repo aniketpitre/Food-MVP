@@ -199,6 +199,8 @@ export async function browseRoutes(app: FastifyInstance) {
     const { rows } = await db.query(
       `select id, name, locality, address, maps_url as "mapsUrl", instagram_handle as "instagramHandle",
               (opening_hours is null or hours_by is not null) as "hoursEditable",
+              (select json_build_object('offer', rp.offer, 'quietHours', rp.quiet_hours)
+               from restaurant_pilots rp where rp.restaurant_id = restaurants.id and rp.active) as pilot,
               price_band as "priceBand", status, created_by as "createdBy", source, cuisine, opening_hours as "openingHours",
               coalesce(osm_tags->>'phone', osm_tags->>'contact:phone') as phone,
               coalesce(osm_tags->>'website', osm_tags->>'contact:website') as website,

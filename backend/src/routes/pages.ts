@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-const esc = (s: unknown) =>
+export const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** The WorthAbite mark: a white frying pan with a bite out of it, a chef's hat and a yellow sizzle (it sits on charcoal). */
@@ -23,7 +23,7 @@ const FAVICON = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="#2B1B12"/><g transform="translate(100 100) scale(1.2) translate(-100 -84)">${LOGO_MARK.replace(/<svg[^>]*>|<\/svg>/g, '')}</g></svg>`,
 )}`;
 
-function page(title: string, body: string, head = ''): string {
+export function page(title: string, body: string, head = ''): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
