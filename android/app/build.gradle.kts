@@ -10,6 +10,9 @@ plugins {
 //   ./gradlew assembleRelease -PversionName=0.2.0 -PversionCode=3 -PserverUrl=https://food.example.com
 val appVersionName = (findProperty("versionName") as String?) ?: "0.1.0"
 val appVersionCode = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+// -Pstore=play builds the Google Play bundle: Play updates the app, so the GitHub updater
+// and its install permission are left out (Play does not allow apps to update themselves).
+val playStore = (findProperty("store") as String?) == "play"
 val defaultServerUrl = (System.getenv("WORTHABITE_SERVER_URL") ?: System.getenv("FOODFEED_SERVER_URL"))?.takeIf { it.isNotBlank() }
     ?: (findProperty("serverUrl") as String?)
     ?: ""
@@ -26,7 +29,8 @@ android {
         versionName = appVersionName
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
         // Where the app looks for newer versions (GitHub's "latest release" API). Empty turns it off.
-        buildConfigField("String", "UPDATES_URL", "\"${(findProperty("updatesUrl") as String?) ?: ""}\"")
+        buildConfigField("String", "UPDATES_URL", "\"${if (playStore) "" else (findProperty("updatesUrl") as String?) ?: ""}\"")
+        buildConfigField("boolean", "PLAY_STORE", playStore.toString())
         // Google Maps key for the in-app maps (an Android-restricted key, from the MAPS_API_KEY
         // secret or -PmapsApiKey). Without one the maps use the open MapLibre map instead.
         val mapsKey = (System.getenv("MAPS_API_KEY") ?: (findProperty("mapsApiKey") as String?) ?: "").trim()
@@ -72,6 +76,9 @@ android {
             versionNameSuffix = "-debug"
         }
     }
+
+    // The Play bundle's manifest drops REQUEST_INSTALL_PACKAGES (see src/play/AndroidManifest.xml).
+    if (playStore) sourceSets.maybeCreate("release").manifest.srcFile("src/play/AndroidManifest.xml")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

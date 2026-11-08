@@ -76,6 +76,8 @@ jobs:
           curl -fs localhost:8080/health
           # Real places around Nashik from OpenStreetMap, so the map shows quiet logos too.
           timeout 180 docker compose exec -T api node dist/cli.js import-places nashik 4 || echo "OpenStreetMap import skipped"
+          # The journey walks every feature, so focus mode (which hides the extras) is off here.
+          docker compose exec -T db psql -U worthabite -d worthabite -c "update app_flags set value = 'off' where key = 'focus_mode'"
       - name: Enable KVM for the emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

@@ -363,6 +363,8 @@ Open **`https://<your server>/admin`** and sign in with an admin account. It als
 | Places | Search by source and status, merge duplicates, import from Overture, retire old OpenStreetMap places, remove the demo, recent jobs. |
 | Moderation | Reports, held photos (side by side with the original), new places waiting for review. |
 | Activity | The latest posts, comments, sign-ups, reports and votes. |
+| Launch | **Focus mode** on/off (on hides Stories, the extra Explore tabs, in-app turn-by-turn, Food on the way and Tastemakers; the app picks it up on its next open). The **signature dishes** to fill first, and their coverage: places with a real photo, places with 10+ shown votes, and "ready" at 5+ places with both. |
+| Restaurant pilot | Put a place on the pay-per-new-customer pilot: a fixed fee, an optional offer and optional quiet hours. Each place gets a private owner link (`/r/<token>`) where the owner types the diner's code and ticks "new customer". Only new customers are billed, monthly, after the fact. No prepay. |
 
 ---
 
@@ -373,6 +375,10 @@ allow "Install unknown apps", and open it. The app checks for new releases itsel
 
 **Publish a release:** GitHub → Actions → **Android** → *Run workflow* with a version (for example `0.28.0`)
 and release notes separated by `;`. The release appears on the Releases page with the APK.
+
+**Google Play:** every run also builds a Play bundle (`-play.aab`, run artifact *WorthAbite-play-aab*)
+without the self-updater. Listing text, graphics, data-safety answers and the 12-testers-for-14-days
+closed test are in [docs/PLAY_STORE.md](docs/PLAY_STORE.md).
 
 **Server address:** built in from `serverUrl` in `android/gradle.properties`
 (`https://foodfeed-aniket.eastus.cloudapp.azure.com`). Change it and release again if the server moves.

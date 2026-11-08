@@ -46,6 +46,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="worthabite" android:host="dish" />
+                <data android:scheme="worthabite" android:host="craving" />
                 <data android:scheme="foodfeed" android:host="dish" />
             </intent-filter>
         </activity>

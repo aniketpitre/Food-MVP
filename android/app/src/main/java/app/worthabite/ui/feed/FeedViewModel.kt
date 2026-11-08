@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
+import app.worthabite.data.AppConfig
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -43,8 +44,10 @@ data class FeedUiState(
     /** Changes whenever the list is replaced, so the pager jumps back to the first card. */
     val generation: Int = 0,
     val signedIn: Boolean = false,
+    /** Focus mode: Explore keeps Top, Nearby and Places (For you and Following wait). */
+    val focus: Boolean = false,
 ) {
-    val tabs: List<FeedTab> get() = FeedTab.entries.filter { (it != FeedTab.ForYou && it != FeedTab.Following) || signedIn }
+    val tabs: List<FeedTab> get() = FeedTab.entries.filter { (it != FeedTab.ForYou && it != FeedTab.Following) || (signedIn && !focus) }
 }
 
 class FeedViewModel(private val app: AppContainer) : ViewModel() {
@@ -61,7 +64,15 @@ class FeedViewModel(private val app: AppContainer) : ViewModel() {
             app.pendingExploreTab.collect { api ->
                 val tab = FeedTab.entries.firstOrNull { it.api == api } ?: return@collect
                 app.pendingExploreTab.value = null
-                selectTab(tab)
+                selectTab(if (tab in _state.value.tabs) tab else FeedTab.Top)
+            }
+        }
+        viewModelScope.launch {
+            app.appConfig.collect { c ->
+                val focus = c.hides(AppConfig.EXPLORE_MODES)
+                if (focus == _state.value.focus) return@collect
+                _state.update { it.copy(focus = focus) }
+                if (_state.value.tab !in _state.value.tabs) selectTab(FeedTab.Top)
             }
         }
         viewModelScope.launch {

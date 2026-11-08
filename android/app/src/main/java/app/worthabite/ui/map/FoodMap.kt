@@ -57,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,6 +91,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.worthabite.data.ApiException
+import app.worthabite.data.AppConfig
 import app.worthabite.data.AppContainer
 import app.worthabite.data.Coords
 import app.worthabite.data.MapPlace
@@ -287,6 +289,8 @@ fun FoodMap(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
+    val appConfig by app.appConfig.collectAsState()
+    val onTheWay = !appConfig.hides(AppConfig.FOOD_ON_THE_WAY)
     val context = LocalContext.current
     val density = LocalDensity.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -301,7 +305,7 @@ fun FoodMap(
     // A long press on the map drops a pin there and plans a drive to it.
     val onLongPress: (Double, Double) -> Unit = { lat, lng ->
         val from = location ?: camera.target()
-        if (from != null) {
+        if (from != null && onTheWay) {
             selected = null
             vm.routeTo(from, lat, lng, "the dropped pin")
         }
@@ -400,7 +404,7 @@ fun FoodMap(
                     }
                 }
             }
-            MapChip(
+            if (onTheWay) MapChip(
                 "On the way", AppIcons.Directions, tag = "map_route",
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 122.dp, end = 14.dp),
             ) { planning = true }

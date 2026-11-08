@@ -1,5 +1,18 @@
 package app.worthabite.ui.home
 
+import android.content.Intent
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import app.worthabite.ui.components.AppIcons
+import app.worthabite.ui.components.PrimaryButton
+import app.worthabite.ui.components.QuietButton
 import app.worthabite.ui.components.DishFilter
 import app.worthabite.ui.components.DishFilterChips
 import androidx.compose.foundation.background
@@ -112,11 +125,45 @@ fun CravingScreen(
     onOpenUser: (String) -> Unit,
     onAddDish: () -> Unit,
     onOpenPlace: (String) -> Unit = {},
+    onCraving: (String) -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
-    CravingContent(state, { app.mediaUrl(it) }, onBack, onOpenDish, onOpenUser, onAddDish, vm::load, onOpenPlace)
+    val context = LocalContext.current
+    val config by app.appConfig.collectAsState()
+    val city = app.city.collectAsState().value
+    CravingContent(
+        state, { app.mediaUrl(it) }, onBack, onOpenDish, onOpenUser, onAddDish, vm::load, onOpenPlace,
+        onShare = { r ->
+            val link = bestLink(app.serverUrl.value, city?.id, r.query)
+            val text = shareText(r, state.city, link)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            context.startActivity(Intent.createChooser(send, "Share this list").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        },
+        suggestions = config.signatureDishes,
+        onTry = onCraving,
+    )
 }
+
+/** The public web page of a craving's list (opens without the app; WhatsApp shows a preview). */
+fun bestLink(serverUrl: String, cityId: Int?, query: String): String =
+    "${serverUrl.trimEnd('/')}/best?" + (if (cityId != null) "city=$cityId&" else "") + "q=" + java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+
+/** "Best Pav Bhaji in Nashik, ranked by people who ate it": the top five with their verdicts, then the link. */
+fun shareText(r: CravingResult, city: String, link: String): String {
+    val lines = r.results.take(5).mapIndexed { i, c ->
+        val verdict = c.rating.percent?.let { p -> " ($p% loved, ${c.rating.votes} ${if (c.rating.votes == 1) "vote" else "votes"})" } ?: ""
+        "${i + 1}. ${c.name} at ${c.restaurant.name}$verdict"
+    }
+    val head = "Best ${r.label}" + (if (city.isNotBlank()) " in $city" else "") + ", ranked by people who ate it:"
+    return (listOf(head) + lines + listOf("", "Full list: $link")).joinToString("\n")
+}
+
+/** Few votes so far: the list is still settling and every vote moves it. */
+fun isEarlyDays(r: CravingResult): Boolean = r.results.size < 3 || r.results.sumOf { it.rating.votes } < 10
 
 /**
  * "Best pav bhaji in Nashik": every place's pav bhaji, ranked by the People's Pick. The
@@ -134,6 +181,9 @@ fun CravingContent(
     onAddDish: () -> Unit,
     onRetry: () -> Unit,
     onOpenPlace: (String) -> Unit = {},
+    onShare: ((CravingResult) -> Unit)? = null,
+    suggestions: List<String> = emptyList(),
+    onTry: (String) -> Unit = {},
 ) {
     var explain by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(DishFilter()) }
@@ -144,6 +194,9 @@ fun CravingContent(
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Spacer(Modifier.weight(1f))
+            if (onShare != null && r != null && r.results.isNotEmpty()) {
+                IconButton(onClick = { onShare(r) }, modifier = Modifier.testTag("craving_share")) { Icon(Icons.Filled.Share, "Share this list") }
+            }
             IconButton(onClick = { explain = true }) { Icon(Icons.Filled.Info, "How the ranking works") }
         }
         when {
@@ -159,15 +212,12 @@ fun CravingContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        PrimaryButton("Post ${r.label}", onAddDish, Modifier.padding(top = 12.dp).testTag("craving_post"), leading = AppIcons.Camera)
                     }
                 }
                 items(morePlaces, key = { "place-${it.id}" }) { p -> PlaceRow(p, onOpenPlace) }
             }
-            r.results.isEmpty() -> CenteredMessage(
-                "No ${r.label} in ${state.city} yet",
-                "Had a great one? Post it, and it'll be the first people find.",
-                null, "Post a dish", onAddDish,
-            )
+            r.results.isEmpty() -> EmptyCraving(r.label, state.city, suggestions.filterNot { it.equals(r.label, ignoreCase = true) }, onAddDish, onTry)
             else -> LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
                 item(key = "title") {
                     Column(Modifier.padding(horizontal = 20.dp)) {
@@ -181,6 +231,9 @@ fun CravingContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                if (isEarlyDays(r)) {
+                    item(key = "early") { EarlyDaysCard(r.label, state.city, r.results.sumOf { it.rating.votes }, onAddDish) }
                 }
                 item(key = "filters") {
                     DishFilterChips(filter, { filter = it }, Modifier.padding(top = 12.dp))
@@ -217,6 +270,55 @@ fun CravingContent(
         }
     }
     if (explain) HowItWorksSheet { explain = false }
+}
+
+/** Nothing posted for this craving yet: say so plainly, ask for the first post, offer dishes that have some. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmptyCraving(label: String, city: String, suggestions: List<String>, onAddDish: () -> Unit, onTry: (String) -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).testTag("craving_empty"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        KickerText(city)
+        Text("No $label here yet", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "WorthAbite is new in ${city.ifBlank { "your city" }}, and every dish on it comes from someone who ate it. Had a great $label? Post it in 30 seconds and it'll be the first one people find.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        PrimaryButton("Post $label", onAddDish, Modifier.testTag("craving_post"), leading = AppIcons.Camera)
+        if (suggestions.isNotEmpty()) {
+            Text("Or try one people are filling first", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                suggestions.take(10).forEach { s -> SuggestionChip(onClick = { onTry(s) }, label = { Text(s) }) }
+            }
+        }
+    }
+}
+
+/** A list with few votes: honest about it, and a nudge to add one. */
+@Composable
+private fun EarlyDaysCard(label: String, city: String, votes: Int, onAddDish: () -> Unit) {
+    Column(
+        Modifier
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(16.dp)
+            .testTag("craving_early"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("Early days for $label${if (city.isNotBlank()) " in $city" else ""}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Text(
+            (if (votes == 0) "No votes yet, so this list is newest first." else "Only $votes ${if (votes == 1) "vote" else "votes"} so far, so this list can still change.") +
+                " Tried one? Your vote or photo moves it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        QuietButton("Post $label", onAddDish, leading = AppIcons.Camera)
+    }
 }
 
 @Composable

@@ -92,6 +92,7 @@ import app.worthabite.ui.components.PrimaryButton
 import app.worthabite.ui.components.ChampionLine
 import app.worthabite.ui.components.DishImage
 import app.worthabite.ui.components.KickerText
+import app.worthabite.data.AppConfig
 import app.worthabite.ui.components.LocalApp
 import app.worthabite.ui.components.RatingPill
 import app.worthabite.ui.components.Sticker
@@ -202,6 +203,7 @@ fun HomeScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val app = LocalApp.current
     val stories by app.storyTray.collectAsState()
+    val config by app.appConfig.collectAsState()
     // New stories show up while Home is open, every 30 seconds and whenever you come back to it.
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
@@ -217,6 +219,8 @@ fun HomeScreen(
     // A new line each time Home opens, picked for the time of day.
     val headline = remember { headlineFor(java.time.LocalTime.now().hour, kotlin.random.Random.nextInt(100)) }
     HomeContent(
+        showStories = !config.hides(AppConfig.STORIES),
+        showTastemakers = !config.hides(AppConfig.TASTEMAKERS),
         headline = headline,
         stories = stories,
         me = session?.user?.let { UserRef(it.handle, it.displayName, it.avatarUrl) },
@@ -288,6 +292,8 @@ fun HomeContent(
     onFollowMate: (String) -> Unit = {},
     onSearch: () -> Unit = {},
     onExplorePlaces: () -> Unit = {},
+    showStories: Boolean = true,
+    showTastemakers: Boolean = true,
 ) {
     val d = state.data
     // Veg only, a budget, nearest, or a tag: narrows every row of dishes below at once.
@@ -305,7 +311,7 @@ fun HomeContent(
                     Box(Modifier.weight(1f)) { app.worthabite.ui.components.Wordmark() }
                     MessagesButton(unreadMessages, onInbox)
                 }
-                StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
+                if (showStories) StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
             }
             item(key = "hero") {
                 CravingHero(state.city?.name ?: "your city", greeting, headline, onChangeCity, onCraving, cyclePlaceholder, onSearch)
@@ -393,7 +399,7 @@ fun HomeContent(
                             CardCarousel(following.map { it.card }, imageUrl, onOpenDish, onOpenUser, lovedBy = following.map { it.lovedBy }, section = "home:following")
                         }
                     }
-                    if (d.tasters.isNotEmpty()) {
+                    if (showTastemakers && d.tasters.isNotEmpty()) {
                         item(key = "tasters-title", contentType = "header") { SectionHeader("Tastemakers", "Their picks were backed by the most people") }
                         item(key = "tasters", contentType = "tasters") { TasterRow(d.tasters, onOpenUser) }
                     }

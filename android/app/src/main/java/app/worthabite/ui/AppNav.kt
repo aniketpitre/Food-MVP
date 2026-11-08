@@ -1,6 +1,7 @@
 package app.worthabite.ui
 
 import app.worthabite.ui.components.LocalNavigateTo
+import app.worthabite.data.AppConfig
 import app.worthabite.ui.map.NavTarget
 import app.worthabite.ui.profile.TwoFactorScreen
 import app.worthabite.ui.profile.SessionsScreen
@@ -149,6 +150,8 @@ import app.worthabite.ui.feed.FeedViewModel
 import app.worthabite.ui.onboarding.OnboardingScreen
 import app.worthabite.ui.onboarding.OnboardingStep
 import app.worthabite.ui.onboarding.OnboardingViewModel
+import app.worthabite.ui.diary.DiaryScreen
+import app.worthabite.ui.diary.DiaryViewModel
 import app.worthabite.ui.profile.ProfileScreen
 import app.worthabite.ui.profile.ProfileViewModel
 import app.worthabite.ui.profile.SettingsScreen
@@ -171,6 +174,7 @@ object Routes {
     const val SEARCH = "search"
     const val ADD = "add"
     const val SAVED = "saved"
+    const val DIARY = "diary"
     const val ME = "me"
     const val DISH = "dish/{id}"
     const val RESTAURANT = "restaurant/{id}"
@@ -303,9 +307,13 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).then(if (showBottomBar) Modifier else Modifier.navigationBarsPadding())) {
             SharedTransitionLayout(Modifier.fillMaxSize()) {
+            val appConfig by app.appConfig.collectAsState()
+            // Focus mode: "Take me there" hands off to Google Maps instead of our own turn-by-turn.
+            val inAppNav: ((NavTarget) -> Unit)? =
+                if (appConfig.hides(AppConfig.IN_APP_NAVIGATION)) null else { t -> nav.go(Routes.navigate(t)) }
             CompositionLocalProvider(
                 LocalSharedScope provides this,
-                LocalNavigateTo provides { t -> nav.go(Routes.navigate(t)) },
+                LocalNavigateTo provides inAppNav,
             ) {
             NavHost(
                 nav,
@@ -424,7 +432,7 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                     NavScoped {
                         val q = entry.arguments?.getString("q").orEmpty()
                         val vm = appViewModel(key = "craving-$q") { CravingViewModel(it, q) }
-                        CravingScreen(vm, { nav.back() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) }, onOpenPlace = openRestaurant)
+                        CravingScreen(vm, { nav.back() }, openDish, openUser, onAddDish = { nav.navigateToTab(Routes.ADD) }, onOpenPlace = openRestaurant, onCraving = { nav.go(Routes.craving(it)) })
                     }
                 }
                 composable(Routes.ACTIVITY) {
@@ -474,6 +482,12 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                         Box(Modifier.statusBarsPadding()) { SavedScreen(vm, openDish, signIn, showMessage) }
                     }
                 }
+                composable(Routes.DIARY) {
+                    NavScoped {
+                        val vm = appViewModel { DiaryViewModel(it) }
+                        DiaryScreen(vm, { nav.back() }, openDish, onAddDish = { nav.navigateToTab(Routes.ADD) })
+                    }
+                }
                 composable(Routes.ME) {
                     NavScoped {
                         val vm = appViewModel(key = "me") { ProfileViewModel(it, null) }
@@ -485,6 +499,7 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
                                 onMessage = { h -> scope.launch { openChatWith(h) } },
                                 onOpenStory = { h -> nav.go(Routes.userStories(h)) },
                                 onAddDish = { nav.navigateToTab(Routes.ADD) },
+                                onDiary = { nav.go(Routes.DIARY) },
                             )
                         }
                     }

@@ -1,7 +1,11 @@
 package app.worthabite.ui.restaurant
 
 import app.worthabite.ui.components.OpenHours
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import app.worthabite.data.HoursBody
+import app.worthabite.data.PilotOffer
+import app.worthabite.data.VisitCode
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -102,6 +106,15 @@ class RestaurantViewModel(private val app: AppContainer, private val id: String)
         }
     }
 
+    /** A visit code for the pilot offer: shown at the counter; the owner checks it. */
+    val visitCode = MutableStateFlow<VisitCode?>(null)
+
+    fun getVisitCode(say: (String) -> Unit) = viewModelScope.launch {
+        try {
+            visitCode.value = apiCall { app.api.visitCode(id) }
+        } catch (e: ApiException) { say(e.message ?: "Couldn't get a code.") }
+    }
+
     /** Opening hours for a place the map data has none for (or that people added). */
     fun setHours(hours: String, say: (String) -> Unit) = viewModelScope.launch {
         try {
@@ -152,7 +165,65 @@ fun RestaurantScreen(
             googlePhotos = googlePhotos,
             onOpenLink = { openUrl(context, it) },
             onSetHours = { if (app.session.value == null) onNeedSignIn() else vm.setHours(it, showMessage) },
+            onVisitCode = { if (app.session.value == null) onNeedSignIn() else vm.getVisitCode(showMessage) },
         )
+    }
+    val code by vm.visitCode.collectAsState()
+    code?.let { c -> VisitCodeDialog(c) { vm.visitCode.value = null } }
+}
+
+/** The code, big enough to show across a counter, with the offer and when it runs out. */
+@Composable
+private fun VisitCodeDialog(code: VisitCode, onDismiss: () -> Unit) {
+    val until = remember(code.expiresAt) {
+        runCatching {
+            java.time.OffsetDateTime.parse(code.expiresAt).atZoneSameInstant(java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("h:mm a"))
+        }.getOrNull()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Show this at the counter") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    code.code.chunked(3).joinToString(" "),
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("visit_code"),
+                )
+                code.offer?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+                Text(
+                    listOfNotNull(code.place.ifBlank { null }, until?.let { "good until $it" }).joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
+/** The place is on the pilot: its offer and a button for a code. */
+@Composable
+private fun PilotCard(pilot: PilotOffer, onVisitCode: () -> Unit) {
+    Column(
+        Modifier
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(16.dp)
+            .testTag("pilot_card"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(pilot.offer ?: "WorthAbite visit", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Text(
+            "Going here? Get a code and show it at the counter." + (pilot.quietHours?.let { " Works during $it." } ?: ""),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        TextButton(onClick = onVisitCode, modifier = Modifier.testTag("get_visit_code")) { Text("Get a visit code") }
     }
 }
 
@@ -170,6 +241,7 @@ fun RestaurantContent(
     onOpenLink: (String) -> Unit = {},
     onSend: (RestaurantDetail) -> Unit = {},
     onSetHours: (String) -> Unit = {},
+    onVisitCode: () -> Unit = {},
 ) {
     val totalRecs = place.dishes.sumOf { engagementOf(it).stats.recommenders }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -231,6 +303,7 @@ fun RestaurantContent(
             }
         }
         item(key = "info") { PlaceInfo(place, onOpenLink, onSetHours) }
+        place.pilot?.let { pilot -> item(key = "pilot") { PilotCard(pilot, onVisitCode) } }
         if (place.photos.isNotEmpty() || googlePhotos.isNotEmpty()) {
             item(key = "photos") { PlacePhotos(place.photos, googlePhotos, mediaUrl, onOpenLink) }
         }

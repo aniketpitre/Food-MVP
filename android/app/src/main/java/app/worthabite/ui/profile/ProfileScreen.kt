@@ -241,6 +241,7 @@ fun ProfileScreen(
     onMessage: (String) -> Unit = {},
     onOpenStory: (String) -> Unit = {},
     onAddDish: () -> Unit = {},
+    onDiary: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
@@ -280,6 +281,7 @@ fun ProfileScreen(
             // Watching it greys the ring, as it does everywhere else.
             onOpenStory = { vm.storyOpened(); onOpenStory(it) },
             onAddDish = onAddDish,
+            onDiary = onDiary,
             onShare = { handle ->
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
@@ -316,6 +318,7 @@ fun ProfileContent(
     onMessage: (String) -> Unit = {},
     onOpenStory: (String) -> Unit = {},
     onAddDish: () -> Unit = {},
+    onDiary: () -> Unit = {},
 ) {
     val loaded = state.profile ?: return
     // Following them, and their follower count, as of your latest tap anywhere in the app.
@@ -403,6 +406,7 @@ fun ProfileContent(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (profile.isMe) {
                         QuietButton("Edit profile", onEditProfile, Modifier.weight(1f), leading = AppIcons.Edit)
+                        QuietButton("Diary", onDiary, Modifier.weight(1f).testTag("diary_button"), leading = AppIcons.Bookmark)
                         QuietButton("Share", { onShare(profile.handle) }, Modifier.weight(1f), leading = Icons.Outlined.Share)
                     } else {
                         if (profile.blockedByMe) {

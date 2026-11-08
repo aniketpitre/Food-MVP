@@ -80,6 +80,8 @@ class MainActivity : ComponentActivity() {
             "chat" -> id?.takeIf { uuid.matches(it) }?.let { "chat/$it" }
             "user" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user/$it" }
             "stories" -> id?.takeIf { Regex("^[a-z0-9_]{3,20}$").matches(it) }?.let { "user-stories/$it" }
+            // From the /best web page: open the same craving list in the app.
+            "craving" -> uri.getQueryParameter("q")?.trim()?.takeIf { it.length in 2..60 }?.let { "craving/${android.net.Uri.encode(it)}" }
             "activity" -> "activity"
             "security" -> "security"
             else -> null

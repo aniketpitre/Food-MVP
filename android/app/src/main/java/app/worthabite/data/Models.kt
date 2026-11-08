@@ -218,7 +218,55 @@ data class RestaurantDetail(
     /** One of the invented demo places, not a real business. */
     val isDemo: Boolean = false,
     val dishes: List<DishCard> = emptyList(),
+    /** On the restaurant pilot: diners can get a visit code here (with the owner's offer). */
+    val pilot: PilotOffer? = null,
 )
+
+@Serializable
+data class PilotOffer(val offer: String? = null, val quietHours: String? = null)
+
+@Serializable
+data class VisitCode(val code: String, val expiresAt: String, val offer: String? = null, val place: String = "")
+
+/** Server switches: focus mode hides the extras until the core is proven. */
+@Serializable
+data class AppConfig(
+    val focusMode: Boolean = false,
+    val hidden: List<String> = emptyList(),
+    val signatureDishes: List<String> = emptyList(),
+) {
+    fun hides(feature: String) = feature in hidden
+
+    companion object {
+        const val STORIES = "stories"
+        const val EXPLORE_MODES = "exploreModes"
+        const val IN_APP_NAVIGATION = "inAppNavigation"
+        const val FOOD_ON_THE_WAY = "foodOnTheWay"
+        const val TASTEMAKERS = "tastemakers"
+    }
+}
+
+@Serializable
+data class DiarySummary(val dishes: Int = 0, val places: Int = 0, val loved: Int = 0, val spentInr: Int = 0, val photos: Int = 0)
+
+@Serializable
+data class DiaryEntry(
+    val dishId: String,
+    val dish: String,
+    val placeId: String,
+    val place: String,
+    val locality: String? = null,
+    val at: String,
+    /** "loved", "not_for_me" or null (posted without a verdict). */
+    val verdict: String? = null,
+    val pricePaid: Int? = null,
+    val photoUrl: String? = null,
+    val photos: Int = 0,
+    val isVeg: Boolean? = null,
+)
+
+@Serializable
+data class Diary(val summary: DiarySummary = DiarySummary(), val entries: List<DiaryEntry> = emptyList(), val nextOffset: Int? = null)
 
 /** A photo of a place from an openly licensed source, with the credit we must show. */
 @Serializable

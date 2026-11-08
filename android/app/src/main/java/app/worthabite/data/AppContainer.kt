@@ -165,6 +165,21 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /**
+     * Server switches (focus mode, signature dishes). Until the server answers, the app
+     * stays focused: the extras appear only once the server says they're on.
+     */
+    val appConfig = MutableStateFlow(
+        AppConfig(
+            focusMode = true,
+            hidden = listOf(AppConfig.STORIES, AppConfig.EXPLORE_MODES, AppConfig.IN_APP_NAVIGATION, AppConfig.FOOD_ON_THE_WAY, AppConfig.TASTEMAKERS),
+        ),
+    )
+
+    suspend fun refreshConfig() {
+        runCatching { api.appConfig() }.onSuccess { appConfig.value = it }
+    }
+
     /** Chats with something new plus waiting message requests: the badge on the messages button. */
     val unreadMessages = MutableStateFlow(0)
     private val network = NetworkFactory(
@@ -307,6 +322,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
         themeMode.value = stored.themeMode
         liteModeSetting.value = stored.liteMode
         _ready.value = true
+        scope.launch { refreshConfig() }
         scope.launch { impressionLoop() }
         scope.launch { activityLoop() }
         if (_session.value != null) {
@@ -325,6 +341,7 @@ class AppContainer(context: Context, private val scope: CoroutineScope) {
             _serverUrl.value = clean
             prefs.saveServerUrl(clean)
             setCity(null)
+            scope.launch { refreshConfig() }
         }
     }
 

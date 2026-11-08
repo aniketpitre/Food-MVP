@@ -135,6 +135,23 @@ jobs:
           name: WorthAbite-apk
           path: android/dist/*.apk
 
+      # The Google Play bundle (same version and key; no GitHub updater, which Play forbids).
+      # Upload it by hand in Play Console; see docs/PLAY_STORE.md. Not attached to the release.
+      - name: Build Google Play bundle (AAB)
+        env:
+          WORTHABITE_SERVER_URL: ${{ vars.WORTHABITE_SERVER_URL || vars.FOODFEED_SERVER_URL }}
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          ./gradlew --no-daemon bundleRelease -Pstore=play \
+            -PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ github.run_number }}
+          cp app/build/outputs/bundle/release/app-release.aab "dist/WorthAbite-${{ steps.version.outputs.name }}-play.aab"
+
+      - name: Upload Play bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorthAbite-play-aab
+          path: android/dist/*.aab
+
       - name: Publish GitHub release
         if: steps.version.outputs.release == 'true'
         uses: softprops/action-gh-release@v2

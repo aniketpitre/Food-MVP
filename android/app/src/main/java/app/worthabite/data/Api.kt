@@ -122,6 +122,9 @@ interface WorthAbiteApi {
     @POST("me/2fa/disable") suspend fun disableTwoFactor(@Body body: PasswordBody): User
 
     @GET("me") suspend fun me(): User
+    @GET("app/config") suspend fun appConfig(): AppConfig
+    @GET("me/diary") suspend fun diary(@Query("offset") offset: Int = 0, @Query("limit") limit: Int = 50): Diary
+    @POST("restaurants/{id}/visit-code") suspend fun visitCode(@Path("id") id: String): VisitCode
 
     /** Deleting the account asks for the password again. */
     @HTTP(method = "DELETE", path = "me", hasBody = true) suspend fun deleteMe(@Body body: PasswordBody): OkResult
