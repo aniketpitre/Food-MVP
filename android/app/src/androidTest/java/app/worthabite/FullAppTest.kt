@@ -554,7 +554,10 @@ class FullAppTest {
         }
         step("tell the app my taste") {
             waitFor(hasTestTag("home_list"), 30_000)
-            compose.onNodeWithTag("home_list").performScrollToNode(hasTestTag("taste_prompt"))
+            // Home may still be loading (placeholder cards) on a slow emulator: wait for the prompt.
+            compose.waitUntil(30_000) {
+                runCatching { compose.onNodeWithTag("home_list").performScrollToNode(hasTestTag("taste_prompt")) }.isSuccess
+            }
             compose.onNodeWithTag("taste_prompt").performClick()
             waitFor(hasTestTag("taste_cat_misal"), 15_000)
             compose.onNodeWithTag("taste_cat_misal").performScrollTo().performClick()
