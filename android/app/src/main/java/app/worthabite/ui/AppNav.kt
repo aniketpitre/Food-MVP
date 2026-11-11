@@ -141,6 +141,8 @@ import app.worthabite.ui.auth.AuthViewModel
 import app.worthabite.ui.components.AppIcons
 import app.worthabite.ui.components.LoadingBox
 import app.worthabite.ui.components.LocalApp
+import app.worthabite.ui.components.swipeBetweenTabs
+import app.worthabite.ui.components.tabAfterSwipe
 import app.worthabite.ui.components.openUrl
 import app.worthabite.ui.components.UpdateSheet
 import app.worthabite.ui.dish.DishScreen
@@ -305,7 +307,16 @@ fun WorthAbiteRoot(deepLink: String?, onDeepLinkHandled: () -> Unit) {
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).then(if (showBottomBar) Modifier else Modifier.navigationBarsPadding())) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .then(if (showBottomBar) Modifier else Modifier.navigationBarsPadding())
+                // Swipe left or right on any tab to move along the dock, as on Instagram.
+                .swipeBetweenTabs(showBottomBar) { dir ->
+                    tabAfterSwipe(tabs.map { it.route }, currentRoute, dir)?.let { nav.navigateToTab(it) }
+                },
+        ) {
             SharedTransitionLayout(Modifier.fillMaxSize()) {
             val appConfig by app.appConfig.collectAsState()
             // Focus mode: "Take me there" hands off to Google Maps instead of our own turn-by-turn.

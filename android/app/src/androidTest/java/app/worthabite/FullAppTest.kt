@@ -205,6 +205,21 @@ class FullAppTest {
             Thread.sleep(2000) // the first photos arrive
             shot("10_feed_top")
         }
+        step("swipe sideways between tabs, as on Instagram") {
+            // A real finger swipe on the full-screen dish card: right goes back to Home, and
+            // the card underneath must not open (the swipe isn't a tap).
+            val y = device.displayHeight / 2
+            device.swipe(device.displayWidth / 8, y, device.displayWidth * 7 / 8, y, 15)
+            waitFor(hasTestTag("home_list"), 15_000)
+            assertTrue(compose.onAllNodes(hasTestTag("feed_pager")).fetchSemanticsNodes().isEmpty())
+            shot("10a_swiped_to_home")
+            // Left across the craving box at the top (no carousel there) comes back to Explore.
+            val hero = compose.onNodeWithTag("home_hero").fetchSemanticsNode().boundsInRoot
+            val top = hero.center.y.toInt()
+            device.swipe(device.displayWidth * 7 / 8, top, device.displayWidth / 8, top, 15)
+            waitFor(hasTestTag("feed_pager"), 15_000)
+            waitFor(hasContentDescription("Save") or hasContentDescription("Remove from saved"), 20_000)
+        }
         step("scroll the deck") {
             gfx("reset")
             // Real finger swipes (UiAutomator), as a person scrolls.

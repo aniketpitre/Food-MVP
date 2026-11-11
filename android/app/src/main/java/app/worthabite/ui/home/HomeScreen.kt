@@ -314,7 +314,9 @@ fun HomeContent(
                 if (showStories) StoriesRow(stories, me, imageUrl, onOpenStory, onAddStory, Modifier.padding(top = 8.dp))
             }
             item(key = "hero") {
-                CravingHero(state.city?.name ?: "your city", greeting, headline, onChangeCity, onCraving, cyclePlaceholder, onSearch)
+                Box(Modifier.testTag("home_hero")) {
+                    CravingHero(state.city?.name ?: "your city", greeting, headline, onChangeCity, onCraving, cyclePlaceholder, onSearch)
+                }
             }
             if (d.cravings.isNotEmpty()) {
                 item(key = "chips") {
